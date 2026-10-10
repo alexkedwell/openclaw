@@ -5,6 +5,7 @@ import type {
   SessionPlacementWorkerRuntimeInstall,
 } from "../../../../packages/gateway-protocol/src/schema/session-placement.ts";
 import { readRunFailureNotice } from "../../../../src/shared/run-failure-notice.js";
+import { resolveSessionStartupErrorPresentation } from "../../../../src/shared/session-startup-error-presentation.js";
 import type { ApplicationPlacementStartupStatus } from "../../app/session-placement-startup.ts";
 import { formatWebUiIconErrorText } from "../../components/error-presentation.ts";
 import { CopyButton } from "../../components/solid/copy-button.tsx";
@@ -134,6 +135,7 @@ function ChatErrorNotice(props: {
   tone?: "danger" | "warn";
   summary?: string;
 }) {
+  const startup = createMemo(() => resolveSessionStartupErrorPresentation(props.error));
   const displayError = () => props.displayError ?? formatWebUiIconErrorText(props.error);
   const lines = () =>
     displayError()
@@ -141,7 +143,7 @@ function ChatErrorNotice(props: {
       .split(/\r?\n/u)
       .map((line) => line.replace(/\s+/gu, " ").trim());
   // Local action errors already contain recovery instructions; keep those visible.
-  const title = () => props.summary ?? clampText(lines()[0] ?? "");
+  const title = () => startup()?.title ?? props.summary ?? clampText(lines()[0] ?? "");
   const hasDetails = () => lines().some((line) => line !== "" && line !== title());
   const tone = () => props.tone ?? "danger";
   return (
@@ -152,6 +154,15 @@ function ChatErrorNotice(props: {
       <span class="chat-composer-neighbor-card__icon" aria-hidden="true">
         <Icon name="alertTriangle" />
       </span>
+      <div class="chat-error__content">
+        <Show when={startup()}>
+          {(presentation) => (
+            <div class="chat-composer-neighbor-card__copy">
+              <strong>{presentation().title}</strong>
+              <span>{presentation().recovery}</span>
+            </div>
+          )}
+        </Show>
       <Show
         when={hasDetails()}
         fallback={
@@ -163,7 +174,7 @@ function ChatErrorNotice(props: {
       >
         <details class="chat-error__content">
           <summary class="chat-error__summary">
-            <strong>{title()}</strong>
+            <Show when={!startup()}><strong>{title()}</strong></Show>
             <span>{t("chat.details")}</span>
             <span class="chat-error__chevron" aria-hidden="true">
               <Icon name="chevronDown" />
@@ -175,6 +186,7 @@ function ChatErrorNotice(props: {
           </pre>
         </details>
       </Show>
+      </div>
       {props.action}
     </div>
   );
