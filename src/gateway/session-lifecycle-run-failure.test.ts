@@ -43,10 +43,7 @@ import {
   drainAgentRunTerminalWrites,
 } from "../infra/agent-run-terminal-writes.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
-import {
-  recordGatewaySessionRunFailure,
-  resolveSessionRunError,
-} from "../sessions/session-run-error.js";
+import { resolveSessionRunError } from "../sessions/session-run-error.js";
 import { createTestGatewayScheduler } from "../test-utils/gateway-scheduler-clock.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { abortChatRunById, registerChatAbortController, type ChatAbortOps } from "./chat-abort.js";
@@ -158,7 +155,10 @@ describe("durable pre-reply run failure", () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       await seed();
       const error = "thread not loaded: synthetic-thread";
-      await recordGatewaySessionRunFailure({ target, runId, error });
+      await persistGatewaySessionLifecycleEvent({
+        ...target,
+        event: { ...event, data: { ...event.data, error } },
+      });
       const [report] = await reports();
       assert(isRecord(report));
       expect(report.content).toContain("Conversation context is unavailable.");
