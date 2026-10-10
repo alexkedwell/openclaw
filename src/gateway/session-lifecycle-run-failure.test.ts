@@ -154,16 +154,16 @@ describe("durable pre-reply run failure", () => {
   it("retains startup diagnostics in history while keeping the session summary actionable", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       await seed();
-      const error = "thread not loaded: synthetic-thread";
+      const diagnostic = "thread not loaded: synthetic-thread";
       await persistGatewaySessionLifecycleEvent({
         ...target,
-        event: { ...event, data: { ...event.data, error } },
+        event: { ...event, data: { ...event.data, error: diagnostic } },
       });
       const [report] = await reports();
       assert(isRecord(report));
       expect(report.content).toContain("Conversation context is unavailable.");
       expect(report.content).not.toContain("synthetic-thread");
-      expect(report.details).toMatchObject({ diagnostic: error });
+      expect(report.details).toMatchObject({ diagnostic });
       const summary = resolveSessionRunError({ error: String(report.content) }, "failed");
       expect(summary).toContain("Refresh and try again.");
       expect(summary).not.toContain("synthetic-thread");
