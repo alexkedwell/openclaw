@@ -8,6 +8,12 @@ import {
 } from "../../channels/message/ingress-drain.test-helpers.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { SessionWorkStartError } from "../../config/sessions/session-work-start.js";
+import {
+  createRun,
+  createOperation,
+  createDefaults,
+  registerFollowupOwnerPolicyCases,
+} from "./followup-turn-admission.owner-policy.test-support.js";
 import type { FollowupRun } from "./queue.js";
 import { createReplyOperation } from "./reply-run-registry.js";
 
@@ -76,50 +82,6 @@ vi.mock("./agent-runner-failure-reply.js", () => ({
 
 const { admitFollowupTurn } = await import("./followup-turn-admission.js");
 
-function createRun(overrides: Partial<FollowupRun> = {}): FollowupRun {
-  return {
-    prompt: "queued prompt",
-    enqueuedAt: 1,
-    run: {
-      agentId: "agent",
-      agentDir: "/tmp/agent",
-      sessionId: "queued-session",
-      sessionKey: "main",
-      sessionFile: "/tmp/queued.jsonl",
-      workspaceDir: "/tmp",
-      config: {},
-      provider: "anthropic",
-      model: "claude",
-      timeoutMs: 1_000,
-      blockReplyBreak: "message_end",
-    },
-    ...overrides,
-  };
-}
-
-function createOperation(sessionId = "queued-session") {
-  return {
-    sessionId,
-    abortSignal: new AbortController().signal,
-    setPhase: vi.fn(),
-    abortForRestart: vi.fn(() => true),
-    retainFailureUntilComplete: vi.fn(),
-    fail: vi.fn(),
-    complete: vi.fn(),
-    updateSessionId: vi.fn(),
-  };
-}
-
-function createDefaults(overrides: Record<string, unknown> = {}) {
-  return {
-    typing: {} as never,
-    typingMode: "never" as const,
-    defaultModel: "claude",
-    sessionKey: "main",
-    ...overrides,
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   state.queueDepth.mockReturnValue(0);
@@ -175,6 +137,7 @@ describe("admitFollowupTurn", () => {
     expect(state.preflight).not.toHaveBeenCalled();
   });
 
+  registerFollowupOwnerPolicyCases({ admitFollowupTurn, state });
   it.each([
     "paused",
     "blocked",
