@@ -459,7 +459,11 @@ describe("typed restart recovery operator admission", () => {
           expect(registration.entry.executionStarted).toBe(true);
           const accepted = await acceptCompactionSuccessor({
             currentTarget: fixture.target,
-            expectedEntry: fixture.entry,
+            expectedEntry: {
+              sessionId: fixture.entry.sessionId,
+              lifecycleRevision: fixture.entry.lifecycleRevision,
+              activeWriterRunId: fixture.entry.activeWriterRunId,
+            },
             assertActive: authority.assertCurrent,
             result: {
               ok: true,
