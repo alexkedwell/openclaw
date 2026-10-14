@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { resolveDaemonInstallRuntimeInputs } from "../commands/daemon-install-plan.shared.js";
 import { resolveGatewayDaemonRuntime } from "../commands/daemon-runtime.js";
+import { resolveTestNodeExecPath } from "../test-utils/node-process.js";
 import { resolveGatewayProgramArguments, resolveNodeProgramArguments } from "./program-args.js";
+import * as runtimePaths from "./runtime-paths.js";
 import { resolveBunRuntimeInfo, resolvePinnedDaemonRuntimePath } from "./runtime-paths.js";
 import { auditGatewayRuntime } from "./service-audit-runtime.js";
 import type { ServiceConfigIssue } from "./service-audit-types.js";
@@ -38,6 +41,38 @@ function standaloneFixture(options: { reportedVersion?: string; manifest?: unkno
 }
 
 describe.skipIf(process.platform === "win32")("standalone service runtime", () => {
+  it.each(["implicit", "explicit-node", "retained-path", "saved-pin"] as const)(
+    "preserves %s runtime selection when a supported host Node is available",
+    async (selection) => {
+      const executable = standaloneFixture();
+      const hostNode = resolveTestNodeExecPath();
+      const discoverNode = vi
+        .spyOn(runtimePaths, "resolvePreferredNodePath")
+        .mockResolvedValue(hostNode);
+      const originalExecPath = process.execPath;
+      process.execPath = executable;
+      try {
+        await expect(
+          resolveDaemonInstallRuntimeInputs({
+            env: {},
+            runtime: "node",
+            runtimeExplicit: selection === "explicit-node",
+            ...(selection === "retained-path" ? { runtimePath: hostNode } : {}),
+            ...(selection === "saved-pin" ? { pinnedRuntimePath: hostNode } : {}),
+            devMode: false,
+          }),
+        ).resolves.toEqual({
+          devMode: false,
+          runtime: selection === "implicit" ? "bun" : "node",
+          runtimePath: selection === "implicit" ? executable : hostNode,
+        });
+      } finally {
+        process.execPath = originalExecPath;
+        discoverNode.mockRestore();
+      }
+    },
+  );
+
   it("probes the manifest executable with --version using the sanitized environment", async () => {
     const executable = standaloneFixture();
     await expect(

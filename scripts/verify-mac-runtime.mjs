@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { stripVTControlCharacters } from "node:util";
 import { auditMacRuntimePortability } from "./lib/mac-runtime-portability.mjs";
 import { verifyMacStandaloneRuntime } from "./lib/mac-standalone-runtime.mjs";
 import { runManagedCommand, terminateManagedChild } from "./lib/managed-child-process.mts";
@@ -110,6 +111,22 @@ const launch = (args) =>
     timeout: 60_000,
   });
 try {
+  const workspace = path.join(home, "workspace");
+  fs.mkdirSync(workspace);
+  fs.writeFileSync(
+    environment.OPENCLAW_CONFIG_PATH,
+    JSON.stringify({
+      agents: { defaults: { workspace }, entries: { main: {} } },
+      memory: {
+        search: {
+          enabled: true,
+          provider: "auto",
+          sources: ["memory"],
+          store: { vector: { enabled: true } },
+        },
+      },
+    }),
+  );
   const version = launch(["--version"]).trim();
   assert.equal(
     /^OpenClaw (\S+)(?: \([^)]+\))?$/u.exec(version)?.[1],
@@ -117,7 +134,34 @@ try {
     `Bundled CLI version mismatch: ${version}`,
   );
   launch(["gateway", "--help"]);
-  launch(["doctor", "--non-interactive"]);
+  // Doctor's own process must select the bundled extension-capable SQLite.
+  const doctor = stripVTControlCharacters(launch(["doctor", "--non-interactive"]))
+    .split("\n")
+    .map((line) => line.replace(/^[\s│┃]+|[\s│┃]+$/gu, ""))
+    .join(" ");
+  const doctorSelection =
+    /SQLite \(doctor process\): (.+?) \(([^)]+), extension loading enabled\)/u.exec(doctor);
+  assert.equal(
+    doctorSelection?.[1],
+    sqliteLibrary,
+    "Doctor SQLite did not select the bundled library",
+  );
+  // --index selects the writable CLI owner so an empty profile gets an index.
+  // It includes the deep native-vector probe; the empty workspace needs no embeddings.
+  const memory = JSON.parse(launch(["memory", "status", "--index", "--json"]));
+  const mainMemory = memory.find((entry) => entry.agentId === "main")?.status;
+  assert.equal(
+    mainMemory?.backend,
+    "builtin",
+    "Bundled vector probe requires the builtin memory store",
+  );
+  assert.equal(mainMemory?.vector?.storeAvailable, true, "Bundled vector store is unavailable");
+  const extension = mainMemory.vector.extensionPath;
+  assert.equal(typeof extension, "string", "Bundled vector extension path is missing");
+  assert(
+    fs.realpathSync(extension).startsWith(packageRoot + path.sep),
+    "Bundled vector extension escaped the sidecar",
+  );
   // The builder owns embedded worker dispatch. Exercise its public child entry
   // through the same executable and argv shape used by the app.
   let ready = false;
@@ -179,6 +223,8 @@ try {
       buildId: manifest.buildId,
       mode: manifest.mode,
       nativeFiles,
+      sqliteLibrary,
+      vectorExtension: extension,
       version,
     }),
   );

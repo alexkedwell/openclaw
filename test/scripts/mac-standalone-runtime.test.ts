@@ -200,3 +200,113 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
     expect(existsSync(f.output)).toBe(false);
   });
 });
+
+// Native executable fixture exercises the complete signed-runtime verifier boundary.
+// Its fixed CLI replies isolate admission checks; real native loading is release proof.
+let verifierExecutable: Buffer | undefined;
+function compileVerifierExecutable(root: string) {
+  if (verifierExecutable) {
+    return verifierExecutable;
+  }
+  const file = path.join(root, "fixture-cli");
+  const result = spawnSync("/usr/bin/xcrun", ["clang", "-x", "c", "-", "-o", file], {
+    encoding: "utf8",
+    input: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+int main(int argc, char **argv) {
+  char root[PATH_MAX], mode[64] = "valid", file[PATH_MAX];
+  realpath(argv[0], root); *strrchr(root, '/') = 0;
+  snprintf(file, sizeof(file), "%s/proof-case", root);
+  FILE *input = fopen(file, "r"); if (input) { fgets(mode, sizeof(mode), input); fclose(input); }
+  if (argc > 1 && !strcmp(argv[1], "--version")) { puts("OpenClaw 2026.10.14"); return 0; }
+  if (argc > 1 && !strcmp(argv[1], "doctor")) {
+    printf("SQLite (doctor process): %s (3.53.0, extension loading enabled)\\n",
+      !strcmp(mode, "wrong-sqlite") ? "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib" : getenv("OPENCLAW_SQLITE_LIBRARY"));
+    return 0;
+  }
+  if (argc > 1 && !strcmp(argv[1], "memory")) {
+    char extension[PATH_MAX];
+    snprintf(extension, sizeof(extension), "%s/runtime/node_modules/sqlite-vec/vec0.dylib", root);
+    printf("[{\\"agentId\\":\\"main\\",\\"status\\":{\\"backend\\":\\"builtin\\",\\"vector\\":{\\"enabled\\":true,\\"storeAvailable\\":%s,\\"extensionPath\\":\\"%s\\"}}}]\\n",
+      !strcmp(mode, "vector-unavailable") ? "false" : "true",
+      !strcmp(mode, "outside-vector") ? "/usr/bin/true" : extension);
+    return 0;
+  }
+  if (argc > 1 && strstr(argv[1], "mac-node-worker.js")) {
+    puts("{\\"type\\":\\"ready\\",\\"version\\":\\"2026.10.14\\",\\"manifest\\":{\\"commands\\":[\\"system.run\\",\\"system.which\\",\\"browser.proxy\\",\\"mcp.tools.call.v1\\"]}}");
+    fflush(stdout); char line[128]; fgets(line, sizeof(line), stdin); return 0;
+  }
+  return 0;
+}
+`,
+    timeout: 15_000,
+  });
+  expect(result.status, result.stderr).toBe(0);
+  verifierExecutable = readFileSync(file);
+  return verifierExecutable;
+}
+
+describe.skipIf(process.platform !== "darwin")("Mac packaged SQLite capability admission", () => {
+  it.each(["valid", "wrong-sqlite", "vector-unavailable", "outside-vector"])(
+    "checks the actual CLI capability replies (%s)",
+    async (mode) => {
+      const root = temps.make("mac-runtime-capability-");
+      const runtime = path.join(root, "runtime");
+      for (const directory of ["dist/control-ui", "lib", "node_modules/sqlite-vec"]) {
+        mkdirSync(path.join(runtime, directory), { recursive: true });
+      }
+      const fixtureExecutable = compileVerifierExecutable(root);
+      writeFileSync(path.join(root, "openclaw"), fixtureExecutable);
+      chmodSync(path.join(root, "openclaw"), 0o755);
+      writeFileSync(path.join(root, "proof-case"), mode);
+      writeFileSync(path.join(runtime, "dist/control-ui/index.html"), "fixture");
+      writeFileSync(path.join(runtime, "lib/libsqlite3.dylib"), "fixture library");
+      writeFileSync(path.join(runtime, "node_modules/sqlite-vec/vec0.dylib"), "fixture vector");
+      const { describeStandaloneRuntime, sha256File } =
+        await import("../../scripts/lib/bun-standalone-contract.mjs");
+      writeFileSync(
+        path.join(root, "manifest.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          mode: "jit",
+          target: { platform: "darwin", arch: process.arch },
+          openclaw: { version: "2026.10.14", commit },
+          executable: {
+            path: "openclaw",
+            sizeBytes: fixtureExecutable.length,
+            sha256: await sha256File(path.join(root, "openclaw")),
+          },
+          runtime: await describeStandaloneRuntime(runtime),
+          macos: {
+            hardenedRuntime: true,
+            entitlements: {
+              "com.apple.security.cs.allow-jit": true,
+              "com.apple.security.cs.disable-library-validation": true,
+            },
+          },
+        }),
+      );
+      const stage = spawnSync(
+        process.execPath,
+        [path.resolve("scripts/lib/mac-standalone-runtime.mjs"), "stage", root],
+        { encoding: "utf8" },
+      );
+      expect(stage.status, stage.stderr).toBe(0);
+      const expected = path.join(root, "expected.json");
+      writeFileSync(expected, JSON.stringify({ version: "2026.10.14", commit }));
+      const result = spawnSync(
+        process.execPath,
+        [path.resolve("scripts/verify-mac-runtime.mjs"), root, expected],
+        { encoding: "utf8", timeout: 20_000 },
+      );
+      if (mode === "valid") {
+        expect(result.status, result.stderr).toBe(0);
+      } else {
+        expect(result.status, result.stdout + result.stderr).not.toBe(0);
+        expect(result.stderr).toContain(mode === "wrong-sqlite" ? "Doctor SQLite" : "vector");
+      }
+    },
+  );
+});

@@ -7,6 +7,7 @@ import {
   resolvePreferredNodePath,
 } from "../daemon/runtime-paths.js";
 import type { GatewayServiceEnvironmentValueSource } from "../daemon/service-types.js";
+import { readStandaloneRuntimeManifest } from "../daemon/standalone-runtime.js";
 import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
 import type { DaemonInstallWarnFn } from "./daemon-install-runtime-warning.js";
 import type { GatewayDaemonRuntime } from "./daemon-runtime.js";
@@ -64,6 +65,16 @@ export async function resolveDaemonInstallRuntimeInputs(params: {
   const devMode = params.devMode ?? resolveGatewayDevMode();
   if (params.wrapperPath?.trim()) {
     return { devMode, runtime: params.runtime, runtimePath: params.runtimePath };
+  }
+  if (
+    !params.runtimeExplicit &&
+    params.pinnedRuntimePath === undefined &&
+    params.runtimePath === undefined &&
+    readStandaloneRuntimeManifest(process.execPath)
+  ) {
+    // A compiled payload has no script entrypoint for a discovered host interpreter.
+    const runtimePath = await resolvePinnedDaemonRuntimePath(process.execPath, "bun", params.env);
+    return { devMode: false, runtime: "bun", runtimePath };
   }
   const pinnedRuntimePath =
     params.pinnedRuntimePath === undefined
