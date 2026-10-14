@@ -282,10 +282,6 @@ enum CommandResolver {
             } catch {
                 return .unavailable(error.localizedDescription)
             }
-            // Existing external and managed Node installs remain inspectable before adoption.
-            if let openclawPath = openclawExecutable(searchPaths: searchPaths) {
-                return .executable([openclawPath])
-            }
             return .unavailable("OpenClaw's bundled runtime is not prepared. Retry setup in OpenClaw.app.")
         }
         let root = projectRoot ?? self.projectRoot()
