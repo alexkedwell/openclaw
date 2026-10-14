@@ -27,7 +27,7 @@ struct BundledRuntimeTests {
         let dist = runtime.appendingPathComponent("runtime/dist")
         try FileManager.default.createDirectory(at: dist, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
-            at: runtime.appendingPathComponent("lib"),
+            at: runtime.appendingPathComponent("runtime/lib"),
             withIntermediateDirectories: true)
         // A real child process protects command/profile/lifecycle behavior; release proof uses the compiled executable.
         try """
@@ -51,7 +51,7 @@ struct BundledRuntimeTests {
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
             ofItemAtPath: runtime.appendingPathComponent("openclaw").path)
-        try Data().write(to: runtime.appendingPathComponent("lib/libsqlite3.dylib"))
+        try Data().write(to: runtime.appendingPathComponent("runtime/lib/libsqlite3.dylib"))
         try JSONSerialization.data(withJSONObject: [
             "schemaVersion": 1, "buildId": buildID ?? builtAt,
             "openclaw": ["version": "2026.8.1", "commit": String(repeating: "a", count: 40)],
@@ -65,7 +65,7 @@ struct BundledRuntimeTests {
     }
 
     @Test func `dirty same-SHA rebuild selects relocated worker over accepted external CLI`() async throws {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let external = root.appendingPathComponent("external/openclaw")
         try makeExecutableForTests(at: external)
@@ -97,7 +97,7 @@ struct BundledRuntimeTests {
                 #expect(launch.command[0] == relocated.appendingPathComponent("Contents/Resources/runtime/openclaw")
                     .path)
                 #expect(manifest.pathEnv == relocated
-                    .appendingPathComponent("Contents/Resources/runtime/lib/libsqlite3.dylib").path)
+                    .appendingPathComponent("Contents/Resources/runtime/runtime/lib/libsqlite3.dylib").path)
                 #expect(!launch.command.contains(external.path))
             } catch {
                 await worker.stop()
@@ -109,7 +109,7 @@ struct BundledRuntimeTests {
 
     @Test(arguments: ["missing", "executable", "sidecar", "sqlite", "version", "commit", "buildId"])
     func `incomplete payload never falls back to development source`(failure: String) async throws {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let app = root.appendingPathComponent("OpenClaw.app")
         let dist = try makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
@@ -117,7 +117,7 @@ struct BundledRuntimeTests {
         if failure == "missing" {
             try FileManager.default.removeItem(at: info)
         } else if failure == "executable" || failure == "sidecar" || failure == "sqlite" {
-            let path = failure == "executable" ? "openclaw" : failure == "sidecar" ? "runtime" : "lib/libsqlite3.dylib"
+            let path = failure == "executable" ? "openclaw" : failure == "sidecar" ? "runtime" : "runtime/lib/libsqlite3.dylib"
             try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/Resources/runtime/\(path)"))
         } else {
             var payload = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: info)) as? [String: Any])
@@ -138,7 +138,7 @@ struct BundledRuntimeTests {
     }
 
     @Test func `browser setup uses relocated private runtime and the node profile without an external CLI`() throws {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let app = root.appendingPathComponent("OpenClaw.app")
         _ = try self.makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
@@ -165,12 +165,12 @@ struct BundledRuntimeTests {
         #expect(setup.environment["PATH"] == runtime.root.path)
         #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == worker.environment["OPENCLAW_SQLITE_LIBRARY"])
         #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.root
-            .appendingPathComponent("lib/libsqlite3.dylib").path)
+            .appendingPathComponent("runtime/lib/libsqlite3.dylib").path)
         #expect(setup.environment["OPENCLAW_PROFILE"] == "browser-fixture")
     }
 
     @Test func `seeding publishes a relocatable current runtime and probes each copied build once`() async throws {
-        let home = try makeTempDirForTests()
+        let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "seed-fixture"])
         let state = profile.stateDirectoryURL(homeDirectory: home)
@@ -199,7 +199,8 @@ struct BundledRuntimeTests {
                 timeout: 5)
             #expect(result.success)
             #expect(result
-                .stdout == "seed-fixture\n\(runtimeRoot.path)/current/lib/libsqlite3.dylib\nargument with spaces\n")
+                .stdout ==
+                "seed-fixture\n\(runtimeRoot.path)/current/runtime/lib/libsqlite3.dylib\nargument with spaces\n")
         }
         #expect(try FileManager.default.destinationOfSymbolicLink(
             atPath: runtimeRoot.appendingPathComponent("previous").path) == "build-0")
@@ -227,7 +228,7 @@ struct BundledRuntimeTests {
     }
 
     @Test func `loose runtime upgrades on first seed and retires only after another healthy build`() async throws {
-        let home = try makeTempDirForTests()
+        let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "loose-upgrade"])
         let state = profile.stateDirectoryURL(homeDirectory: home)
@@ -266,7 +267,7 @@ struct BundledRuntimeTests {
     }
 
     @Test func `seeding replaces only the managed CLI wrapper and preserves operator commands`() async throws {
-        let home = try makeTempDirForTests()
+        let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "shim-fixture"])
         let state = profile.stateDirectoryURL(homeDirectory: home)
@@ -287,7 +288,7 @@ struct BundledRuntimeTests {
         _ = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
         let result = await ShellExecutor.runDetailed(command: [cli.path], cwd: nil, env: [:], timeout: 5)
         #expect(result.success)
-        #expect(result.stdout == "shim-fixture\n\(state.path)/runtime/current/lib/libsqlite3.dylib\n")
+        #expect(result.stdout == "shim-fixture\n\(state.path)/runtime/current/runtime/lib/libsqlite3.dylib\n")
         let operatorScript = "#!/bin/sh\nexec /custom/openclaw \"$@\"\n"
         try operatorScript.write(to: cli, atomically: true, encoding: .utf8)
         _ = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
@@ -303,7 +304,7 @@ struct BundledRuntimeTests {
 
     @Test
     func `shell integration conflicts preserve operator files without blocking runtime preparation`() async throws {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home")
         let dotfiles = root.appendingPathComponent("dotfiles")
@@ -350,7 +351,7 @@ struct BundledRuntimeTests {
     func `declined transient integration preserves Mac CLI links and the portable CLI shim`(
         existingLink: Bool) async throws
     {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home")
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "deferred-cli"])
@@ -392,7 +393,7 @@ struct BundledRuntimeTests {
         namedProfile: Bool,
         allowsPersistentIntegration: Bool) throws
     {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
@@ -425,7 +426,7 @@ struct BundledRuntimeTests {
     }
 
     @Test func `owned mac CLI link follows app moves without seeding or creating terminal commands`() throws {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home")
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "mac-cli-move"])
@@ -462,7 +463,7 @@ struct BundledRuntimeTests {
 
     @Test(arguments: [false, true])
     func `matching operator mac CLI links are never adopted`(mismatchedOwnership: Bool) throws {
-        let root = try makeTempDirForTests()
+        let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home")
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "operator-mac-cli"])
@@ -494,7 +495,7 @@ struct BundledRuntimeTests {
     }
 
     @Test func `healthy collection retains the previous build and any live runtime executable`() async throws {
-        let home = try makeTempDirForTests()
+        let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "gc-fixture"])
         let directory = profile.stateDirectoryURL(homeDirectory: home).appendingPathComponent("runtime")

@@ -87,6 +87,10 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
     expect(readFileSync(path.join(f.output, "openclaw"), "utf8")).toContain("OpenClaw");
     expect(existsSync(path.join(f.output, "bin/bun"))).toBe(false);
     expect(existsSync(path.join(f.output, "lib/node_modules"))).toBe(false);
+    expect(existsSync(path.join(f.output, "lib/libsqlite3.dylib"))).toBe(false);
+    expect(readFileSync(path.join(f.output, "runtime/lib/libsqlite3.dylib"), "utf8")).toBe(
+      "sqlite",
+    );
     expect(
       JSON.parse(readFileSync(path.join(f.output, "runtime/openclaw-install-owner.json"), "utf8"))
         .owner,
@@ -95,6 +99,27 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
     expect(packaged.buildId).toMatch(/^[a-f0-9]{64}$/);
     expect(packaged.openclaw.commit).toBe(commit);
     expect(packaged.runtime.sha256).not.toBe(f.manifest.runtime.sha256);
+  });
+
+  it("reuses the builder's canonical SQLite library without producing a second copy", () => {
+    const f = fixture();
+    const sqlite = "builder-sqlite";
+    mkdirSync(path.join(f.root, "input/runtime/lib"));
+    writeFileSync(path.join(f.root, "input/runtime/lib/libsqlite3.dylib"), sqlite);
+    f.manifest.runtime = {
+      path: "runtime",
+      sizeBytes: 2 + Buffer.byteLength(sqlite),
+      sha256: hash(
+        `lib/libsqlite3.dylib\0file\0${hash(sqlite)}\npackage.json\0file\0${hash("{}")}\n`,
+      ),
+      fileCount: 2,
+      symlinkCount: 0,
+    };
+    f.save();
+    const result = f.run();
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(path.join(f.output, "runtime/lib/libsqlite3.dylib"), "utf8")).toBe(sqlite);
+    expect(existsSync(path.join(f.output, "lib/libsqlite3.dylib"))).toBe(false);
   });
 
   it.each(["commit", "mode", "executable", "sidecar", "target", "entitlements"])(

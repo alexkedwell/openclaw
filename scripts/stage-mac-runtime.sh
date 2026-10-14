@@ -27,6 +27,10 @@ node "$ROOT_DIR/scripts/lib/mac-standalone-runtime.mjs" verify "$INPUT" "$ROOT_D
 # Preserve the loose sidecar and APFS clone behavior; extraction loses on first launch.
 mkdir "$STAGE/runtime"
 cp -cR "$INPUT/openclaw" "$INPUT/runtime" "$INPUT/manifest.json" "$STAGE/runtime/"
+# Older builder outputs omit SQLite; complete the canonical sidecar until the
+# builder owns it. Never build a second copy when the builder already supplies it.
+if [[ ! -f "$STAGE/runtime/runtime/lib/libsqlite3.dylib" ]]; then
+  /bin/bash "$ROOT_DIR/scripts/build-mac-sqlite.sh" "$ARCH" "$STAGE/runtime/runtime"
+fi
 node "$ROOT_DIR/scripts/lib/mac-standalone-runtime.mjs" stage "$STAGE/runtime"
-/bin/bash "$ROOT_DIR/scripts/build-mac-sqlite.sh" "$ARCH" "$STAGE/runtime"
 mv "$STAGE/runtime" "$DESTINATION"

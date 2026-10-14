@@ -14,7 +14,7 @@ struct GatewayServiceRuntimeTests {
     func `legacy Node discovery follows only the profile owned package and canonical environment`(
         profile: AppProfile) throws
     {
-        let home = try makeTempDirForTests().resolvingSymlinksInPath()
+        let home = try makeFirstRunTempDirForTests().resolvingSymlinksInPath()
         defer { try? FileManager.default.removeItem(at: home) }
         let state = profile.stateDirectoryURL(homeDirectory: home)
         let node = state.appendingPathComponent("tools/node-v26.1.0/bin/node")
@@ -59,7 +59,7 @@ struct GatewayServiceRuntimeTests {
 
     @MainActor
     @Test func `attach-only withdrawal blocks captured service install but permits inspection`() async throws {
-        let home = try makeTempDirForTests()
+        let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         try await TestIsolation.withIsolatedState(launchAgentHomeDirectory: home) {
             let marker = home.appendingPathComponent("disable-launchagent")
@@ -117,7 +117,7 @@ struct GatewayServiceRuntimeTests {
             ],
             profile: AppProfile(environment: ["OPENCLAW_PROFILE": "service-proof"]),
             searchPaths: ["/usr/bin", "/bin"])
-        #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == "/profile/runtime/build-two/lib/libsqlite3.dylib")
+        #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == "/profile/runtime/build-two/runtime/lib/libsqlite3.dylib")
         #expect(environment["PATH"] == "/profile/runtime/build-two:/usr/bin:/bin")
         #expect(environment["OPENCLAW_PROFILE"] == "service-proof")
         let directory = FileManager.default.homeDirectoryForCurrentUser
@@ -236,7 +236,7 @@ struct GatewayServiceRuntimeTests {
                 "/other/lib/libsqlite3.dylib",
                 false,
                 "/old/bin:/usr/bin"),
-            (["/old/openclaw"], "/old/lib/libsqlite3.dylib", true, "/old:/usr/bin"),
+            (["/old/openclaw"], "/old/runtime/lib/libsqlite3.dylib", true, "/old:/usr/bin"),
         ]
         for (prefix, library, matches, expectedPath) in fixtures {
             let cli = try #require(GatewayLaunchAgentManager.installedServiceCLI(
@@ -295,7 +295,7 @@ struct GatewayServiceRuntimeTests {
     }
 
     @Test func `app looking symlink to an operator runtime remains operator owned`() throws {
-        let directory = try makeTempDirForTests()
+        let directory = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: directory) }
         let stateDirectory = directory.appendingPathComponent("profile")
         let runtimeDirectory = stateDirectory.appendingPathComponent("runtime")

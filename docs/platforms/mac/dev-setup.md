@@ -53,7 +53,8 @@ permissions. See [macOS signing](/platforms/mac/signing).
 Packaging builds the same-commit JavaScript runtime and Control UI, then invokes
 [`scripts/build-bun-standalone.mjs`](/install/standalone) with the production-pinned
 Bun compiler. The app contains `Contents/Resources/runtime/openclaw`, its loose
-`runtime/` sidecar, a manifest, and the signed SQLite library in `lib/`.
+`runtime/` sidecar, and a manifest. The sidecar includes the signed SQLite
+library at `runtime/lib/libsqlite3.dylib`.
 There is no separate Bun interpreter or installed `lib/node_modules/openclaw`
 package in the app. The sidecar retains the builder's native dependencies and
 resources, including same-commit plugins.

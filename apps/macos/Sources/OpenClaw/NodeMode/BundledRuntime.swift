@@ -111,7 +111,7 @@ struct BundledRuntime: Sendable {
         self.root = root
         self.executable = root.appendingPathComponent("openclaw")
         self.packageRoot = root.appendingPathComponent("runtime")
-        self.sqliteLibrary = root.appendingPathComponent("lib/libsqlite3.dylib")
+        self.sqliteLibrary = self.packageRoot.appendingPathComponent("lib/libsqlite3.dylib")
         self.cliCommand = [self.executable.path]
     }
 
@@ -123,7 +123,7 @@ struct BundledRuntime: Sendable {
         self.root = standalone ? directory : directory.deletingLastPathComponent()
         self.packageRoot = self.root.appendingPathComponent(standalone ? "runtime" : "lib/node_modules/openclaw")
         self.sqliteLibrary = cli.sqliteLibrary.map { URL(fileURLWithPath: $0) }
-            ?? self.root.appendingPathComponent("lib/libsqlite3.dylib")
+            ?? (standalone ? self.packageRoot : self.root).appendingPathComponent("lib/libsqlite3.dylib")
         self.cliCommand = cli.prefix
     }
 

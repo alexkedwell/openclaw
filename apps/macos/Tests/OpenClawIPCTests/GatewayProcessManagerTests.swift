@@ -1474,7 +1474,7 @@ struct GatewayProcessManagerTests {
                     "--runtime-path",
                     previous.executable.path,
                     "--restore-service-cli",
-                    #"{"entrypoint":"/fixture/runtime/previous-build/openclaw","executable":"/fixture/runtime/previous-build/openclaw","sqliteLibrary":"/fixture/runtime/previous-build/lib/libsqlite3.dylib"}"#,
+                    #"{"entrypoint":"/fixture/runtime/previous-build/openclaw","executable":"/fixture/runtime/previous-build/openclaw","sqliteLibrary":"/fixture/runtime/previous-build/runtime/lib/libsqlite3.dylib"}"#,
                     "--expected-runtime-pin",
                     #"{"definition":"failed-service","revision":"before-restore"}"#,
                 ],

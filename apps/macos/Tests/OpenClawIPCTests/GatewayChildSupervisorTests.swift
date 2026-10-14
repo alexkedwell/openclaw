@@ -38,9 +38,7 @@ private final class FakeGatewayChild: Sendable {
 @MainActor
 struct GatewayChildSupervisorTests {
     @Test func `default launcher appends both streams and drains its isolated child`() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gateway-child-launch-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: directory) }
         let readyURL = directory.appendingPathComponent("ready")
         try #require(mkfifo(readyURL.path, 0o600) == 0)
@@ -107,7 +105,7 @@ struct GatewayChildSupervisorTests {
             executable: URL(fileURLWithPath: "/fixture/runtime/current/openclaw"),
             environment: [
                 "PATH": "/usr/bin:/bin", "OPENCLAW_PROFILE": "test-hosted",
-                "OPENCLAW_SQLITE_LIBRARY": "/fixture/runtime/current/lib/libsqlite3.dylib",
+                "OPENCLAW_SQLITE_LIBRARY": "/fixture/runtime/current/runtime/lib/libsqlite3.dylib",
                 "OPENCLAW_LAUNCHD_LABEL": "ai.openclaw.gateway", "LAUNCH_JOB_LABEL": "ai.openclaw.gateway",
                 "LAUNCH_JOB_NAME": "ai.openclaw.gateway", "LAUNCH_JOB_EXTRA": "inherited",
                 "XPC_SERVICE_NAME": "ai.openclaw.gateway", "OPENCLAW_SUPERVISOR_MODE": "external",
@@ -123,15 +121,13 @@ struct GatewayChildSupervisorTests {
         ])
         #expect(configuration.childEnvironment == [
             "PATH": "/usr/bin:/bin", "OPENCLAW_PROFILE": "test-hosted",
-            "OPENCLAW_SQLITE_LIBRARY": "/fixture/runtime/current/lib/libsqlite3.dylib",
+            "OPENCLAW_SQLITE_LIBRARY": "/fixture/runtime/current/runtime/lib/libsqlite3.dylib",
             "OPENCLAW_GATEWAY_HOST_LIFELINE": "stdin",
         ])
     }
 
     @Test func `crashes back off and stop after five failures with a log tail`() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gateway-child-log-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: directory) }
         let log = directory.appendingPathComponent("gateway.log")
         try Data("fixture startup failure".utf8).write(to: log)

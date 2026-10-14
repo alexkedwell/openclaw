@@ -185,7 +185,7 @@ struct GatewayHostingChangeTests {
     }
 
     @Test func `retained service environment reaches child relaunch and service install without supervisor markers`() throws {
-        let directory = try makeTempDirForTests()
+        let directory = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: directory) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "hosting-environment"])
         let artifacts = GatewayLaunchAgentManager.generatedEnvironmentArtifacts(
@@ -261,7 +261,7 @@ struct GatewayHostingChangeTests {
     }
 
     @Test func `uninstalled service custody still rejects environment and wrapper replacement`() async throws {
-        let directory = try makeTempDirForTests()
+        let directory = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: directory) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "custody-" + UUID().uuidString.lowercased()])
         try #require(profile.isActive)

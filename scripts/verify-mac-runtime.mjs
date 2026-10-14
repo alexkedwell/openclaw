@@ -28,14 +28,14 @@ const expected = JSON.parse(fs.readFileSync(expectedInfoPath, "utf8"));
 const selected = JSON.parse(fs.readFileSync(path.join(runtime, "manifest.json"), "utf8"));
 const manifest = await verifyMacStandaloneRuntime(runtime, expected, selected.mode, arch);
 assert.match(manifest.buildId, /^[a-f\d]{64}$/u, "Missing packaged runtime build identity");
-for (const legacy of ["bin", "lib/node_modules"]) {
+for (const legacy of ["bin", "lib/node_modules", "lib/libsqlite3.dylib"]) {
   assert(!fs.existsSync(path.join(runtime, legacy)), `Legacy runtime layout remains: ${legacy}`);
 }
 assert(
   fs.existsSync(path.join(packageRoot, "dist/control-ui/index.html")),
   "Bundled Control UI is missing",
 );
-const sqliteLibrary = path.join(runtime, "lib/libsqlite3.dylib");
+const sqliteLibrary = path.join(packageRoot, "lib/libsqlite3.dylib");
 assert(fs.existsSync(sqliteLibrary), "Bundled SQLite library is missing");
 assert.equal(
   JSON.parse(fs.readFileSync(path.join(packageRoot, "openclaw-install-owner.json"), "utf8")).owner,
@@ -73,6 +73,10 @@ fs.writeFileSync(
   (global-name "com.apple.securityd.xpc"))
 (deny ipc-posix-shm-read* (ipc-posix-name-prefix "apple.cfprefs."))
 (deny file-read* file-write* (subpath "/Library/Keychains"))
+(deny file-read*
+  (subpath "/opt/homebrew/opt/sqlite")
+  (subpath "/usr/local/opt/sqlite")
+  (literal "/opt/local/lib/libsqlite3.dylib"))
 `,
 );
 const sandboxArgs = [
