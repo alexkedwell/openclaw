@@ -10,6 +10,7 @@ import {
 import * as runtimePins from "./runtime-pin-state.js";
 import type { GatewayServiceCommand, ServiceConfigIssue } from "./service-audit-types.js";
 import { normalizeServicePathEntry } from "./service-path-policy.js";
+import { readStandaloneRuntimeManifest } from "./standalone-runtime.js";
 
 export const SERVICE_RUNTIME_AUDIT_CODES = {
   gatewayRuntimeBun: "gateway-runtime-bun",
@@ -31,12 +32,12 @@ export async function auditGatewayRuntime(
     return undefined;
   }
 
-  const bun = isBunRuntime(execPath);
+  const bun = isBunRuntime(execPath) || Boolean(readStandaloneRuntimeManifest(execPath));
   if (!bun && !isNodeRuntime(execPath)) {
     return undefined;
   }
   const runtime = bun
-    ? await resolveBunRuntimeInfo(execPath)
+    ? await resolveBunRuntimeInfo(execPath, undefined, env)
     : await resolveNodeRuntimeInfo(execPath, env, timeoutMs);
   if (runtime.status !== "supported") {
     issues.push({

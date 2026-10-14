@@ -25,6 +25,7 @@ import { runExec } from "../process/exec.js";
 import { matchesVersionManagerPath } from "../shared/version-manager-path.js";
 import { isBunRuntime, isNodeRuntime } from "./runtime-binary.js";
 import { normalizeServicePathEntry } from "./service-path-policy.js";
+import { readStandaloneRuntimeManifest } from "./standalone-runtime.js";
 
 function getPathModule(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix;
@@ -214,6 +215,27 @@ async function resolveRuntimeInfo(
   let cwd: string | undefined;
   try {
     cwd = process.cwd();
+    const standalone = runtime === "bun" ? readStandaloneRuntimeManifest(runtimePath) : undefined;
+    if (standalone) {
+      const { stdout } = await execFileImpl(runtimePath, ["--version"], {
+        encoding: "utf8",
+        timeoutMs,
+        env: buildRuntimeProbeEnv(env),
+      });
+      const reportedVersion = /^OpenClaw (\S+)(?: \([a-f\d]+\))?$/.exec(stdout.trim())?.[1];
+      if (reportedVersion !== standalone.openclaw.version) {
+        throw new Error("Standalone executable version does not match its manifest.");
+      }
+      // The compiled CLI has no eval mode. Packaging validates its SQLite sidecar;
+      // service installation proves the executable starts without inventing capability results.
+      return {
+        status: isSupportedBunVersion(standalone.bun.version) ? "supported" : "unsupported",
+        version: standalone.bun.version,
+        sqliteVersion: null,
+        sqliteProbe: { available: false, version: null, text: false, blob: false, json: false },
+        nodeSharedSqlite: false,
+      };
+    }
     // Node never selects a library, and only Bun can load the source module in dev checkouts.
     const script = buildRuntimeProbeScript(
       runtime === "bun"
@@ -321,11 +343,12 @@ export async function resolveRecordedDaemonRuntime(
   if (!runtimePath) {
     return undefined;
   }
-  const runtime = isBunRuntime(runtimePath)
-    ? "bun"
-    : isNodeRuntime(runtimePath)
-      ? "node"
-      : undefined;
+  const runtime =
+    isBunRuntime(runtimePath) || readStandaloneRuntimeManifest(runtimePath)
+      ? "bun"
+      : isNodeRuntime(runtimePath)
+        ? "node"
+        : undefined;
   if (!runtime) {
     return undefined;
   }
@@ -498,6 +521,15 @@ export async function resolvePreferredBunPath(
   const platform = params.platform ?? process.platform;
   const execFileImpl = params.execFile ?? execFileAsync;
   const currentExecPath = params.execPath ?? process.execPath;
+  if (readStandaloneRuntimeManifest(currentExecPath)) {
+    const runtime = await resolveBunRuntimeInfo(currentExecPath, execFileImpl, env);
+    if (runtime.status === "probe-failed") {
+      throw runtime.error;
+    }
+    if (runtime.status === "supported") {
+      return currentExecPath;
+    }
+  }
   let probeFailure: Error | undefined;
   let selectionError: string | undefined;
   for (const candidate of buildBunCandidates(env, platform, currentExecPath)) {
@@ -551,7 +583,9 @@ export async function resolvePinnedDaemonRuntimePath(
   }
   const runtimePath = paths.normalize(value);
   const matchesRuntime =
-    runtime === "node" ? isNodeRuntime(runtimePath) : isBunRuntime(runtimePath);
+    runtime === "node"
+      ? isNodeRuntime(runtimePath)
+      : Boolean(readStandaloneRuntimeManifest(runtimePath)) || isBunRuntime(runtimePath);
   if (!matchesRuntime) {
     throw new Error(`--runtime-path must name a ${runtime} executable: ${runtimePath}`);
   }

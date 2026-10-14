@@ -13,6 +13,7 @@ import {
   type GatewayServiceCommandConfig,
   type GatewayServiceState,
 } from "./service-types.js";
+import { readStandaloneRuntimeManifest } from "./standalone-runtime.js";
 import { isSystemdManagerUid } from "./systemd-bus-query.js";
 
 export type GatewayServiceLayoutSummary = {
@@ -47,6 +48,7 @@ export async function resolveGatewayServiceInstallationRefreshRoot(params: {
     !root ||
     !command ||
     isBunRuntime(command.programArguments[0] ?? "") ||
+    readStandaloneRuntimeManifest(command.programArguments[0] ?? "") ||
     state.loadState.status === "unknown" ||
     (state.runtime?.status !== "running" && state.runtime?.status !== "stopped") ||
     (process.platform === "linux" && !isSystemdManagerUid(managerUid)) ||
@@ -240,11 +242,17 @@ export async function summarizeGatewayServiceLayout(
     tryRealpath(sourcePath),
     tryRealpath(entrypoint),
   ]);
-  const packageRoot = entrypointReal ? await resolveOpenClawPackageRoot(entrypointReal) : undefined;
+  const standalone = entrypointReal ? readStandaloneRuntimeManifest(entrypointReal) : undefined;
+  const packageRoot =
+    standalone && entrypointReal
+      ? path.resolve(path.dirname(entrypointReal), standalone.runtime.path)
+      : entrypointReal
+        ? await resolveOpenClawPackageRoot(entrypointReal)
+        : undefined;
   const packageRootReal = await tryRealpath(packageRoot);
-  const packageVersion = packageRoot
-    ? ((await readPackageVersion(packageRoot)) ?? undefined)
-    : undefined;
+  const packageVersion =
+    standalone?.openclaw.version ??
+    (packageRoot ? ((await readPackageVersion(packageRoot)) ?? undefined) : undefined);
   const entrypointSourceCheckout = packageRootReal
     ? await isGatewayServiceSourceCheckoutRoot(packageRootReal)
     : undefined;

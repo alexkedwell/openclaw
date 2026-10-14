@@ -13,6 +13,7 @@ import {
 } from "./gateway-entrypoint.js";
 import { resolveGatewayHeapExecArgv } from "./gateway-heap.js";
 import type { GatewayServiceCommandConfig } from "./service-types.js";
+import { readStandaloneRuntimeManifest } from "./standalone-runtime.js";
 
 type GatewayProgramArgs = {
   programArguments: string[];
@@ -172,6 +173,10 @@ async function resolveCliProgramArguments(params: {
     );
   }
   const runtimePath = params.runtimePath;
+
+  if (params.runtime === "bun" && readStandaloneRuntimeManifest(runtimePath)) {
+    return { programArguments: [runtimePath, ...params.args] };
+  }
 
   if (params.dev) {
     const repoRoot = resolveRepoRootForDev();
