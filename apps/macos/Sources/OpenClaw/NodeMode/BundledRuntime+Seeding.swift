@@ -11,7 +11,7 @@ extension BundledRuntime {
             switch self {
             case .invalidBuildID: "The app's runtime build ID is invalid. Reinstall OpenClaw.app."
             case .invalidCurrent: "The seeded runtime link is invalid. Retry OpenClaw setup."
-            case let .runtimeProbe(detail): "The bundled Bun runtime could not start: \(detail)"
+            case let .runtimeProbe(detail): "The bundled OpenClaw runtime could not start: \(detail)"
             }
         }
     }
@@ -24,7 +24,7 @@ extension BundledRuntime {
         try await BundledRuntimeSeeder.shared.seed(bundle: bundle, profile: profile, homeDirectory: homeDirectory)
     }
 
-    /// Read-only resolution never executes Bun or selects a checkout/PATH fallback.
+    /// Read-only resolution never executes OpenClaw or selects a checkout/PATH fallback.
     static func seeded(
         profile: AppProfile = .current,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> Self?
@@ -32,13 +32,15 @@ extension BundledRuntime {
         let directory = profile.stateDirectoryURL(homeDirectory: homeDirectory).appendingPathComponent("runtime")
         guard let buildID = try self.buildLink("current", in: directory) else { return nil }
         let runtime = Self(root: directory.appendingPathComponent(buildID))
-        let build = try JSONDecoder().decode(
-            BuildInfo.self, from: Data(contentsOf: runtime.packageRoot.appendingPathComponent("dist/build-info.json")))
-        guard build.buildId == buildID,
-              FileManager.default.isExecutableFile(atPath: runtime.bun.path),
-              FileManager.default.isReadableFile(atPath: runtime.sqliteLibrary.path),
-              FileManager.default
-                  .isReadableFile(atPath: runtime.packageRoot.appendingPathComponent("openclaw.mjs").path)
+        // A loose-runtime seed is an upgrade input, never a runnable current payload.
+        guard FileManager.default.fileExists(atPath: runtime.root.appendingPathComponent("manifest.json").path)
+        else { return nil }
+        let manifest = try runtime.manifest()
+        guard manifest.schemaVersion == 1, manifest.buildId == buildID,
+              manifest.executable.path == "openclaw", manifest.runtime.path == "runtime",
+              FileManager.default.isExecutableFile(atPath: runtime.executable.path),
+              FileManager.default.fileExists(atPath: runtime.packageRoot.path),
+              FileManager.default.isReadableFile(atPath: runtime.sqliteLibrary.path)
         else { throw SeedError.invalidCurrent }
         // A newly updated app must still recognize the old seed so PostUpdate can reseed it.
         return runtime
@@ -61,7 +63,7 @@ extension BundledRuntime {
             try self.cloneRuntimeTree(from: source.root, to: partial)
             let staged = try self.resolve(root: partial, bundle: bundle)
             let result = await ShellExecutor.runDetailed(
-                command: [staged.bun.path, "--version"],
+                command: [staged.executable.path, "--version"],
                 cwd: nil,
                 env: staged.environment,
                 timeout: CommandResolver.versionProbeTimeout)
@@ -127,14 +129,22 @@ extension BundledRuntime {
             guard self.isBuildDirectoryName(name), !retained.contains(name),
                   let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
                   values.isDirectory == true, values.isSymbolicLink != true,
-                  let data = try? Data(contentsOf: entry
-                      .appendingPathComponent("lib/node_modules/openclaw/dist/build-info.json")),
-                  let build = try? JSONDecoder().decode(BuildInfo.self, from: data), build.buildId == name
+                  self.recordedBuildID(at: entry) == name
             else { continue }
             let prefix = entry.resolvingSymlinksInPath().path + "/"
             guard !liveExecutables.contains(where: { $0.hasPrefix(prefix) }) else { continue }
             try FileManager.default.removeItem(at: entry)
         }
+    }
+
+    private static func recordedBuildID(at root: URL) -> String? {
+        if let manifest = try? Self(root: root).manifest() { return manifest.buildId }
+        // Retire pre-standalone seeds only after a healthy replacement, with previous/live retention intact.
+        struct LegacyBuild: Decodable { let buildId: String }
+        guard let data = try? Data(contentsOf: root
+            .appendingPathComponent("lib/node_modules/openclaw/dist/build-info.json"))
+        else { return nil }
+        return try? JSONDecoder().decode(LegacyBuild.self, from: data).buildId
     }
 
     private static func isBuildDirectoryName(_ name: String) -> Bool {

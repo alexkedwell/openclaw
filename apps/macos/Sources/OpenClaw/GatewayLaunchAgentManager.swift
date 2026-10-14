@@ -20,15 +20,9 @@ enum GatewayLaunchAgentManager {
         /// Flags remain exact invocation custody; bundle identity uses its concrete packaged files.
         func matchesBundledRuntime(_ runtime: BundledRuntime) -> Bool {
             let concrete = GatewayLaunchAgentManager.concreteServicePrefix(self.prefix)
-            guard concrete.first == runtime.bun.resolvingSymlinksInPath().path,
-                  let entry = GatewayLaunchAgentManager.serviceCLIEntrypoint(concrete),
-                  let sqliteLibrary,
-                  URL(fileURLWithPath: sqliteLibrary).resolvingSymlinksInPath() ==
-                  runtime.sqliteLibrary.resolvingSymlinksInPath()
-            else { return false }
-            return GatewayLaunchAgentManager.serviceCLIEntrypoints.contains {
-                runtime.packageRoot.appendingPathComponent($0).resolvingSymlinksInPath() == entry
-            }
+            return concrete == GatewayLaunchAgentManager.concreteServicePrefix(runtime.cliCommand)
+                && self.sqliteLibrary.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() } ==
+                runtime.sqliteLibrary.resolvingSymlinksInPath()
         }
     }
 
@@ -338,7 +332,7 @@ enum GatewayLaunchAgentManager {
         if allowUnconfigured { arguments.append("--allow-unconfigured") }
         // Existing services retain core's saved runtime intent unless the app update or migration owns replacement.
         if let runtime, !launchAgentExists || replaceRuntime {
-            arguments += ["--runtime", "bun", "--runtime-path", runtime.bun.path]
+            arguments += ["--runtime", "bun", "--runtime-path", runtime.executable.path]
         }
         return arguments
     }
@@ -495,7 +489,7 @@ enum GatewayLaunchAgentManager {
             programArguments: snapshot.programArguments,
             environmentFile: environmentFile,
             environmentWrapper: environmentWrapper),
-            let service = command.firstIndex(of: subcommand), service >= 2
+            let service = command.firstIndex(of: subcommand), service >= 1
         else { return nil }
         let prefix = Array(command[..<service])
         guard self.serviceCLIEntrypoint(prefix) != nil else { return nil }
@@ -509,6 +503,9 @@ enum GatewayLaunchAgentManager {
     }
 
     private static func serviceCLIEntrypoint(_ prefix: [String]) -> URL? {
+        if prefix.count == 1, let executable = prefix.first, executable.hasPrefix("/"),
+           URL(fileURLWithPath: executable).lastPathComponent == "openclaw"
+        { return URL(fileURLWithPath: executable) }
         guard let executable = prefix.first,
               ["node", "bun"].contains(URL(fileURLWithPath: executable).lastPathComponent)
         else { return nil }
@@ -906,7 +903,7 @@ extension GatewayLaunchAgentManager {
         let installedPaths = installedCLI?.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
         var paths = installedPaths + searchPaths
         if let runtime {
-            paths.insert(runtime.bun.deletingLastPathComponent().path, at: 0)
+            paths.insert(runtime.executable.deletingLastPathComponent().path, at: 0)
             result["OPENCLAW_SQLITE_LIBRARY"] = runtime.sqliteLibrary.path
         }
         if let installedCLI {

@@ -8,8 +8,7 @@ final class GatewayChildSupervisor {
     nonisolated static let shutdownTimeoutSeconds: TimeInterval = 330
 
     struct Configuration: Sendable {
-        let bun: URL
-        let packageRoot: URL
+        let executable: URL
         let environment: [String: String]
         let logPath: String
         let port: Int
@@ -17,7 +16,6 @@ final class GatewayChildSupervisor {
 
         var arguments: [String] {
             [
-                self.packageRoot.appendingPathComponent("openclaw.mjs").path,
                 "gateway",
                 "run",
                 "--port",
@@ -212,7 +210,7 @@ final class GatewayChildSupervisor {
         let lifeline = Pipe()
         let process = ManagedProcess.launch(
             configuration: Subprocess.Configuration(
-                executable: .path(.init(configuration.bun.path)),
+                executable: .path(.init(configuration.executable.path)),
                 arguments: Arguments(configuration.arguments),
                 environment: ManagedProcess.environment(from: configuration.childEnvironment)),
             input: .fileDescriptor(

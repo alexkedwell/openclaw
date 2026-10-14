@@ -293,7 +293,7 @@ extension GatewayProcessManager {
         let servicePaths = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
         environment.merge(runtime.environment) { _, runtimeValue in runtimeValue }
         var seen = Set<String>()
-        environment["PATH"] = ([runtime.bun.deletingLastPathComponent().path] + servicePaths + searchPaths)
+        environment["PATH"] = ([runtime.executable.deletingLastPathComponent().path] + servicePaths + searchPaths)
             .filter { seen.insert($0).inserted }.joined(separator: ":")
         environment["OPENCLAW_PROFILE"] = profile.name ?? "default"
         environment["OPENCLAW_STATE_DIR"] = profile.stateDirectoryURL().path
@@ -344,8 +344,7 @@ extension GatewayProcessManager {
             let environment = try self.appHostedEnvironment(runtime: runtime)
             try OpenClawConfigFile.ensureAppHostedGatewayAuth(environment: environment)
             let pid = try await self.childSupervisor.start(configuration: .init(
-                bun: runtime.bun,
-                packageRoot: runtime.packageRoot,
+                executable: runtime.executable,
                 environment: environment,
                 logPath: GatewayLaunchAgentManager.launchdGatewayLogPath(),
                 port: port,

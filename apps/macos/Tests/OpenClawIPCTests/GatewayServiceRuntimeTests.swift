@@ -96,7 +96,7 @@ struct GatewayServiceRuntimeTests {
                 launchAgentExists: exists,
                 replaceRuntime: replace)
             let expected = ["install", "--force", "--port", "29871", "--allow-unconfigured"]
-                + (expectedPin ? ["--runtime", "bun", "--runtime-path", "/profile/runtime/build-two/bin/bun"] : [])
+                + (expectedPin ? ["--runtime", "bun", "--runtime-path", "/profile/runtime/build-two/openclaw"] : [])
             #expect(arguments == expected)
         }
         #expect(GatewayLaunchAgentManager.installArguments(
@@ -118,7 +118,7 @@ struct GatewayServiceRuntimeTests {
             profile: AppProfile(environment: ["OPENCLAW_PROFILE": "service-proof"]),
             searchPaths: ["/usr/bin", "/bin"])
         #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == "/profile/runtime/build-two/lib/libsqlite3.dylib")
-        #expect(environment["PATH"] == "/profile/runtime/build-two/bin:/usr/bin:/bin")
+        #expect(environment["PATH"] == "/profile/runtime/build-two:/usr/bin:/bin")
         #expect(environment["OPENCLAW_PROFILE"] == "service-proof")
         let directory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".openclaw-service-proof")
@@ -129,7 +129,11 @@ struct GatewayServiceRuntimeTests {
 
     @Test func `app updates replace only app owned runtime intent`() {
         let stateDirectory = URL(fileURLWithPath: "/profile")
-        for pin in ["/profile/runtime/build-one/bin/bun", "/profile/runtime/current/bin/bun"] {
+        for pin in [
+            "/profile/runtime/build-one/bin/bun",
+            "/profile/runtime/current/bin/bun",
+            "/profile/runtime/new/openclaw",
+        ] {
             #expect(GatewayLaunchAgentManager.bundledRuntimeReplacementError(
                 appManaged: true,
                 installedRuntimePath: pin,
@@ -196,11 +200,11 @@ struct GatewayServiceRuntimeTests {
             (
                 ["/old/bin/bun", "/old/lib/node_modules/openclaw/openclaw.mjs"],
                 "/old/lib/libsqlite3.dylib",
-                true,
+                false,
                 "/old/bin:/usr/bin"),
             (
                 ["/old/bin/bun", "--no-install", "/old/lib/node_modules/openclaw/dist/index.js"],
-                "/old/lib/libsqlite3.dylib", true, "/old/bin:/usr/bin"),
+                "/old/lib/libsqlite3.dylib", false, "/old/bin:/usr/bin"),
             (
                 ["/old/bin/bun", "--max-heap-size=8192", "--no-install", "/old/lib/node_modules/openclaw/openclaw.mjs"],
                 nil, false, "/old/bin:/usr/bin"),
@@ -216,7 +220,7 @@ struct GatewayServiceRuntimeTests {
                     "--no-install",
                     "/old/lib/node_modules/openclaw/dist/entry.mjs",
                 ],
-                "/old/lib/libsqlite3.dylib", true, "/old/bin:/usr/bin"),
+                "/old/lib/libsqlite3.dylib", false, "/old/bin:/usr/bin"),
             (
                 ["/other/bin/bun", "/old/lib/node_modules/openclaw/openclaw.mjs"],
                 "/old/lib/libsqlite3.dylib",
@@ -232,6 +236,7 @@ struct GatewayServiceRuntimeTests {
                 "/other/lib/libsqlite3.dylib",
                 false,
                 "/old/bin:/usr/bin"),
+            (["/old/openclaw"], "/old/lib/libsqlite3.dylib", true, "/old:/usr/bin"),
         ]
         for (prefix, library, matches, expectedPath) in fixtures {
             let cli = try #require(GatewayLaunchAgentManager.installedServiceCLI(
@@ -252,10 +257,11 @@ struct GatewayServiceRuntimeTests {
         }
     }
 
-    @Test func `installed service CLI unwraps only the canonical environment wrapper`() {
+    @Test(arguments: [false, true])
+    func `installed service CLI unwraps only the canonical environment wrapper`(standalone: Bool) {
         let environment = URL(fileURLWithPath: "/profile/service-env/ai.openclaw.proof.env")
         let wrapper = URL(fileURLWithPath: "/profile/service-env/ai.openclaw.proof-env-wrapper.sh")
-        let prefix = [
+        let prefix = standalone ? ["/profile/runtime/build-one/openclaw"] : [
             "/profile/runtime/build-one/bin/bun",
             "--no-install",
             "/profile/runtime/build-one/lib/openclaw.mjs",

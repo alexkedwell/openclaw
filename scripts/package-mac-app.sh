@@ -111,6 +111,10 @@ if [[ "${BUILD_ARCHS_VALUE}" == "all" ]]; then
 fi
 IFS=' ' read -r -a BUILD_ARCHS <<< "$BUILD_ARCHS_VALUE"
 PRIMARY_ARCH="${BUILD_ARCHS[0]}"
+if [[ "${#BUILD_ARCHS[@]}" -ne 1 ]]; then
+  echo "ERROR: Standalone Mac packaging requires one architecture; set BUILD_ARCHS=arm64 or BUILD_ARCHS=x86_64. The builder does not emit a universal artifact." >&2
+  exit 1
+fi
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-AGCY8w5vHirVfGGDGc8Szc5iuOqupZSh9pMj/Qs67XI=}"
 SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml}"
 AUTO_CHECKS=true
@@ -331,6 +335,9 @@ mkdir -p "$(dirname "$APP_DESTINATION")" "$ROOT_DIR/.artifacts"
 APP_STAGE_DIR="$(mktemp -d "$ROOT_DIR/.artifacts/.openclaw-package.XXXXXX")"
 APP_ROOT="$APP_STAGE_DIR/$APP_BUNDLE_NAME"
 
+echo "📦 Provisioning the matching standalone runtime [${BUILD_ARCHS[*]}]"
+/bin/bash "$ROOT_DIR/scripts/stage-mac-runtime.sh" "$APP_STAGE_DIR/runtime" "${BUILD_ARCHS[@]}"
+
 echo "🔨 Building $PRODUCT ($BUILD_CONFIG) [${BUILD_ARCHS[*]}]"
 SWIFT_BUILD_RESULTS="$APP_STAGE_DIR/swift-builds"
 node "$ROOT_DIR/scripts/build-mac-swift.mts" "$ROOT_DIR" "$BUILD_CONFIG" \
@@ -375,8 +382,6 @@ plist_set_string_required "$APP_ROOT/Contents/Info.plist" CFBundleShortVersionSt
 plist_set_string_required "$APP_ROOT/Contents/Info.plist" CFBundleVersion "$APP_BUILD"
 plist_set_string_required "$APP_ROOT/Contents/Info.plist" OpenClawBuildTimestamp "$BUILD_TS"
 plist_set_string_required "$APP_ROOT/Contents/Info.plist" OpenClawGitCommit "$BUILD_GIT_COMMIT"
-RUNTIME_BUILD_ID="$(node -e 'console.log(require(process.argv[1]).buildId)' "$ROOT_DIR/dist/build-info.json")"
-plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawRuntimeBuildID "$RUNTIME_BUILD_ID"
 plist_set_string_required "$APP_ROOT/Contents/Info.plist" PeekabooSourceCommit "$PEEKABOO_SOURCE_COMMIT"
 if [[ "$BUILD_CONFIG" == "release" ]]; then
   EMBEDDED_GIT_COMMIT="$(plist_print_required "$APP_ROOT/Contents/Info.plist" OpenClawGitCommit)"
@@ -524,8 +529,9 @@ fi
 cp "$INSTALL_CLI_SRC" "$APP_ROOT/Contents/Resources/install-cli.sh"
 chmod 0644 "$APP_ROOT/Contents/Resources/install-cli.sh"
 
-echo "📦 Provisioning the matching private Bun runtime [${BUILD_ARCHS[*]}]"
-/bin/bash "$ROOT_DIR/scripts/stage-mac-runtime.sh" "$APP_ROOT/Contents/Resources/runtime" "${BUILD_ARCHS[@]}"
+mv "$APP_STAGE_DIR/runtime" "$APP_ROOT/Contents/Resources/runtime"
+RUNTIME_BUILD_ID="$(node -e 'console.log(require(process.argv[1]).buildId)' "$APP_ROOT/Contents/Resources/runtime/manifest.json")"
+plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawRuntimeBuildID "$RUNTIME_BUILD_ID"
 
 echo "🌐 Copying app localizations"
 node --import tsx "$ROOT_DIR/scripts/apple-app-i18n.ts" compile-macos \
@@ -638,11 +644,9 @@ if [[ "${CLOUD_WORKER_HOST:-0}" == "1" ]]; then
 fi
 for arch in "${BUILD_ARCHS[@]}"; do
   if /usr/bin/arch -"$arch" /usr/bin/true 2>/dev/null; then
-    env -i HOME="$APP_STAGE_DIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="${TMPDIR:-/tmp}" \
-      OPENCLAW_SQLITE_LIBRARY="$APP_ROOT/Contents/Resources/runtime/lib/libsqlite3.dylib" \
-      /usr/bin/arch -"$arch" "$APP_ROOT/Contents/Resources/runtime/bin/bun" \
-      "$ROOT_DIR/scripts/verify-mac-runtime.mjs" \
-      "$APP_ROOT/Contents/Resources/runtime" "$ROOT_DIR/dist/build-info.json" "$APP_ROOT"
+    env -i HOME="$APP_STAGE_DIR" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
+      node "$ROOT_DIR/scripts/verify-mac-runtime.mjs" \
+      "$APP_ROOT/Contents/Resources/runtime" "$ROOT_DIR/dist/build-info.json" "$APP_ROOT" "$arch"
   else
     echo "WARN: Signed runtime $arch verification skipped; install Rosetta to verify this architecture" >&2
   fi

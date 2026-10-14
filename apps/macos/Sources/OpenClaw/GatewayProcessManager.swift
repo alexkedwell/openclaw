@@ -374,9 +374,8 @@ final class GatewayProcessManager {
         if let restoration = request.serviceForRestoration {
             let cli = restoration.retained
             do { try await request.mutationCheck?() } catch { return .failed(error.localizedDescription) }
-            guard self.isCurrentGatewayStart(request.generation), let bun = cli.prefix.first else { return .skipped }
-            let runtime = BundledRuntime(root: URL(fileURLWithPath: bun)
-                .deletingLastPathComponent().deletingLastPathComponent())
+            guard self.isCurrentGatewayStart(request.generation), !cli.prefix.isEmpty else { return .skipped }
+            let runtime = BundledRuntime(retainedCLI: cli)
             error = await GatewayLaunchAgentManager.runDaemonCommand(
                 GatewayLaunchAgentManager.installArguments(
                     port: request.port,

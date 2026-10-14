@@ -41,7 +41,8 @@ extension GatewayLaunchAgentManager {
     {
         let command = try JSONDecoder().decode(ResumeCommand.self, from: data)
         guard let executable = command.prefix.first, let entry = command.prefix.last,
-              executable.hasPrefix("/"), ["node", "bun"].contains(URL(fileURLWithPath: executable).lastPathComponent),
+              executable.hasPrefix("/"),
+              ["node", "bun", "openclaw"].contains(URL(fileURLWithPath: executable).lastPathComponent),
               self.isWithinState(entry, stateDirectory: stateDirectory)
         else {
             throw GatewayHostingError(
@@ -102,7 +103,9 @@ extension GatewayLaunchAgentManager {
         {
             throw GatewayHostingError(message: error)
         }
-        guard cli.prefix.first.map({ URL(fileURLWithPath: $0).lastPathComponent }) == "bun" else {
+        guard cli.prefix.first
+            .map({ ["bun", "openclaw"].contains(URL(fileURLWithPath: $0).lastPathComponent) }) == true
+        else {
             throw GatewayHostingError(
                 message: "The retained Gateway uses Node; update it through its existing installation.")
         }

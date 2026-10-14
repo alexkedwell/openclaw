@@ -1300,7 +1300,10 @@ struct BundledGatewayPreparationTests {
             manager.isTerminating = false
             let old = BundledRuntime(root: state.appendingPathComponent("runtime/previous-build"))
             var cli = GatewayLaunchAgentManager.InstalledServiceCLI(
-                prefix: [updateFails ? "/operator/bin/bun" : old.bun.path, old.cliCommand[1]],
+                prefix: updateFails ? [
+                    "/operator/bin/bun",
+                    old.packageRoot.appendingPathComponent("openclaw.mjs").path,
+                ] : old.cliCommand,
                 sqliteLibrary: old.sqliteLibrary.path)
             cli.hadRuntimePin = true
             manager.retainedServiceCLI = retained ? cli : nil
@@ -1331,16 +1334,17 @@ struct BundledGatewayPreparationTests {
     }
 
     private func publishRuntime(_ runtime: BundledRuntime, current: URL) throws {
-        for directory in [runtime.bun.deletingLastPathComponent(), runtime.packageRoot.appendingPathComponent("dist")] {
+        for directory in [runtime.sqliteLibrary.deletingLastPathComponent(), runtime.packageRoot] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: runtime.bun)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runtime.bun.path)
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: runtime.executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runtime.executable.path)
         try Data().write(to: runtime.sqliteLibrary)
-        try Data().write(to: runtime.packageRoot.appendingPathComponent("openclaw.mjs"))
         try JSONSerialization.data(withJSONObject: [
-            "version": "2026.9.1", "commit": "fixture", "builtAt": "fixture", "buildId": runtime.root.lastPathComponent,
-        ]).write(to: runtime.packageRoot.appendingPathComponent("dist/build-info.json"))
+            "schemaVersion": 1, "buildId": runtime.root.lastPathComponent,
+            "openclaw": ["version": "2026.9.1", "commit": "fixture"],
+            "executable": ["path": "openclaw"], "runtime": ["path": "runtime"],
+        ]).write(to: runtime.root.appendingPathComponent("manifest.json"))
         try FileManager.default.createSymbolicLink(
             atPath: current.path,
             withDestinationPath: runtime.root.lastPathComponent)

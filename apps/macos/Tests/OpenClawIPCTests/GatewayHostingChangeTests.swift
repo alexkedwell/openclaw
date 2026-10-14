@@ -221,11 +221,12 @@ struct GatewayHostingChangeTests {
                 retainedEnvironment: retained,
                 searchPaths: ["/usr/bin"])
             let child = GatewayChildSupervisor.Configuration(
-                bun: runtime.bun, packageRoot: runtime.packageRoot, environment: environment,
+                executable: runtime.executable, environment: environment,
                 logPath: directory.appendingPathComponent("gateway.log").path, port: 29871, allowUnconfigured: false)
                 .childEnvironment
             #expect(child["FIXTURE_CHANNEL_SETTING"] == "service-value")
-            #expect(child["PATH"] == "\(runtime.bun.deletingLastPathComponent().path):/fixture/custom/bin:/usr/bin")
+            #expect(child["PATH"] ==
+                "\(runtime.executable.deletingLastPathComponent().path):/fixture/custom/bin:/usr/bin")
             #expect(child["OPENCLAW_SQLITE_LIBRARY"] == runtime.sqliteLibrary.path)
             #expect(child["OPENCLAW_PROFILE"] == "hosting-environment")
             #expect(child["OPENCLAW_STATE_DIR"] == profile.stateDirectoryURL().path)

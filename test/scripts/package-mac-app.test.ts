@@ -310,7 +310,10 @@ describe("packaged worker freshness", () => {
       );
       const script = readFileSync(scriptPath, "utf8");
       const allocationStart = script.indexOf("# pnpm build owns the Control UI");
-      const allocationEnd = script.indexOf('echo "🔨 Building $PRODUCT', allocationStart);
+      const allocationEnd = script.indexOf(
+        'echo "📦 Provisioning the matching standalone runtime',
+        allocationStart,
+      );
       expect(allocationStart).toBeGreaterThanOrEqual(0);
       expect(allocationEnd).toBeGreaterThan(allocationStart);
       const allocated = spawnSync(
@@ -1531,15 +1534,9 @@ describe("package-mac-app plist stamping", () => {
         '#!/bin/bash\nset -euo pipefail\n[[ -d "$1" ]]\nprintf "identity=%s\\n" "${SIGN_IDENTITY-<unset>}"\nprintf "sign\\n" >> "${0%/*}/../events"\n',
       );
       chmodSync(signerPath, 0o755);
-      {
-        const node = path.join(appRoot, "Contents/Resources/runtime/bin/bun");
-        mkdirSync(path.dirname(node), { recursive: true });
-        writeFileSync(
-          node,
-          `#!/bin/bash\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$@"\n`,
-        );
-        chmodSync(node, 0o755);
-      }
+      const tools = path.join(tempRoot, "bin");
+      mkdirSync(tools);
+      symlinkSync(process.execPath, path.join(tools, "node"));
       writeFileSync(
         path.join(scriptsDir, "verify-mac-runtime.mjs"),
         `import fs from 'node:fs';
@@ -1587,7 +1584,7 @@ try {
           encoding: "utf8",
           env: {
             HOME: callerHome,
-            PATH: "/usr/bin:/bin",
+            PATH: `${tools}:/usr/bin:/bin`,
             OPENCLAW_TEST_CALLER_CANARY: "must-not-reach-worker",
             ...(tempMode === "configured" ? { TMPDIR: callerTemp } : {}),
           },

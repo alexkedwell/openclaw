@@ -929,7 +929,10 @@ struct GatewayProcessManagerTests {
             let old = BundledRuntime(root: state.appendingPathComponent("runtime/previous-build"))
             let replacement = BundledRuntime(root: state.appendingPathComponent("runtime/new-build"))
             let original = GatewayLaunchAgentManager.InstalledServiceCLI(
-                prefix: [operatorRuntime ? "/operator/bun" : old.bun.path, old.cliCommand[1]],
+                prefix: operatorRuntime ? [
+                    "/operator/bun",
+                    old.packageRoot.appendingPathComponent("openclaw.mjs").path,
+                ] : old.cliCommand,
                 sqliteLibrary: old.sqliteLibrary.path,
                 environment: ["FIXTURE_SERVICE": "retained", "OPENCLAW_SQLITE_LIBRARY": old.sqliteLibrary.path],
                 usesGeneratedEnvironment: true,
@@ -1041,11 +1044,13 @@ struct GatewayProcessManagerTests {
         try await self.withLaunchAgentEnvironment(homeDirectory: root) {
             let manager = self.manager
             defer { manager.retainedServiceCLI = nil }
-            try "trap 'exit 0' TERM\nIFS= read -r value\n".write(
-                to: root.appendingPathComponent("openclaw.mjs"), atomically: true, encoding: .utf8)
+            try "#!/bin/sh\ntrap 'exit 0' TERM\nIFS= read -r value\n".write(
+                to: root.appendingPathComponent("openclaw"), atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: root.appendingPathComponent("openclaw").path)
             let pid = try await manager.childSupervisor.start(configuration: .init(
-                bun: URL(fileURLWithPath: "/bin/sh"),
-                packageRoot: root,
+                executable: root.appendingPathComponent("openclaw"),
                 environment: [:],
                 logPath: root.appendingPathComponent("gateway.log").path,
                 port: 29871,
@@ -1329,7 +1334,7 @@ struct GatewayProcessManagerTests {
                 return
             }
             let install = try #require(commands.first { $0.contains("install") })
-            #expect(commands.allSatisfy { Array($0.prefix(2)) == installer.cliCommand })
+            #expect(commands.allSatisfy { Array($0.prefix(1)) == installer.cliCommand })
             let runtimeIndex = try #require(install.firstIndex(of: "--runtime"))
             let pathIndex = try #require(install.firstIndex(of: "--runtime-path"))
             #expect(install[runtimeIndex + 1] == "bun")
@@ -1425,7 +1430,7 @@ struct GatewayProcessManagerTests {
             }
             let previous = BundledRuntime(root: URL(fileURLWithPath: "/fixture/runtime/previous-build"))
             let cli = GatewayLaunchAgentManager.InstalledServiceCLI(
-                prefix: [previous.bun.path, previous.packageRoot.appendingPathComponent("dist/index.js").path],
+                prefix: previous.cliCommand,
                 sqliteLibrary: previous.sqliteLibrary.path,
                 environment: ["CHANNEL_FIXTURE": "synthetic"])
             let installer = BundledRuntime(root: URL(fileURLWithPath: "/fixture/runtime/current-build"))
@@ -1467,16 +1472,16 @@ struct GatewayProcessManagerTests {
                     "--runtime",
                     "bun",
                     "--runtime-path",
-                    previous.bun.path,
+                    previous.executable.path,
                     "--restore-service-cli",
-                    #"{"entrypoint":"/fixture/runtime/previous-build/lib/node_modules/openclaw/dist/index.js","executable":"/fixture/runtime/previous-build/bin/bun","sqliteLibrary":"/fixture/runtime/previous-build/lib/libsqlite3.dylib"}"#,
+                    #"{"entrypoint":"/fixture/runtime/previous-build/openclaw","executable":"/fixture/runtime/previous-build/openclaw","sqliteLibrary":"/fixture/runtime/previous-build/lib/libsqlite3.dylib"}"#,
                     "--expected-runtime-pin",
                     #"{"definition":"failed-service","revision":"before-restore"}"#,
                 ],
             ])
             #expect(GatewayLaunchAgentManager.testingResolvedDaemonCommandsSnapshot()
                 .filter { $0.contains("install") }
-                .allSatisfy { Array($0.prefix(2)) == installer.cliCommand })
+                .allSatisfy { Array($0.prefix(1)) == installer.cliCommand })
         }
     }
 

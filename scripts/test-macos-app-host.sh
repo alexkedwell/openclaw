@@ -37,6 +37,8 @@ with open(sys.argv[2], "wb") as destination:
     }, destination)
 PY
 /bin/bash "$host_repo/scripts/stage-mac-runtime.sh" "$host_app/Contents/Resources/runtime" "$(uname -m)"
+/usr/libexec/PlistBuddy -c "Set :OpenClawRuntimeBuildID $(node -p 'require(process.argv[1]).buildId' "$host_app/Contents/Resources/runtime/manifest.json")" "$host_app/Contents/Info.plist"
+
 
 # The existing resource owner joins both fresh hosts, then retires its unique service.
 # Retain a failed host's payload beside the native diagnostic output for investigation.

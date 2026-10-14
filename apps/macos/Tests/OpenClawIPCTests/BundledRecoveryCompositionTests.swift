@@ -71,9 +71,9 @@ struct BundledRecoveryCompositionTests {
                     "failure=\(manager.lastFailureReason ?? "none") log=\(manager.log.suffix(2048))"))
             #expect(try await GatewayConnection.shared.healthOK())
             let command = try #require(GatewayLaunchAgentManager.launchdProgramArguments())
-            #expect(command.contains("--no-install"))
+            #expect(!command.contains("--no-install"))
             let inspected = try #require(GatewayLaunchAgentManager.installedServiceCLI())
-            #expect(inspected.prefix.first == runtime.bun.path)
+            #expect(inspected.prefix.first == runtime.executable.path)
 
             // Same-version shell and app packages must not be interchangeable host-link owners.
             let wrongRoot = state.appendingPathComponent("other-install")
@@ -94,7 +94,7 @@ struct BundledRecoveryCompositionTests {
             try #require(try FileManager.default.destinationOfSymbolicLink(atPath: peer.path) == wrongRoot.path)
             let probe = state.appendingPathComponent("extensions/\(self.pluginID)/peer-health.mjs")
             let before = await ShellExecutor.runDetailed(
-                command: [runtime.bun.path, probe.path], cwd: nil, env: environment, timeout: 30)
+                command: [runtime.executable.path, probe.path], cwd: nil, env: environment, timeout: 30)
             try #require(!before.success)
 
             AppStateStore.shared.isPaused = true
@@ -206,7 +206,7 @@ struct BundledRecoveryCompositionTests {
             }
             #expect(try await GatewayConnection.shared.healthOK())
             let after = await ShellExecutor.runDetailed(
-                command: [runtime.bun.path, probe.path], cwd: nil, env: environment, timeout: 30)
+                command: [runtime.executable.path, probe.path], cwd: nil, env: environment, timeout: 30)
             #expect(after.success)
             #expect(after.stdout.contains(runtime.packageRoot.path))
             let health = try await GatewayConnection.shared.request(method: "health", params: nil)

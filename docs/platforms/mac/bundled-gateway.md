@@ -7,26 +7,23 @@ read_when:
 title: "Gateway on macOS"
 ---
 
-OpenClaw.app bundles a private runtime built from the OpenClaw Bun fork, a signed
-SQLite library with extension loading, and the full matching OpenClaw package
-(CLI, Gateway, and Control UI). Its app-owned `node worker` helper and fixed local
-Chrome-extension setup entry point run on this Bun runtime. The app bundle
-contains no Node executable.
+OpenClaw.app bundles a standalone `openclaw` executable, a loose companion
+`runtime/` directory, and a signed SQLite library with extension loading.
+The CLI, Gateway, Doctor, app-owned node worker, and local Chrome-extension
+setup use this executable. No separate Node or Bun interpreter ships in the app.
 
-The payload lives in one `Contents/Resources/runtime` directory. Universal apps
-share the JavaScript package between architectures and include universal Bun and
-SQLite binaries plus each architecture's native dependencies. Rebuilding or
-replacing the app replaces this runtime too, including rebuilds with the same
-public version. The app validates the package's version, commit, build time, and
-build ID before launch. Moving the app or removing its build checkout does not
+The payload lives in `Contents/Resources/runtime/`. The builder manifest binds
+its executable and sidecar to the same OpenClaw commit and records the selected
+JIT or bytecode mode. Packaging validates both checksums and source identity;
+the app validates its packaged build identity before launch. Rebuilding or
+replacing the app replaces the complete runtime, including rebuilds with the
+same public version. Moving the app or removing its build checkout does not
 change which runtime it uses.
 
-On a fresh profile, the **app hosts the Gateway** as a child process using its
-bundled Bun runtime. The Gateway starts with the app and stops when the app
+On a fresh profile, the **app hosts the Gateway** as a child process by running
+`openclaw gateway run`. The Gateway starts with the app and stops when the app
 quits. An existing Gateway on the configured port is attached instead of
-duplicated. Existing independently managed installations keep their current
-lifecycle. Eligible app-managed Node services move to bundled Bun while keeping
-their always-on service.
+duplicated. Existing independently managed installations keep their lifecycle.
 
 Before launching an app-hosted Gateway, the app saves a local authentication
 token when neither configuration nor the child environment supplies credentials
@@ -44,7 +41,7 @@ for the default state directory, `~/.config/openclaw/gateway.env`.
 The app first copies its runtime to `<state>/runtime/<runtimeBuildId>/`, where
 `<state>` is `~/.openclaw` or `~/.openclaw-<profile>`. Copies use one APFS
 directory clone when available, falling back to a file copy, and are published atomically after provenance and
-Bun checks succeed. The child and app-managed Bun service use the concrete
+executable checks succeed. The child and app-managed service use the concrete
 build directory so each process keeps its matching package and SQLite library.
 The `runtime/current` symlink selects the runtime for the terminal CLI shim.
 The app retains the current and previous builds; older copies are removed only
@@ -86,7 +83,7 @@ Gateway startup, then opens automatic setup once the Gateway is ready. A termina
 failure or cancellation leaves onboarding unfinished.
 
 The app creates `<state>/bin/openclaw`, a small shell wrapper that runs the
-current bundled CLI with Bun and the included SQLite library. When the app runs
+current standalone executable with the included SQLite library. When the app runs
 from a persistent location, it also links `openclaw-mac` beside it, and the
 default profile adds that bin directory to the usual shell profile files. Named
 profiles, and copies running from Downloads, the Desktop, a disk image, or a
@@ -192,8 +189,8 @@ until Doctor or a CLI start/repair completes it. An app-hosted resume that runs
 neither Doctor nor the CLI start fence may keep the receipt pending; the next
 CLI start/repair or `openclaw doctor` completes it.
 
-A newly installed app-managed Bun service is pinned to
-`<state>/runtime/<runtimeBuildId>/bin/bun`, with the matching package and
+An app-managed standalone service uses
+`<state>/runtime/<runtimeBuildId>/openclaw`, with the matching sidecar and
 `OPENCLAW_SQLITE_LIBRARY` environment. After an app update, the app reinstalls
 only services it owns whose executable is inside `<state>/runtime/` onto the new
 concrete build. A service using an executable outside that directory stays
@@ -327,7 +324,12 @@ closes the host lifeline and waits for graceful shutdown before forcing an
 unresponsive process group to exit.
 
 After an app update, including a rebuild with the same public version, the app
-seeds the new runtime and restarts its Gateway in the selected hosting mode.
+seeds the new runtime and restarts its Gateway in the selected hosting mode. An
+existing loose Bun seed is retained as the previous build while the app clones
+the standalone payload into a new build directory. The managed terminal shim
+is rewritten to execute `runtime/current/openclaw`; operator-managed commands
+are preserved. Configuration and user data stay in the existing profile.
+Runtime retention is not a rollback of database migrations or user state.
 The app drains its producer and runs Doctor through the selected runtime before
 restarting the Gateway. Doctor owns core migrations and configured plugin host-link
 repair; the app owns service publication and activation. Required repair refusals

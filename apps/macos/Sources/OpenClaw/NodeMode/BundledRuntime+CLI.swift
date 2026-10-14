@@ -81,7 +81,7 @@ extension BundledRuntime {
         createIfMissing: Bool,
         allowsPersistentIntegration: Bool) throws
     {
-        // The Bun shim uses portable seeded state; this link depends on a persistent app location.
+        // The CLI shim uses portable seeded state; this link depends on a persistent app location.
         guard allowsPersistentIntegration else { return }
         let fileManager = FileManager.default
         let source = bundle.bundleURL.appendingPathComponent("Contents/MacOS/openclaw-mac")
@@ -133,12 +133,11 @@ extension BundledRuntime {
         let current = Self(root: profile.stateDirectoryURL(homeDirectory: homeDirectory)
             .appendingPathComponent("runtime/current"))
         let profileLine = profile.name.map { "export OPENCLAW_PROFILE=\(Self.shellQuote($0))\n" } ?? ""
-        let cli = current.packageRoot.appendingPathComponent("openclaw.mjs")
         return """
         #!/bin/sh
         \(Self.shimSignature)
         \(profileLine)export OPENCLAW_SQLITE_LIBRARY=\(Self.shellQuote(current.sqliteLibrary.path))
-        exec \(Self.shellQuote(current.bun.path)) \(Self.shellQuote(cli.path)) "$@"
+        exec \(Self.shellQuote(current.executable.path)) "$@"
 
         """
     }

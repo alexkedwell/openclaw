@@ -49,19 +49,22 @@ struct GatewayChildSupervisorTests {
         let readyHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? readyHandle.close() }
         try """
+        #!/bin/sh
         trap 'exit 0' TERM
         printf 'stdout\\n'
         printf 'stderr\\n' >&2
         printf R > "$OPENCLAW_TEST_READY_FIFO"
         IFS= read -r value
-        """.write(to: directory.appendingPathComponent("openclaw.mjs"), atomically: true, encoding: .utf8)
+        """.write(to: directory.appendingPathComponent("openclaw"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: directory.appendingPathComponent("openclaw").path)
         let logURL = directory.appendingPathComponent("gateway.log")
         try "previous\n".write(to: logURL, atomically: true, encoding: .utf8)
         let supervisor = GatewayChildSupervisor()
         do {
             let pid = try await supervisor.start(configuration: .init(
-                bun: URL(fileURLWithPath: "/bin/sh"),
-                packageRoot: directory,
+                executable: directory.appendingPathComponent("openclaw"),
                 environment: ["OPENCLAW_TEST_READY_FIFO": readyURL.path],
                 logPath: logURL.path,
                 port: 19487,
@@ -92,8 +95,7 @@ struct GatewayChildSupervisorTests {
 
     private func configuration(logPath: String = "/unused/gateway.log") -> GatewayChildSupervisor.Configuration {
         .init(
-            bun: URL(fileURLWithPath: "/fixture/runtime/current/bin/bun"),
-            packageRoot: URL(fileURLWithPath: "/fixture/runtime/current/lib/node_modules/openclaw"),
+            executable: URL(fileURLWithPath: "/fixture/runtime/current/openclaw"),
             environment: [:],
             logPath: logPath,
             port: 19487,
@@ -102,8 +104,7 @@ struct GatewayChildSupervisorTests {
 
     @Test func `child keeps profile and SQLite while dropping inherited service ownership`() {
         let configuration = GatewayChildSupervisor.Configuration(
-            bun: URL(fileURLWithPath: "/fixture/runtime/current/bin/bun"),
-            packageRoot: URL(fileURLWithPath: "/fixture/runtime/current/lib/node_modules/openclaw"),
+            executable: URL(fileURLWithPath: "/fixture/runtime/current/openclaw"),
             environment: [
                 "PATH": "/usr/bin:/bin", "OPENCLAW_PROFILE": "test-hosted",
                 "OPENCLAW_SQLITE_LIBRARY": "/fixture/runtime/current/lib/libsqlite3.dylib",
@@ -118,7 +119,6 @@ struct GatewayChildSupervisorTests {
             allowUnconfigured: true)
 
         #expect(configuration.arguments == [
-            "/fixture/runtime/current/lib/node_modules/openclaw/openclaw.mjs",
             "gateway", "run", "--port", "19487", "--allow-unconfigured",
         ])
         #expect(configuration.childEnvironment == [
