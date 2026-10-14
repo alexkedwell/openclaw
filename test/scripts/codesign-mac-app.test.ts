@@ -25,6 +25,7 @@ const codesignArgs = process.platform === "win32" ? [scriptPath] : [];
 // Signing integration exercises the real Darwin mutation fence, not a sandbox mock.
 const macIt = it.runIf(process.platform === "darwin");
 const developerIdentity = "Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)";
+const bunPin = JSON.parse(readFileSync("scripts/lib/openclaw-bun.json", "utf8"));
 
 function runCodesign(
   mac: MacScriptFixture,
@@ -493,6 +494,12 @@ describe.runIf(process.platform === "darwin")("Mac native inventory", () => {
             schemaVersion: 1,
             mode: "jit",
             target: { platform: "darwin", arch: sdkArch },
+            bun: {
+              version: "1.4.3",
+              revision: bunPin.revision,
+              commit: bunPin.commit,
+              executableSha256: bunPin.artifacts[`darwin-${sdkArch}`].executableSha256,
+            },
             openclaw: { version: "2026.10.14", commit: "a".repeat(40) },
             executable: { path: "openclaw", sha256: "b".repeat(64) },
             runtime: { path: "runtime", sha256: "c".repeat(64) },

@@ -16,8 +16,18 @@ import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 const temps = useAutoCleanupTempDirTracker(afterEach);
 const commit = "a".repeat(40);
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+const bunPin = JSON.parse(readFileSync("scripts/lib/openclaw-bun.json", "utf8"));
 
-function fixture() {
+function compilerIdentity(arch: string) {
+  return {
+    version: "1.4.3",
+    revision: bunPin.revision,
+    commit: bunPin.commit,
+    executableSha256: bunPin.artifacts[`darwin-${arch}`].executableSha256,
+  };
+}
+
+function fixture(arch = "arm64") {
   const root = temps.make("mac-standalone-");
   for (const directory of ["scripts/lib", "dist", "bin", "input/runtime"]) {
     mkdirSync(path.join(root, directory), { recursive: true });
@@ -39,7 +49,8 @@ function fixture() {
   const manifest = {
     schemaVersion: 1,
     mode: "jit",
-    target: { platform: "darwin", arch: "arm64" },
+    target: { platform: "darwin", arch },
+    bun: compilerIdentity(arch),
     openclaw: { version: "2026.10.14", commit },
     executable: { path: "openclaw", sizeBytes: Buffer.byteLength(bytes), sha256: hash(bytes) },
     runtime: {
@@ -80,25 +91,51 @@ function fixture() {
 }
 
 describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging", () => {
-  it("stages a validated executable and sidecar, with app ownership and no loose interpreter tree", () => {
+  it.each(["arm64", "x64"])(
+    "stages a validated %s executable and sidecar, with app ownership and no loose interpreter tree",
+    (arch) => {
+      const f = fixture(arch);
+      const result = f.run({}, [arch === "x64" ? "x86_64" : arch]);
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(path.join(f.output, "openclaw"), "utf8")).toContain("OpenClaw");
+      expect(existsSync(path.join(f.output, "bin/bun"))).toBe(false);
+      expect(existsSync(path.join(f.output, "lib/node_modules"))).toBe(false);
+      expect(existsSync(path.join(f.output, "lib/libsqlite3.dylib"))).toBe(false);
+      expect(readFileSync(path.join(f.output, "runtime/lib/libsqlite3.dylib"), "utf8")).toBe(
+        "sqlite",
+      );
+      expect(
+        JSON.parse(readFileSync(path.join(f.output, "runtime/openclaw-install-owner.json"), "utf8"))
+          .owner,
+      ).toBe("macos-app");
+      const packaged = JSON.parse(readFileSync(path.join(f.output, "manifest.json"), "utf8"));
+      expect(packaged.buildId).toMatch(/^[a-f0-9]{64}$/);
+      expect(packaged.openclaw.commit).toBe(commit);
+      expect(packaged.runtime.sha256).not.toBe(f.manifest.runtime.sha256);
+    },
+  );
+
+  it.each([
+    { field: "revision", value: "unapproved", reason: "wrong" },
+    { field: "commit", value: "b".repeat(40), reason: "wrong" },
+    {
+      field: "executableSha256",
+      value: compilerIdentity("x64").executableSha256,
+      reason: "wrong architecture",
+    },
+    { field: "revision", value: undefined, reason: "missing" },
+    { field: "commit", value: undefined, reason: "missing" },
+    { field: "executableSha256", value: undefined, reason: "missing" },
+  ])("rejects $reason compiler $field before publishing", ({ field, value }) => {
     const f = fixture();
-    const result = f.run();
-    expect(result.status, result.stderr).toBe(0);
-    expect(readFileSync(path.join(f.output, "openclaw"), "utf8")).toContain("OpenClaw");
-    expect(existsSync(path.join(f.output, "bin/bun"))).toBe(false);
-    expect(existsSync(path.join(f.output, "lib/node_modules"))).toBe(false);
-    expect(existsSync(path.join(f.output, "lib/libsqlite3.dylib"))).toBe(false);
-    expect(readFileSync(path.join(f.output, "runtime/lib/libsqlite3.dylib"), "utf8")).toBe(
-      "sqlite",
+    writeFileSync(
+      path.join(f.root, "input/manifest.json"),
+      JSON.stringify({ ...f.manifest, bun: { ...f.manifest.bun, [field]: value } }),
     );
-    expect(
-      JSON.parse(readFileSync(path.join(f.output, "runtime/openclaw-install-owner.json"), "utf8"))
-        .owner,
-    ).toBe("macos-app");
-    const packaged = JSON.parse(readFileSync(path.join(f.output, "manifest.json"), "utf8"));
-    expect(packaged.buildId).toMatch(/^[a-f0-9]{64}$/);
-    expect(packaged.openclaw.commit).toBe(commit);
-    expect(packaged.runtime.sha256).not.toBe(f.manifest.runtime.sha256);
+    const result = f.run();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(`Standalone Bun ${field} mismatch`);
+    expect(existsSync(f.output)).toBe(false);
   });
 
   it("identifies the completed unsigned sidecar and preserves that identity during signing", () => {
@@ -272,6 +309,7 @@ describe.skipIf(process.platform !== "darwin")("Mac packaged SQLite capability a
           schemaVersion: 1,
           mode: "jit",
           target: { platform: "darwin", arch: process.arch },
+          bun: compilerIdentity(process.arch),
           openclaw: { version: "2026.10.14", commit },
           executable: {
             path: "openclaw",

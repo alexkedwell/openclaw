@@ -5,12 +5,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describeStandaloneRuntime, sha256File } from "./bun-standalone-contract.mjs";
 
+const bunPin = JSON.parse(fs.readFileSync(new URL("./openclaw-bun.json", import.meta.url), "utf8"));
+
 export function readMacStandaloneManifest(root) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   assert.equal(manifest.schemaVersion, 1, "Unsupported standalone manifest version");
   assert(["jit", "bytecode"].includes(manifest.mode), "Unsupported Mac standalone mode");
   assert.equal(manifest.target?.platform, "darwin", "Standalone platform mismatch");
   assert(["arm64", "x64"].includes(manifest.target.arch), "Standalone architecture mismatch");
+  for (const field of ["revision", "commit"]) {
+    assert.equal(manifest.bun?.[field], bunPin[field], `Standalone Bun ${field} mismatch`);
+  }
+  assert.equal(
+    manifest.bun?.executableSha256,
+    bunPin.artifacts[`darwin-${manifest.target.arch}`].executableSha256,
+    "Standalone Bun executableSha256 mismatch",
+  );
   assert.equal(manifest.executable?.path, "openclaw", "Standalone executable path mismatch");
   assert.equal(manifest.runtime?.path, "runtime", "Standalone sidecar path mismatch");
   assert.equal(manifest.macos?.hardenedRuntime, true, "Standalone hardened runtime mismatch");
