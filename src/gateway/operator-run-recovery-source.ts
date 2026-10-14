@@ -56,9 +56,12 @@ export function captureQueuedOperatorRecoverySource(
   } else {
     return { kind: "unavailable" };
   }
-  return Buffer.byteLength(JSON.stringify(captured), "utf8") <= MAX_RECOVERY_SOURCE_BYTES
-    ? decodeQueuedOperatorRecoverySource(captured)
-    : { kind: "unavailable" };
+  try {
+    return decodeQueuedOperatorRecoverySource(captured);
+  } catch {
+    // Recovery limits must not reject work under its current live authority.
+    return { kind: "unavailable" };
+  }
 }
 
 /** Capture only handshake-attested input; internal callers cannot manufacture a durable source. */
