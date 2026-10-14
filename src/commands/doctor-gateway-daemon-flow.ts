@@ -221,6 +221,15 @@ export async function maybeRepairGatewayDaemon(params: {
   healthOk: boolean;
   healthSkipped?: boolean;
 }) {
+  const sqliteLibrary = ensureSqliteLibrarySelected();
+  if (sqliteLibrary.source !== "runtime") {
+    note(
+      `SQLite (doctor process): ${sqliteLibrary.path} (${sqliteLibrary.version}, extension loading enabled)`,
+      "SQLite",
+    );
+  } else if (sqliteLibrary.ignoredOverride) {
+    note(`SQLite (doctor process): ${sqliteLibrary.ignoredOverride}; override ignored`, "SQLite");
+  }
   if (!isDefaultInstallIdentity(process.env)) {
     note(NON_DEFAULT_INSTALL_SERVICE_SKIP_REASON, "Gateway");
     return;
