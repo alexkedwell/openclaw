@@ -659,6 +659,7 @@ describe("admitFollowupTurn", () => {
   });
 
   it("retains the preflight owner's public recovery guidance for a queued turn", async () => {
+    state.admitReply.mockResolvedValue({ status: "owned", operation: createOperation() });
     const userMessage = "The saved history exceeds its limit. Use /new, then resend your message.";
     state.preflight.mockRejectedValue(
       new AgentHarnessPreflightError(
