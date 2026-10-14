@@ -65,17 +65,6 @@ export async function verifyMacStandaloneRuntime(root, expected, mode, arch) {
 
 export async function refreshMacStandaloneManifest(root, installOwner = false) {
   const manifest = readMacStandaloneManifest(root);
-  // The seed identity describes the input artifact, independent of codesign's timestamps.
-  manifest.buildId ??= createHash("sha256")
-    .update(
-      JSON.stringify([
-        manifest.openclaw,
-        manifest.mode,
-        manifest.executable.sha256,
-        manifest.runtime.sha256,
-      ]),
-    )
-    .digest("hex");
   if (installOwner) {
     fs.writeFileSync(
       path.join(root, "runtime/openclaw-install-owner.json"),
@@ -94,6 +83,20 @@ export async function refreshMacStandaloneManifest(root, installOwner = false) {
     sha256: await sha256File(executable),
   };
   manifest.runtime = await describeStandaloneRuntime(path.join(root, "runtime"));
+  if (installOwner) {
+    // Hash the complete unsigned payload, including the app-owned additions.
+    // Resealing updates native hashes without changing this seed identity.
+    manifest.buildId = createHash("sha256")
+      .update(
+        JSON.stringify([
+          manifest.openclaw,
+          manifest.mode,
+          manifest.executable.sha256,
+          manifest.runtime.sha256,
+        ]),
+      )
+      .digest("hex");
+  }
   fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 }
 

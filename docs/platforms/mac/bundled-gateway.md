@@ -371,7 +371,7 @@ database migrations. A failed update leaves the runtime on Node and shows the
 existing update failure and Retry window.
 
 On the next launch or Retry, once the core update or repair completes and the
-versions match, the app seeds its bundled runtime and reinstalls the service with matching concrete Bun, package, and
+versions match, the app seeds its bundled runtime and reinstalls the service with matching concrete executable, sidecar, and
 SQLite paths. It verifies health before completing the migration. If that step
 fails, it reinstalls and verifies the retained same-version Node command, then
 shows the failure with Retry. The app retains the old Node tools and npm package
@@ -409,7 +409,7 @@ exact or unset install policy. While paused, the app only records the hosting
 preference; it does not update, seed, or install a Gateway.
 
 On Resume, an older Node installation uses its core updater to reach the app's
-version without restarting a service. It then seeds Bun, installs the service,
+version without restarting a service. It then seeds the standalone runtime, installs the service,
 and verifies health in the same startup attempt. If the runtime switch fails,
 the app reinstalls and verifies the same-version Node service and shows the
 update failure with Retry. Fresh profiles retain app hosting; channel policies,

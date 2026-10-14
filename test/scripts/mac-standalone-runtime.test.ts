@@ -101,6 +101,36 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
     expect(packaged.runtime.sha256).not.toBe(f.manifest.runtime.sha256);
   });
 
+  it("identifies the completed unsigned sidecar and preserves that identity during signing", () => {
+    const first = fixture();
+    const second = fixture();
+    writeFileSync(
+      path.join(second.root, "scripts/build-mac-sqlite.sh"),
+      '#!/bin/bash\nmkdir -p "$2/lib"\nprintf other-sqlite > "$2/lib/libsqlite3.dylib"\n',
+    );
+    for (const f of [first, second]) {
+      const result = f.run();
+      expect(result.status, result.stderr).toBe(0);
+    }
+    const firstManifest = JSON.parse(
+      readFileSync(path.join(first.output, "manifest.json"), "utf8"),
+    );
+    const unsigned = JSON.parse(readFileSync(path.join(second.output, "manifest.json"), "utf8"));
+    expect(unsigned.buildId).not.toBe(firstManifest.buildId);
+    writeFileSync(path.join(second.output, "openclaw"), "signed executable");
+    writeFileSync(path.join(second.output, "runtime/lib/libsqlite3.dylib"), "signed library");
+    const sealed = spawnSync(
+      process.execPath,
+      [path.resolve("scripts/lib/mac-standalone-runtime.mjs"), "seal", second.output],
+      { encoding: "utf8" },
+    );
+    expect(sealed.status, sealed.stderr).toBe(0);
+    const signed = JSON.parse(readFileSync(path.join(second.output, "manifest.json"), "utf8"));
+    expect(signed.buildId).toBe(unsigned.buildId);
+    expect(signed.executable.sha256).not.toBe(unsigned.executable.sha256);
+    expect(signed.runtime.sha256).not.toBe(unsigned.runtime.sha256);
+  });
+
   it("reuses the builder's canonical SQLite library without producing a second copy", () => {
     const f = fixture();
     const sqlite = "builder-sqlite";
