@@ -204,19 +204,8 @@ async function cleanupNewBitable(
         });
         ensureLarkSuccess(response, "bitable.appTableRecord.batchDelete");
         cleanedRows = emptyRecordIds.length;
-      } catch {
-        // Fallback: delete one by one if batch API is unavailable
-        for (const recordId of emptyRecordIds) {
-          try {
-            const response = await client.bitable.appTableRecord.delete({
-              path: { ...tablePath, record_id: recordId },
-            });
-            ensureLarkSuccess(response, "bitable.appTableRecord.delete");
-            cleanedRows++;
-          } catch (err) {
-            logger.debug(`Failed to delete empty row ${recordId}: ${String(err)}`);
-          }
-        }
+      } catch (err) {
+        logger.debug(`Failed to delete placeholder rows: ${String(err)}`);
       }
     }
   }

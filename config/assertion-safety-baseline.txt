@@ -292,7 +292,6 @@ extensions/exa/src/exa-web-search-provider.runtime.ts	1
 extensions/fal/video-generation-provider.ts	3
 extensions/feishu/src/accounts.ts	3
 extensions/feishu/src/bitable.ts	1
-extensions/feishu/src/bot-broadcast.ts	3
 extensions/feishu/src/bot-content.ts	1
 extensions/feishu/src/bot-identity-cache.ts	1
 extensions/feishu/src/bot-name.ts	2
@@ -572,7 +571,7 @@ extensions/msteams/src/qa/adapter.runtime.ts	1
 extensions/msteams/src/qa/bot-framework-server.ts	2
 extensions/msteams/src/qa/private-runtime.ts	1
 extensions/msteams/src/reply-stream-controller.ts	1
-extensions/msteams/src/sdk-proactive.ts	3
+extensions/msteams/src/sdk-proactive.ts	1
 extensions/msteams/src/sdk.ts	3
 extensions/msteams/src/sqlite-state.ts	1
 extensions/msteams/src/user-agent.ts	1
@@ -978,7 +977,7 @@ extensions/zalouser/src/text-styles-ranges.ts	1
 extensions/zalouser/src/text-styles-source.ts	1
 extensions/zalouser/src/tool.ts	1
 extensions/zalouser/src/zalo-js.ts	7
-extensions/zalouser/src/zca-client.ts	2
+extensions/zalouser/src/zca-client.ts	1
 packages/acp-core/src/runtime/errors.ts	6
 packages/agent-core/src/agent-loop.ts	2
 packages/agent-core/src/harness/compaction/branch-summarization.ts	1

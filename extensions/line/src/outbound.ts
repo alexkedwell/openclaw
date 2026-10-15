@@ -127,7 +127,7 @@ export const lineOutboundAdapter: NonNullable<ChannelPlugin<ResolvedLineAccount>
       }
       acceptedResults.push(result);
       try {
-        await onDeliveryResult?.(createEmptyChannelResult("line", { ...result }));
+        await onDeliveryResult?.(createEmptyChannelResult("line", result));
       } catch (error) {
         // Observers run after provider acceptance; losing this receipt invites duplicate delivery.
         const receipt = createMessageReceiptFromOutboundResults({ results: acceptedResults });
@@ -178,10 +178,9 @@ export const lineOutboundAdapter: NonNullable<ChannelPlugin<ResolvedLineAccount>
 
     const processed = payload.text ? outboundRuntime.processLineMessage(payload.text) : [];
 
-    const chunkLimit =
-      runtime.channel.text.resolveTextChunkLimit?.(cfg, "line", accountId ?? undefined, {
-        fallbackLimit: 5000,
-      }) ?? 5000;
+    const chunkLimit = runtime.channel.text.resolveTextChunkLimit(cfg, "line", accountId, {
+      fallbackLimit: 5000,
+    });
 
     const orderedMessages = processed.flatMap<messagingApi.FlexMessage | messagingApi.TextMessage>(
       (segment) =>
@@ -321,7 +320,7 @@ export const lineOutboundAdapter: NonNullable<ChannelPlugin<ResolvedLineAccount>
     if (!completedResult) {
       throw new Error("Message must be non-empty for LINE sends");
     }
-    return createEmptyChannelResult("line", { ...completedResult });
+    return createEmptyChannelResult("line", completedResult);
   },
   ...createAttachedChannelResultAdapter({
     channel: "line",

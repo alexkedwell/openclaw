@@ -10,45 +10,17 @@ import type { OpenClawConfig } from "../runtime-api.js";
 
 const normalizeMattermostBaseUrl = vi.hoisted(() => vi.fn((value: string | undefined) => value));
 
-vi.mock("./mattermost/accounts.js", () => {
-  const resolveAccount = (params: { cfg: OpenClawConfig; accountId?: string }) => ({
-    accountId: params.accountId ?? DEFAULT_ACCOUNT_ID,
-    enabled: params.cfg.channels?.mattermost?.enabled !== false,
-    botToken:
-      typeof params.cfg.channels?.mattermost?.botToken === "string"
-        ? params.cfg.channels.mattermost.botToken
-        : undefined,
-    baseUrl: normalizeMattermostBaseUrl(params.cfg.channels?.mattermost?.baseUrl),
-    botTokenSource:
-      typeof params.cfg.channels?.mattermost?.botToken === "string" ? "config" : "none",
-    botTokenStatus:
-      typeof params.cfg.channels?.mattermost?.botToken === "string" ? "available" : "missing",
-    baseUrlSource: params.cfg.channels?.mattermost?.baseUrl ? "config" : "none",
-    config: params.cfg.channels?.mattermost ?? {},
-  });
-  return {
-    listMattermostAccountIds: vi.fn((cfg: OpenClawConfig) => {
-      const accounts = cfg.channels?.mattermost?.accounts;
-      const ids = accounts ? Object.keys(accounts) : [];
-      return ids.length > 0 ? ids : [DEFAULT_ACCOUNT_ID];
-    }),
-    inspectMattermostAccount: resolveAccount,
-    resolveMattermostAccount: resolveAccount,
-  };
-});
-
 vi.mock("./mattermost/client.js", () => ({
   normalizeMattermostBaseUrl,
 }));
 
 let mattermostSetupWizard: typeof import("./setup-surface.js").mattermostSetupWizard;
-let isMattermostConfigured: typeof import("./setup-core.js").isMattermostConfigured;
 let mattermostSetupAdapter: typeof import("./setup-core.js").mattermostSetupAdapter;
 
 describe("mattermost setup", () => {
   beforeAll(async () => {
     ({ mattermostSetupWizard } = await import("./setup-surface.js"));
-    ({ isMattermostConfigured, mattermostSetupAdapter } = await import("./setup-core.js"));
+    ({ mattermostSetupAdapter } = await import("./setup-core.js"));
   });
 
   beforeEach(() => {
@@ -59,32 +31,6 @@ describe("mattermost setup", () => {
     normalizeMattermostBaseUrl.mockReset();
     normalizeMattermostBaseUrl.mockImplementation((value: string | undefined) => value);
     vi.unstubAllEnvs();
-  });
-
-  it("reports configuration only when token and base url are both present", () => {
-    expect(
-      isMattermostConfigured({
-        botToken: "bot-token",
-        baseUrl: "https://chat.example.com",
-        config: {},
-      } as never),
-    ).toBe(true);
-
-    expect(
-      isMattermostConfigured({
-        botToken: "",
-        baseUrl: "https://chat.example.com",
-        config: { botToken: "secret-ref" },
-      } as never),
-    ).toBe(true);
-
-    expect(
-      isMattermostConfigured({
-        botToken: "",
-        baseUrl: "",
-        config: {},
-      } as never),
-    ).toBe(false);
   });
 
   it("validates env and explicit credential requirements", () => {

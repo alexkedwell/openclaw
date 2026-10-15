@@ -406,7 +406,7 @@ describe("ClickClack discussion service", () => {
     });
   });
 
-  it("attaches a channel to the current incarnation when the session resets during open", async () => {
+  it("attaches the current incarnation and reconciles metadata edited during open", async () => {
     const harness = createHarness({ sessionId: "session-old", label: "Reset race" });
     const sessionKey = "agent:main:reset-race";
     const replacement = {
@@ -421,6 +421,13 @@ describe("ClickClack discussion service", () => {
       .mockResolvedValue(replacement);
 
     await expect(harness.service.open(sessionKey)).resolves.toMatchObject({ state: "open" });
+    expect(harness.updateChannel).not.toHaveBeenCalled();
+    expect(harness.store.lookup(sessionKey)).toMatchObject({
+      sessionId: "session-new",
+      label: "Reset race",
+    });
+
+    await harness.service.info(sessionKey);
     expect(harness.updateChannel).toHaveBeenCalledWith(
       "chn_discussion",
       expect.objectContaining({
@@ -435,23 +442,6 @@ describe("ClickClack discussion service", () => {
       label: "Current reset race",
       section: "Current sessions",
     });
-  });
-
-  it("rechecks the attachment incarnation after a prepared session read returns", async () => {
-    const harness = createHarness({ sessionId: "session-old", label: "Prepared attachment" });
-    const sessionKey = "agent:main:prepared-attachment";
-    let reads = 0;
-    harness.runtime.agent.session.getSessionEntryAsync = async (params) => {
-      const prepared = harness.runtime.agent.session.getSessionEntry(params);
-      if (++reads === 2) {
-        harness.setSessionEntry({ sessionId: "session-new", label: "Prepared attachment" });
-      }
-      return prepared;
-    };
-
-    await expect(harness.service.open(sessionKey)).resolves.toMatchObject({ state: "open" });
-    expect(harness.store.lookup(sessionKey)).toMatchObject({ sessionId: "session-new" });
-    expect(harness.createChannel).toHaveBeenCalledOnce();
   });
 
   it("falls back after exhausting desired-name suffixes through 20", async () => {

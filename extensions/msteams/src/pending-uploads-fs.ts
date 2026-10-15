@@ -88,7 +88,7 @@ async function registerUploadRows(
   metaStore: PluginStateKeyedStore<PendingUploadMetaRecord>,
   chunkStore: PluginStateKeyedStore<PendingUploadChunkRecord>,
 ): Promise<void> {
-  const buffer = Buffer.from(record.buffer);
+  const buffer = record.buffer;
   const chunkCount = Math.max(1, Math.ceil(buffer.byteLength / RAW_CHUNK_BYTES));
   if (chunkCount > MAX_CHUNKS_PER_UPLOAD) {
     throw new Error(
@@ -139,17 +139,17 @@ async function readUploadRows(
   ) {
     return undefined;
   }
-  // Published Teams packages retain support for hosts with point reads only.
-  const records = await chunkStore.lookupMany?.(
+  // The current bundled host always supplies bulk reads, unlike custom SDK adapters.
+  const records = await chunkStore.lookupMany!(
     Array.from({ length: meta.chunkCount }, (_, index) => buildChunkKey(id, index)),
   );
   const chunks: Buffer[] = [];
   for (let index = 0; index < meta.chunkCount; index += 1) {
-    const result = records?.[index];
+    const result = records[index];
     if (result && !result.ok) {
       throw result.error;
     }
-    const chunk = records ? result?.value : await chunkStore.lookup(buildChunkKey(id, index));
+    const chunk = result?.value;
     if (!chunk || chunk.id !== id || chunk.index !== index) {
       return undefined;
     }

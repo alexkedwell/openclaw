@@ -136,7 +136,7 @@ describe("feishu bitable create app cleanup", () => {
     });
   });
 
-  it("counts only accepted cleanup mutations and falls back after a rejected batch response", async () => {
+  it("counts only accepted cleanup mutations without replaying a rejected batch", async () => {
     const { batchDelete, client } = createBitableClient([
       { record_id: "rec_rejected", fields: {} },
       { record_id: "rec_deleted", fields: {} },
@@ -154,9 +154,9 @@ describe("feishu bitable create app cleanup", () => {
     vi.mocked(client.bitable.appTableField.update).mockResolvedValueOnce({ code: 1254302 });
     vi.mocked(client.bitable.appTableField.delete).mockResolvedValueOnce({ code: 1254302 });
     batchDelete.mockResolvedValueOnce({ code: 1254302 });
-    vi.mocked(client.bitable.appTableRecord.delete).mockResolvedValueOnce({ code: 1254302 });
     createFeishuClientMock.mockReturnValue(client);
     const { api, resolveTool } = createToolFactoryHarness(createConfig());
+    const debug = vi.spyOn(api.logger, "debug");
     registerFeishuBitableTools(api);
 
     const result = await resolveTool("feishu_bitable_create_app").execute("create", {
@@ -166,10 +166,13 @@ describe("feishu bitable create app cleanup", () => {
     expect(result.details).toMatchObject({
       app_token: "app_token",
       table_id: "tbl_main",
-      cleaned_placeholder_rows: 1,
+      cleaned_placeholder_rows: 0,
       cleaned_default_fields: 1,
     });
-    expect(client.bitable.appTableRecord.delete).toHaveBeenCalledTimes(2);
+    expect(client.bitable.appTableRecord.delete).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to delete placeholder rows:"),
+    );
   });
 
   it("keeps creation identifiers without recommending unavailable metadata lookup after table-list failure", async () => {
