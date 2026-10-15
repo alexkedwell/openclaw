@@ -1,12 +1,16 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { awaitGateBeforeSettlement, createDeferred } from "../../test/helpers/promise.js";
+import { acceptCompactionSuccessor } from "../agents/embedded-agent-runner/compaction-successor.js";
 import { markRestartAbortedMainSessions } from "../agents/main-session-recovery/main-session-restart-recovery-marking.js";
 import { recoverStore } from "../agents/main-session-recovery/main-session-restart-recovery-store.js";
-import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
-import { acceptCompactionSuccessor } from "../agents/embedded-agent-runner/compaction-successor.js";
 import { createRestartRecoveryRequesterSource } from "../agents/requester-run-recovery-source.js";
-import { appendTranscriptMessage, loadSessionEntry, replaceSessionEntry } from "../config/sessions/session-accessor.js";
+import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
+import {
+  appendTranscriptMessage,
+  loadSessionEntry,
+  replaceSessionEntry,
+} from "../config/sessions/session-accessor.js";
 import {
   getAgentEventLifecycleGeneration,
   resetAgentEventsForTest,

@@ -27,13 +27,13 @@ import {
 } from "../plugins/runtime.js";
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
+import { changeCanonicalUserChannelIdentity } from "../state/user-channel-identity-operations.js";
 import { setCanonicalUserProfileDisplayName } from "../state/user-profile-writes.js";
 import {
   linkEmail,
   setUserProfileRole,
   syncGitHubIdentity,
 } from "../state/user-profile-writes.worker.js";
-import { changeCanonicalUserChannelIdentity } from "../state/user-channel-identity-operations.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { captureAgentTurnPrincipal } from "./agent-turn/principal.js";
