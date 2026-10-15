@@ -163,17 +163,19 @@ const authCredentialCallers = new Map<string, readonly string[]>([
     ],
   ],
   // Enrollment preserves credential bytes with a CAS in the existing admitted transaction.
-  // Guard both worker entry points and their host dispatch; no raw writer escapes this chain.
+  // Doctor uses the native agent transaction only with exclusive maintenance, live admission
+  // and the same credential CAS/commit fence. Keep its exact host edge, not a file exemption.
   [
     key(authEnrollment, "enrollAuthProfileAuthorizationInDatabase"),
     [
       key(authWorker, "authProfiles.enrollAuthorization"),
       key("src/agents/auth-profiles/inline-usage.worker.ts", "bindSqliteWorkerBackend/execute"),
+      key(authEnrollmentRuntime, "enrollOwnedAuthProfileAuthorization"),
     ],
   ],
   [
     key(authEnrollmentRuntime, "enrollOwnedAuthProfileAuthorization"),
-    [key("src/agents/mcp-auth-profile-authorization.ts", "captureMcpAuthProfileAuthorization")],
+    [key("src/agents/auth-profiles/authorization.ts", "captureAuthProfileAuthorization")],
   ],
   [
     key(authCells, "deleteAuthProfileJsonCell"),
@@ -571,7 +573,11 @@ const callers = new Map<string, readonly string[]>([
   [key(accounts, "writeRecord"), [key(accounts, "writeProfile"), key(accounts, "writeLinks")]],
   [
     key(accounts, "writeProfile"),
-    [key(accounts, "updateUserModelAuthProfile"), key(accounts, "connectUserModelAccount")],
+    [
+      key(accounts, "updateUserModelAuthProfile"),
+      key(accounts, "connectUserModelAccount"),
+      key(accounts, "enrollPersonalAuthProfileAuthorizationInDatabase"),
+    ],
   ],
   [
     key(accounts, "writeLinks"),
@@ -592,6 +598,11 @@ const callers = new Map<string, readonly string[]>([
   [
     key(accounts, "connectUserModelAccount"),
     [key(profileWorker, "userProfiles.modelAccount.connect")],
+  ],
+  // Enrollment preserves credential bytes and requires the same admitted personal writer.
+  [
+    key(accounts, "enrollPersonalAuthProfileAuthorizationInDatabase"),
+    [key(profileWorker, "userProfiles.modelAccount.enrollAuthorization")],
   ],
   [key(accounts, "mergeUserModelAccounts"), [key(profileMerge, "mergeUserProfiles")]],
   [

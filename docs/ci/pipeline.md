@@ -142,6 +142,11 @@ and scene readiness; it does not compare pixels against a baseline.
 
 ### Test runtime selection
 
+Local development and tests now default to the pinned Bun fork; CI keeps its
+planner-selected runtime. Main-only Node lanes, including Control UI tests, are
+a known Bun coverage gap: a change can pass main CI while breaking local Bun
+execution. PR and dual-runtime validation provide the current Bun coverage.
+
 CI's `setup-test-bun` action consumes `scripts/lib/openclaw-bun.json` through
 `scripts/stage-openclaw-bun.sh`, the same owner used by the macOS and Tauri apps.
 Every pin bump requires **both** the paired CI Bun-lane replay and Bun-only smoke,
@@ -153,10 +158,11 @@ Shared pin/stager changes select macOS, Linux companion, and Bun test lanes.
 See [the shared pin schema and regeneration](/platforms/mac/dev-setup#shared-bun-pin-and-repin-gate).
 
 Linux test shards select Bun through `scripts/lib/ci-test-runtime.mts`. The
-ordinary unit-fast lane partitions its existing file inventory: files with known
-Bun failures or additional skips stay on Node, and the compatible remainder runs
-on Bun. Those Node files still execute; they are not excluded from CI. The
-isolated unit-fast lane runs completely on Bun.
+ordinary unit-fast lane partitions its existing file inventory: Node diagnostic
+reports, transferable pipe-handle contracts, and the native Node/SQLite history
+benchmark stay on Node; the compatible remainder runs on Bun. Those Node files
+still execute; they are not excluded from CI. The isolated unit-fast lane
+runs completely on Bun.
 
 Bun test processes disable the Node-compatible bytecode cache because the pinned
 fork generates bytecode during Vitest teardown. Bun's transpiler cache and the
@@ -198,10 +204,12 @@ joined descendant cleanup. Release validation runs the complete Node selection
 before the compatible Bun/Vitest and native Bun portions in that same slot;
 every result remains required. Native execution adds no CI jobs or worker fanout.
 
-The process lane runs `terminal-pty-bun.test.ts` and the spawn-broker
-`event-order.test.ts` and `group-custody.test.ts` files on Bun. The broker tests
-exercise inherited `NODE_OPTIONS` preloads; their Windows exclusions remain.
-Other process files retain Node. The pinned fork supports `Bun.Terminal.pause()` and `resume()`,
+The process lane defaults to Bun. Node retains the transferable pipe-handle
+broker contracts, including mixed suites with broker assertions, and the
+Node-specific subreaper and two-process relay retirement cases. Existing config
+exclusions still keep unit-fast and database-worker files with their owners.
+The broker event-order and group-custody tests exercise inherited `NODE_OPTIONS`
+preloads; their Windows exclusions remain. The pinned fork supports `Bun.Terminal.pause()` and `resume()`,
 so its native real-PTY cases run on Linux. macOS and Linux select the native PTY
 without Node on builds with that capability, including the pinned fork's macOS
 child-exit fix. Other Bun
@@ -211,12 +219,15 @@ The qualified TypeScript compiler analysis files and `src/library.test.ts` run
 on Bun. The pinned fork exposes the child-process pipe handles and stream
 reference controls used by TypeScript's synchronous native API. Compiler
 assertions in mixed runtime suites remain enabled.
-The worker connection-closing-window test is also qualified in the aggregate
-and src-only unit owners.
+The src-only unit owner also defaults to Bun. The state-lease retention test
+keeps its separate infra owner on Node: the completed worker-heartbeat case still
+retains its caller's async context. The aggregate unit owner shares the Bun
+admission for src-only files and retains Node for the separate ACP, security,
+and package inventories, apart from the previously qualified normalization-core
+grapheme test.
 The Code Mode executor runs with Vitest on Bun using the fork's
 copy-on-write diagnostics-channel subscriber handling. Markdown render-aware
-chunking stays on Node because the pinned WebKit lacks the `Intl.Segmenter`
-surrogate-boundary fix needed by that suite.
+chunking runs on the pinned fork as part of unit-fast.
 The complete fake-timer lane, plugin and proxy retention tests, and other
 Control UI tests support Bun. Control UI WeakRef-collection proofs in
 `desktop-mobile-keyboard.test.ts`, `chat-pane-retention.test.ts`,
@@ -342,11 +353,18 @@ functions remain valid after the original cache buffer is garbage-collected.
 It also keeps allocator ownership during zero-time event-loop polls, while
 retaining the idle handoff for polls that can block.
 
-The pinned build pairs Bun `65d94e7156da4b6aca649dac5f19b8294b757570` with WebKit
+The pinned build pairs Bun `94f8f5ffec48f47b3b3fb84891ef5ced046f5814` with WebKit
 `01f208ae7a87661e7503f514c946a37bc76ad1d1` in prerelease
-`openclaw-v1.4.3-20261010-65d94e7156-webkit-01f208ae7a-r2`.
-This build shares source buffers on `node:vm` cache hits, refactors module
-resolution, aligns TLS teardown with Node, fixes subprocess retirement, and
+`openclaw-v1.4.3-20261014-94f8f5ffec-webkit-01f208ae7a`.
+This build measures CPU profiles over the full monotonic capture interval, drains
+Worker stdio before exit, preserves unpaired UTF-16 surrogates in `node:path`, and
+waits for the final socket write before setting `ServerResponse.writableFinished`.
+It cancels destroyed child stdin only when a write is pending, exposes native HTTPS
+request sockets as `tls.TLSSocket`, and preserves cloneable Worker loader errors.
+ESM specifiers now decode URL escapes per Node; a literal `#` starts a fragment,
+so filenames containing `#` must use `%23` in their import URL.
+It retains shared source buffers on `node:vm` cache hits, refactored module
+resolution, Node-compatible TLS teardown, subprocess retirement fixes, and
 enforces Node-compatible process and Worker heap limits. It fixes N-API cleanup
 and external strings across Workers, releases Worker-local event-name state,
 and skips the preliminary full collection at Worker shutdown. WebKit fixes
@@ -354,7 +372,7 @@ stale VM-entry storage initialization, uses a two-pointer VMEntryScope, and
 fixes Linux foreign-stack suspension deadlocks.
 It retains deferred VM bytecode generation, integral heap-sampling byte sizes,
 inspector snapshot cleanup, and the previous worker heap-cap, module-resolution,
-test-deadline, GC cadence, and idle-worker fixes. This same-commit rebuild publishes
+test-deadline, GC cadence, and idle-worker fixes. The release publishes
 Darwin/Linux targets and Authenticode-signed Windows x64/arm64 targets from the
 OpenClaw Foundation. Darwin executables remain Developer ID signed and notarized;
 the shared pin records Windows targets as signed and not test-only.
@@ -760,7 +778,13 @@ minutes. These retries share the three-restart limit and job deadline with API
 recovery. Each attempt rereads the full file list, PR metadata, approvals, roles,
 and CI state; target, author, and other approval-relevant metadata must still
 match the original evaluation. A newer head supersedes the obsolete run.
-Both guards share each attempt's validated file list. Recovery also runs within
+Both guards share each attempt's validated file list. On direct PR events, the
+preparation step analyzes dependencies and completes both guards in one process
+when no lockfile cleanup is needed. A cleanup candidate still passes through the
+existing App-token/autoscrub steps and a fresh final enforcement. Only a completed
+evaluation can skip the duplicate enforcement process; errors and ineligible PRs
+leave that step active. CI-completion, scheduled, and command reviews keep their
+separate enforcement step and publication admission. Recovery also runs within
 the detection step, so a recovered mismatch does not leave an earlier step red.
 A persistent mismatch fails the review and reports the expected, returned, and
 current file counts.
