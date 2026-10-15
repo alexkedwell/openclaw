@@ -967,8 +967,13 @@ describe("runReplyAgent active steering", () => {
     state.beforeAgentReplyRunMock.mockResolvedValue(undefined);
     state.runEmbeddedAgentMock.mockImplementationOnce(runHookBackedEmbeddedAgent);
     const onBlockReply = vi.fn();
+    const runState: ReplyOperationRunState = {};
     const { followupRun, run } = createMinimalRun({
-      opts: { messageInjectionDisposition: "rejected", onBlockReply },
+      opts: {
+        messageInjectionDisposition: "rejected",
+        onBlockReply,
+        [REPLY_OPERATION_RUN_STATE]: runState,
+      },
       isActive: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
@@ -977,6 +982,7 @@ describe("runReplyAgent active steering", () => {
         OriginatingChannel: "discord",
         OriginatingTo: "channel:24680",
         MessageSid: "steer-pre-attempted",
+        SenderId: "bob",
       },
       runOverrides: { agentId: "main", messageProvider: "discord" },
     });
@@ -989,10 +995,20 @@ describe("runReplyAgent active steering", () => {
     expect(state.runEmbeddedAgentMock).not.toHaveBeenCalled();
     expect(vi.mocked(enqueueFollowupRun)).toHaveBeenCalledOnce();
     expect(vi.mocked(enqueueFollowupRun).mock.calls[0]?.[1]).toBe(followupRun);
+    expect(vi.mocked(enqueueFollowupRun).mock.calls[0]?.[1]).toMatchObject({
+      originatingChannel: "discord",
+      run: { senderId: "bob" },
+    });
+    expect(runState.admission).toEqual({
+      status: "accepted",
+      mode: "followup",
+      reason: "steering-unavailable",
+    });
     expect(vi.mocked(scheduleFollowupDrain)).toHaveBeenCalledOnce();
     await requireScheduledFollowupRunner()(followupRun);
     expect(state.beforeAgentReplyRunMock).toHaveBeenCalledOnce();
     expect(state.runEmbeddedAgentMock).toHaveBeenCalledOnce();
+    expect(state.runEmbeddedAgentMock.mock.calls[0]?.[0]).toMatchObject({ senderId: "bob" });
     expect(delivery).toHaveBeenCalledOnce();
     expect(delivery).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1156,11 +1172,14 @@ describe("runReplyAgent active steering", () => {
 
     active.complete();
     state.runEmbeddedAgentMock.mockImplementationOnce(runHookBackedEmbeddedAgent);
+    const runState: ReplyOperationRunState = {};
     const { followupRun, run } = createMinimalRun({
       isActive: true,
       shouldSteer: true,
       shouldFollowup: true,
       resolvedQueueMode: "steer",
+      sessionCtx: { SenderId: "bob" },
+      opts: { [REPLY_OPERATION_RUN_STATE]: runState },
     });
     followupRun.prompt = "finish with a table";
 
@@ -1170,12 +1189,22 @@ describe("runReplyAgent active steering", () => {
     expect(state.queueEmbeddedAgentMessageMock).not.toHaveBeenCalled();
     expect(vi.mocked(enqueueFollowupRun)).toHaveBeenCalledOnce();
     expect(vi.mocked(enqueueFollowupRun).mock.calls[0]?.[1]).toBe(followupRun);
+    expect(vi.mocked(enqueueFollowupRun).mock.calls[0]?.[1]).toMatchObject({
+      originatingChannel: "whatsapp",
+      run: { senderId: "bob" },
+    });
+    expect(runState.admission).toEqual({
+      status: "accepted",
+      mode: "followup",
+      reason: "steering-unavailable",
+    });
     expect(parkedSteer.fallback).not.toHaveBeenCalled();
     expect(parkedSteer.consume).not.toHaveBeenCalled();
     expect(vi.mocked(scheduleFollowupDrain)).toHaveBeenCalledOnce();
     expect(state.runEmbeddedAgentMock).not.toHaveBeenCalled();
     await requireScheduledFollowupRunner()(followupRun);
     expect(state.runEmbeddedAgentMock).toHaveBeenCalledOnce();
+    expect(state.runEmbeddedAgentMock.mock.calls[0]?.[0]).toMatchObject({ senderId: "bob" });
   });
 
   it("steers against the session's registered run owner, not a source-keyed reservation", async () => {
