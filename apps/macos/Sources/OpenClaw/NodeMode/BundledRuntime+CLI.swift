@@ -84,7 +84,7 @@ extension BundledRuntime {
         // The CLI shim uses portable seeded state; this link depends on a persistent app location.
         guard allowsPersistentIntegration else { return }
         let fileManager = FileManager.default
-        let source = bundle.bundleURL.appendingPathComponent("Contents/MacOS/openclaw-mac")
+        let source = Self.currentBundleURL(bundle).appendingPathComponent("Contents/MacOS/openclaw-mac")
         guard fileManager.isExecutableFile(atPath: source.path) else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: source.path])
         }

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import OpenClaw
@@ -1319,7 +1320,7 @@ struct BundledGatewayPreparationTests {
             let ownerWarning = "Gateway service uses an operator-pinned runtime; update it yourself"
             manager.bundledUpdateTask = Task { @MainActor in
                 if updateFails { throw GatewayHostingError(message: ownerWarning) }
-                try self.publishRuntime(runtime, current: current)
+                try await self.publishRuntime(runtime, current: current)
                 return .init(activation: .ready, generation: manager.gatewayStartGeneration, source: .request)
             }
             do {
@@ -1333,11 +1334,11 @@ struct BundledGatewayPreparationTests {
         }
     }
 
-    private func publishRuntime(_ runtime: BundledRuntime, current: URL) throws {
+    private func publishRuntime(_ runtime: BundledRuntime, current: URL) async throws {
         for directory in [runtime.sqliteLibrary.deletingLastPathComponent(), runtime.packageRoot] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: runtime.executable)
+        try Data("#!/bin/sh\nprintf '%s\\n' '2026.9.1'\n".utf8).write(to: runtime.executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runtime.executable.path)
         try Data().write(to: runtime.sqliteLibrary)
         try JSONSerialization.data(withJSONObject: [
@@ -1345,10 +1346,13 @@ struct BundledGatewayPreparationTests {
             "openclaw": ["version": "2026.9.1", "commit": String(repeating: "a", count: 40)],
             "executable": [
                 "path": "openclaw", "sizeBytes": Data(contentsOf: runtime.executable).count,
-                "sha256": String(repeating: "a", count: 64),
+                "sha256": SHA256.hash(data: Data(contentsOf: runtime.executable))
+                    .map { String(format: "%02x", $0) }.joined(),
             ],
             "runtime": ["path": "runtime", "sizeBytes": 0],
         ]).write(to: runtime.root.appendingPathComponent("manifest.json"))
+        try await runtime.warm(version: "2026.9.1")
+        try runtime.recordWarmed(buildID: runtime.root.lastPathComponent)
         try FileManager.default.createSymbolicLink(
             atPath: current.path,
             withDestinationPath: runtime.root.lastPathComponent)

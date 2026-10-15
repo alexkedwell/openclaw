@@ -7,70 +7,6 @@ import Testing
 
 @Suite(.serialized)
 struct BundledRuntimeTests {
-    private func makeBundle(at root: URL, builtAt: String, buildID: String? = nil, command: String) throws -> URL {
-        let info: [String: Any] = [
-            "CFBundleIdentifier": "ai.openclaw.mac.debug",
-            "CFBundleExecutable": "OpenClaw",
-            "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "2026.8.1",
-            "CFBundleVersion": "1",
-            "OpenClawGitCommit": String(repeating: "a", count: 40),
-            "OpenClawBuildTimestamp": builtAt,
-            "OpenClawRuntimeBuildID": buildID ?? builtAt,
-        ]
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("Contents/MacOS"),
-            withIntermediateDirectories: true)
-        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
-            .write(to: root.appendingPathComponent("Contents/Info.plist"))
-        try makeExecutableForTests(at: root.appendingPathComponent("Contents/MacOS/openclaw-mac"))
-        let runtime = root.appendingPathComponent("Contents/Resources/runtime")
-        let dist = runtime.appendingPathComponent("runtime/dist")
-        try FileManager.default.createDirectory(at: dist, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: runtime.appendingPathComponent("runtime/lib"),
-            withIntermediateDirectories: true)
-        // A real child process protects command/profile/lifecycle behavior; release proof uses the compiled executable.
-        try """
-        #!/bin/sh
-        if [ "$1" = --version ]; then
-          echo probe >> "${0%/openclaw}/version-probes"
-          echo 2026.8.1
-          exit 0
-        fi
-        case "$1" in
-          */dist/mac-node-worker.js)
-            [ "${PATH%%:*}" = "${0%/openclaw}" ] || exit 91
-            printf '{"type":"ready","version":"2026.8.1","manifest":{"caps":["system"],"commands":["\(command)"],"pathEnv":"%s"}}\\n' "$OPENCLAW_SQLITE_LIBRARY"
-            while IFS= read -r line; do :; done
-            ;;
-          */dist/extensions/browser/setup-entry.js) exit 0 ;;
-          *) printf '%s\\n' "$OPENCLAW_PROFILE" "$OPENCLAW_SQLITE_LIBRARY" "$@" ;;
-        esac
-
-        """.write(to: runtime.appendingPathComponent("openclaw"), atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: runtime.appendingPathComponent("openclaw").path)
-        try Data().write(to: runtime.appendingPathComponent("runtime/lib/libsqlite3.dylib"))
-        try JSONSerialization.data(withJSONObject: [
-            "schemaVersion": 1, "mode": "jit", "buildId": buildID ?? builtAt,
-            "openclaw": ["version": "2026.8.1", "commit": String(repeating: "a", count: 40)],
-            "executable": [
-                "path": "openclaw",
-                "sizeBytes": Data(contentsOf: runtime.appendingPathComponent("openclaw")).count,
-                "sha256": SHA256.hash(data: Data(contentsOf: runtime.appendingPathComponent("openclaw")))
-                    .map { String(format: "%02x", $0) }.joined(),
-            ],
-            "runtime": ["path": "runtime", "sizeBytes": 0],
-        ]).write(to: runtime.appendingPathComponent("manifest.json"))
-        try Data().write(to: dist.appendingPathComponent("mac-node-worker.js"))
-        let browser = dist.appendingPathComponent("extensions/browser")
-        try FileManager.default.createDirectory(at: browser, withIntermediateDirectories: true)
-        try Data().write(to: browser.appendingPathComponent("setup-entry.js"))
-        return dist
-    }
-
     @Test func `dirty same-SHA rebuild selects relocated worker over accepted external CLI`() async throws {
         let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -88,7 +24,7 @@ struct BundledRuntimeTests {
         for (index, command) in ["worker.before", "worker.dirty"].enumerated() {
             let source = root.appendingPathComponent("source-\(index)")
             let app = source.appendingPathComponent("OpenClaw.app")
-            _ = try self.makeBundle(at: app, builtAt: "2026-08-27T00:00:0\(index).000Z", command: command)
+            _ = try makeBundledRuntimeTestBundle(at: app, builtAt: "2026-08-27T00:00:0\(index).000Z", command: command)
             let relocated = root.appendingPathComponent("relocated-\(index)/OpenClaw.app")
             try FileManager.default.createDirectory(
                 at: relocated.deletingLastPathComponent(),
@@ -121,7 +57,7 @@ struct BundledRuntimeTests {
         let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let app = root.appendingPathComponent("OpenClaw.app")
-        let dist = try makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
+        let dist = try makeBundledRuntimeTestBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
         let info = dist.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("manifest.json")
         if failure == "missing" {
             try FileManager.default.removeItem(at: info)
@@ -158,7 +94,7 @@ struct BundledRuntimeTests {
         let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
         let app = root.appendingPathComponent("OpenClaw.app")
-        _ = try self.makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
+        _ = try makeBundledRuntimeTestBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
         let relocated = root.appendingPathComponent("Moved.app")
         try FileManager.default.moveItem(at: app, to: relocated)
         let bundle = try #require(Bundle(url: relocated))
@@ -204,24 +140,28 @@ struct BundledRuntimeTests {
         #expect(runtime.environment["OPENCLAW_SQLITE_LIBRARY"] == expected)
     }
 
-    @Test func `seeding validates the payload without executing it`() async throws {
+    @Test func `app hosting selects the bundle without seeding or executing it`() throws {
         let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let app = home.appendingPathComponent("NoProbe.app")
-        _ = try self.makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
-        let runtime = try await BundledRuntime.seed(
+        _ = try makeBundledRuntimeTestBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
+        let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "no-probe"])
+        let runtime = try BundledRuntime.forAppHosting(
             bundle: #require(Bundle(url: app)),
-            profile: AppProfile(environment: ["OPENCLAW_PROFILE": "no-probe"]),
+            profile: profile,
             homeDirectory: home)
         #expect(!FileManager.default.fileExists(atPath: runtime.root.appendingPathComponent("version-probes").path))
         #expect(FileManager.default.isExecutableFile(atPath: runtime.executable.path))
+        #expect(runtime.root.resolvingSymlinksInPath().path == app
+            .appendingPathComponent("Contents/Resources/runtime").resolvingSymlinksInPath().path)
+        #expect(!FileManager.default.fileExists(atPath: profile.stateDirectoryURL(homeDirectory: home).path))
     }
 
     @Test func `a resealed bundle reuses its intact seed with the same build identity`() async throws {
         let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let app = home.appendingPathComponent("Resealed.app")
-        _ = try self.makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
+        _ = try makeBundledRuntimeTestBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
         let bundle = try #require(Bundle(url: app))
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "resealed"])
         let first = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
@@ -242,10 +182,11 @@ struct BundledRuntimeTests {
         let reused = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
         #expect(reused.root.path == first.root.path)
         #expect(try Data(contentsOf: reused.executable) == original)
-        #expect(!FileManager.default.fileExists(atPath: reused.root.appendingPathComponent("version-probes").path))
+        #expect(try String(contentsOf: reused.root.appendingPathComponent("version-probes"), encoding: .utf8) ==
+            "probe\n")
     }
 
-    @Test func `seeding publishes a relocatable current runtime without probing copied builds`() async throws {
+    @Test func `seeding publishes a relocatable current runtime after warming it once`() async throws {
         let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "seed-fixture"])
@@ -256,7 +197,7 @@ struct BundledRuntimeTests {
 
         for index in 0...1 {
             let app = home.appendingPathComponent("Build-\(index).app")
-            _ = try self.makeBundle(
+            _ = try makeBundledRuntimeTestBundle(
                 at: app, builtAt: "2026-08-27T00:00:0\(index).000Z", buildID: "build-\(index)", command: "unused")
             let bundle = try #require(Bundle(url: app))
             let seeded = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
@@ -264,7 +205,8 @@ struct BundledRuntimeTests {
             #expect(seeded.root.path == runtimeRoot.appendingPathComponent("build-\(index)").path)
             #expect(try FileManager.default.destinationOfSymbolicLink(
                 atPath: runtimeRoot.appendingPathComponent("current").path) == "build-\(index)")
-            #expect(!FileManager.default.fileExists(atPath: seeded.root.appendingPathComponent("version-probes").path))
+            #expect(try String(contentsOf: seeded.root.appendingPathComponent("version-probes"), encoding: .utf8) ==
+                "probe\n")
             let readOnly = try #require(try BundledRuntime.seeded(profile: profile, homeDirectory: home))
             #expect(readOnly.cliCommand == seeded.cliCommand)
             let result = await ShellExecutor.runDetailed(
@@ -283,7 +225,7 @@ struct BundledRuntimeTests {
         #expect(shellText == "# existing settings\n")
 
         let brokenApp = home.appendingPathComponent("Broken.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: brokenApp, builtAt: "2026-08-27T00:00:02.000Z", buildID: "broken-build", command: "unused")
         try "#!/bin/sh\nexit 42\n".write(
             to: brokenApp.appendingPathComponent("Contents/Resources/runtime/openclaw"),
@@ -296,8 +238,10 @@ struct BundledRuntimeTests {
         await #expect(throws: MacNodeHostWorker.WorkerError.self) {
             try await BundledRuntime.seed(bundle: broken, profile: profile, homeDirectory: home)
         }
+        #expect(!FileManager.default.fileExists(atPath: brokenApp
+                .appendingPathComponent("Contents/Resources/runtime/version-probes").path))
         let corruptApp = home.appendingPathComponent("Corrupt.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: corruptApp, builtAt: "2026-08-27T00:00:03.000Z", buildID: "corrupt-build", command: "unused")
         let corruptExecutable = corruptApp.appendingPathComponent("Contents/Resources/runtime/openclaw")
         var bytes = try Data(contentsOf: corruptExecutable)
@@ -307,6 +251,8 @@ struct BundledRuntimeTests {
             try await BundledRuntime.seed(
                 bundle: #require(Bundle(url: corruptApp)), profile: profile, homeDirectory: home)
         }
+        #expect(!FileManager.default.fileExists(atPath: runtimeRoot
+                .appendingPathComponent("corrupt-build/version-probes").path))
         #expect(try FileManager.default.destinationOfSymbolicLink(
             atPath: runtimeRoot.appendingPathComponent("current").path) == "build-1")
         #expect(try FileManager.default.contentsOfDirectory(atPath: runtimeRoot.path)
@@ -333,7 +279,7 @@ struct BundledRuntimeTests {
 
         for index in 1...2 {
             let app = home.appendingPathComponent("Upgrade-\(index).app")
-            _ = try self.makeBundle(
+            _ = try makeBundledRuntimeTestBundle(
                 at: app,
                 builtAt: "2026-08-27T00:00:0\(index).000Z",
                 buildID: "standalone-\(index)",
@@ -368,7 +314,7 @@ struct BundledRuntimeTests {
         """
         try managed.write(to: cli, atomically: true, encoding: .utf8)
         let app = home.appendingPathComponent("Fixture.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: app, builtAt: "2026-08-27T00:00:00.000Z", buildID: "shim-build", command: "unused")
         let bundle = try #require(Bundle(url: app))
         _ = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
@@ -412,7 +358,7 @@ struct BundledRuntimeTests {
             withIntermediateDirectories: true)
         try "operator command\n".write(to: macCLI, atomically: true, encoding: .utf8)
         let app = root.appendingPathComponent("Fixture.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: app, builtAt: "2026-08-27T00:00:00.000Z", buildID: "shell-build", command: "unused")
         let runtime = try await BundledRuntime.seed(
             bundle: #require(Bundle(url: app)), profile: profile, homeDirectory: home)
@@ -443,7 +389,7 @@ struct BundledRuntimeTests {
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "deferred-cli"])
         let state = profile.stateDirectoryURL(homeDirectory: home)
         let app = root.appendingPathComponent("Installed.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: app, builtAt: "2026-08-27T00:00:00.000Z", buildID: "installed-build", command: "unused")
         let stableBundle = try #require(Bundle(url: app))
         let runtime = try await BundledRuntime.seed(bundle: stableBundle, profile: profile, homeDirectory: home)
@@ -453,7 +399,7 @@ struct BundledRuntimeTests {
         let shim = state.appendingPathComponent("bin/openclaw")
         try FileManager.default.removeItem(at: shim)
         let temporaryApp = home.appendingPathComponent("Downloads/OpenClaw.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: temporaryApp, builtAt: "2026-08-27T00:00:01.000Z", buildID: "download-build", command: "unused")
         let temporaryBundle = try #require(Bundle(url: temporaryApp))
         let allowed = !ApplicationRelocator.isTransientLocation(
@@ -488,7 +434,7 @@ struct BundledRuntimeTests {
         let profile = AppProfile(environment: namedProfile ? ["OPENCLAW_PROFILE": "shell-fixture"] : [:])
         let state = profile.stateDirectoryURL(homeDirectory: home)
         let app = root.appendingPathComponent("Fixture.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: app, builtAt: "2026-08-27T00:00:00.000Z", buildID: "shell-build", command: "unused")
         let bundle = try #require(Bundle(url: app))
         let runtime = BundledRuntime(root: app.appendingPathComponent("Contents/Resources/runtime"))
@@ -518,7 +464,7 @@ struct BundledRuntimeTests {
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "mac-cli-move"])
         let state = profile.stateDirectoryURL(homeDirectory: home)
         var app = root.appendingPathComponent("Original.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: app, builtAt: "2026-08-27T00:00:00.000Z", buildID: "move-build", command: "unused")
         let bundle = try #require(Bundle(url: app))
         BundledRuntime.refreshOwnedMacCLILink(
@@ -555,7 +501,7 @@ struct BundledRuntimeTests {
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "operator-mac-cli"])
         let command = profile.stateDirectoryURL(homeDirectory: home).appendingPathComponent("bin/openclaw-mac")
         let app = root.appendingPathComponent("Original.app")
-        _ = try self.makeBundle(
+        _ = try makeBundledRuntimeTestBundle(
             at: app, builtAt: "2026-08-27T00:00:00.000Z", buildID: "operator-build", command: "unused")
         let bundle = try #require(Bundle(url: app))
         let originalTarget = bundle.bundleURL.appendingPathComponent("Contents/MacOS/openclaw-mac").path
@@ -587,7 +533,7 @@ struct BundledRuntimeTests {
         let directory = profile.stateDirectoryURL(homeDirectory: home).appendingPathComponent("runtime")
         for index in 0...2 {
             let app = home.appendingPathComponent("GC-\(index).app")
-            _ = try self.makeBundle(
+            _ = try makeBundledRuntimeTestBundle(
                 at: app, builtAt: "2026-08-27T00:00:0\(index).000Z", buildID: "gc-\(index)", command: "unused")
             _ = try await BundledRuntime.seed(
                 bundle: #require(Bundle(url: app)), profile: profile, homeDirectory: home)
@@ -636,7 +582,7 @@ struct BundledRuntimeTests {
         try FileManager.default.removeItem(at: directory.appendingPathComponent("current"))
         for index in 3...4 {
             let app = home.appendingPathComponent("GC-\(index).app")
-            _ = try self.makeBundle(
+            _ = try makeBundledRuntimeTestBundle(
                 at: app, builtAt: "2026-08-27T00:00:0\(index).000Z", buildID: "gc-\(index)", command: "unused")
             let seeded = try await BundledRuntime.seed(
                 bundle: #require(Bundle(url: app)), profile: profile, homeDirectory: home)

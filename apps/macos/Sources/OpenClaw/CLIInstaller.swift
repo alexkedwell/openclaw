@@ -279,8 +279,7 @@ enum CLIInstaller {
     private static func bundledStatus() -> Status {
         let location = self.managedExecutableLocation()
         do {
-            guard let runtime = try BundledRuntime.seeded() else { return .missing(location: location) }
-            _ = try BundledRuntime.resolve(root: runtime.root, bundle: .main)
+            let runtime = try BundledRuntime.forAppHosting()
             let version = GatewayEnvironment.appVersionString() ?? "unknown"
             return .ready(location: runtime.executable.path, version: version)
         } catch {
@@ -403,6 +402,8 @@ enum CLIInstaller {
             await statusHandler("Preparing OpenClaw…")
             do {
                 _ = try await self.prepareBundledGateway(statusHandler: statusHandler)
+                await statusHandler("Preparing the terminal runtime…")
+                _ = try await BundledRuntime.seed()
                 NotificationCenter.default.post(name: .openclawCLIInstalled, object: nil)
                 await statusHandler("OpenClaw is ready.")
                 return true

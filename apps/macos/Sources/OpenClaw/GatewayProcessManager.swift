@@ -163,6 +163,8 @@ final class GatewayProcessManager {
     private var gatewayStartTaskGeneration: UInt64?
     private var gatewayStartTaskID: UUID?
     let childSupervisor: GatewayChildSupervisor
+    var runtimePreparationTask: Task<Void, Never>?
+    var runtimePreparationAttempted = false
     var bundledUpdateTask: Task<BundledRuntimeUpdateResult, Error>?
     var bundledUpdateTaskID: UUID?
     var hostingChangeTask: Task<Void, Error>?
@@ -1277,6 +1279,7 @@ extension GatewayProcessManager {
             self.clearCompletedLaunchAgentInstall(generation: context.generation)
             self.refreshLog()
             if let pid = instance?.pid { self.childSupervisor.markHealthy(pid: pid) }
+            if ownedChild { self.preparePersistentRuntimeAfterHealth() }
             return true
 
         case let .failed(terminalFailure):

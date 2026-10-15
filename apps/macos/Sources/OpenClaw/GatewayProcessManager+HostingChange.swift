@@ -110,7 +110,9 @@ extension GatewayProcessManager {
         do {
             try await Self.changeHosting(operations: .init(
                 prepare: {
-                    change.runtime = try await BundledRuntime.seed()
+                    change.runtime = hosting == .service
+                        ? try await BundledRuntime.seed()
+                        : try BundledRuntime.forAppHosting()
                     _ = try GatewayLaunchAgentManager.retainedServiceEnvironment(
                         stateDirectory: AppProfile.current.stateDirectoryURL())
                     try await self.checkHostingChange(change)
@@ -318,7 +320,12 @@ extension GatewayProcessManager {
         change.generation = self.gatewayStartGeneration
         self.status = .starting
         let cli = restoring ? change.previousCLI : nil
-        let selectedRuntime = cli.map(BundledRuntime.init(retainedCLI:)) ?? runtime
+        let selectedRuntime: BundledRuntime = if let cli {
+            BundledRuntime(retainedCLI: cli)
+        } else {
+            try await BundledRuntime.seed()
+        }
+        try await self.checkHostingChange(change, requiresActive: true)
         let result = try await self.enableLaunchAgentIfNeeded(
             port: change.port,
             generation: change.generation,

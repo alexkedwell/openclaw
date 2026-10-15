@@ -276,13 +276,10 @@ enum CommandResolver {
     static func resolveLocalCLI(searchPaths: [String]?, projectRoot: URL?) async -> LocalCLIResolution {
         if BundledRuntime.isBundledApp {
             do {
-                if let runtime = try BundledRuntime.seeded() {
-                    return .executable(runtime.cliCommand)
-                }
+                return try .executable(BundledRuntime.forAppHosting().cliCommand)
             } catch {
                 return .unavailable(error.localizedDescription)
             }
-            return .unavailable("OpenClaw's bundled runtime is not prepared. Retry setup in OpenClaw.app.")
         }
         let root = projectRoot ?? self.projectRoot()
         if let openclawPath = projectOpenClawExecutable(projectRoot: root) {

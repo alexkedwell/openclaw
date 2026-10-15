@@ -1,7 +1,7 @@
 import Foundation
 import OpenClawKit
 
-/// The signed bundle owns the payload; the profile's seeded copy hosts its CLI and Gateway.
+/// The signed bundle starts the app's Gateway until its persistent copy is warmed.
 struct BundledRuntime: Sendable {
     let root: URL
     let executable: URL
@@ -81,7 +81,7 @@ struct BundledRuntime: Sendable {
     }
 
     static func resolve(bundle: Bundle) throws -> Self {
-        let root = bundle.bundleURL.appendingPathComponent("Contents/Resources/runtime")
+        let root = self.currentBundleURL(bundle).appendingPathComponent("Contents/Resources/runtime")
         return try self.resolve(root: root, bundle: bundle)
     }
 
