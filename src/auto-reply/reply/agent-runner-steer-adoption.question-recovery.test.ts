@@ -125,7 +125,11 @@ describe("question response custody through reply adoption", () => {
             typing,
             typingSignals: createTypingSignaler({ typing, mode: "never", isHeartbeat: false }),
           });
-          expect(state.admission).toEqual({ status: "accepted", mode: "followup" });
+          expect(state.admission).toEqual({
+            status: "accepted",
+            mode: "followup",
+            reason: "steering-unavailable",
+          });
         }
         expect(queueMessage).not.toHaveBeenCalled();
         operation.complete();

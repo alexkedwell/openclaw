@@ -16,6 +16,7 @@ import {
   bindPreparedToolAuthority,
   createLegacyToolAuthorityQueuePreflight,
 } from "../../agents/harness/tool-authority-preparation.js";
+import { resolveRequesterPrincipalKey } from "../../agents/requester-origin.js";
 import { SessionPendingInputCustodyError } from "../../config/sessions/session-pending-input-custody-error.js";
 import { getAgentRunContext } from "../../infra/agent-run-registry.js";
 import { hasPromptImageInput } from "../../media/prompt-image-input.js";
@@ -426,6 +427,39 @@ async function beginPreparedReplyMessageInjectionTarget(
       targetRunId: target.runId,
       acceptance: Promise.resolve(false),
       outcome: Promise.resolve(failure),
+    };
+  }
+  const incomingRequester =
+    allowCollaborativeSteering === false && incomingOverlay
+      ? resolveRequesterPrincipalKey({
+          ...incomingOverlay,
+          messageChannel: incomingOverlay.originatingChannel,
+        })
+      : undefined;
+  if (
+    allowCollaborativeSteering === false &&
+    backendOptions.isInboundUserMessage &&
+    (!incomingOverlay?.inputProvenance ||
+      incomingOverlay.inputProvenance.kind === "external_user") &&
+    incomingRequester &&
+    owner.requesterPrincipalKey &&
+    incomingRequester !== owner.requesterPrincipalKey
+  ) {
+    assertSourceCurrent?.();
+    // Refusal belongs to this live target. A vanished or unavailable backend still
+    // returns its existing fallback decision, without lending another turn's identity.
+    const availability =
+      canAdmit?.() === false
+        ? { reason: "injection_unavailable" as const }
+        : owner.resolve({ inboundAudio, assertCurrent: assertSourceCurrent });
+    return {
+      targetRunId: target.runId,
+      acceptance: Promise.resolve(false),
+      outcome: Promise.resolve({
+        status: "rejected",
+        reason:
+          "injection" in availability ? "collaborative_steering_disabled" : availability.reason,
+      }),
     };
   }
   let selectedOverlay = incomingOverlay;

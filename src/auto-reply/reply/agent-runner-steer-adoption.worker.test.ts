@@ -322,7 +322,11 @@ it.for(
           expect([...retained]).toEqual([]);
         } else {
           expect(delivered).toEqual([]);
-          expect(resultState.admission).toEqual({ status: "accepted", mode: "followup" });
+          expect(resultState.admission).toEqual({
+            status: "accepted",
+            mode: "followup",
+            reason: "steering-unavailable",
+          });
           expect([...retained]).toEqual([run]);
           expect(run.steerPending).toBeUndefined();
           operation.complete();

@@ -294,6 +294,7 @@ export type ReplyMessageInjectionResolution =
 type ReplyMessageInjectionOwner = {
   readonly backendIdentity: object;
   readonly toolAuthorityFingerprint?: string;
+  readonly requesterPrincipalKey?: string;
   acceptParticipant?(participant: ReplyTurnParticipantInput): void;
   projectToolAuthorityFingerprint(overlay: ReplyToolAuthorityOverlay): string | undefined;
   projectToolAuthorityFingerprintAsync(
@@ -330,6 +331,7 @@ export type ReplyMessageInjectionRejectionReason =
   | "stale_run"
   | "injection_unavailable"
   | "audio_input_unsupported"
+  | "collaborative_steering_disabled"
   | ReplyBackendQueueMessageMismatch
   | "runtime_rejected";
 

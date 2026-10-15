@@ -168,7 +168,8 @@ describe("steering input custody", () => {
         sharedSecretOwner ||
         scenario === "same grant" ||
         (collaborative && scenario !== "no native admission across profiles");
-      const queued = !accepted && scenario !== "revoked grant";
+      const refused = acrossProfiles && allowCollaborativeSteering === false;
+      const forwarded = !accepted && scenario !== "revoked grant";
       const originalGrant = new AbortController();
       const incomingGrant = new AbortController();
       const client = (connId: string, controller: AbortController, grantId: string) => ({
@@ -422,7 +423,7 @@ describe("steering input custody", () => {
           },
           reconnectedClient,
         );
-        if (accepted || queued) {
+        if (accepted || forwarded) {
           expect(dispatch.send).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
         }
         if (accepted) {
@@ -434,7 +435,7 @@ describe("steering input custody", () => {
         } else {
           expect(session.getSteeringMessages()).toEqual([]);
           expect(queueMessage).not.toHaveBeenCalled();
-          if (queued) {
+          if (forwarded) {
             await withinTest(followupDispatched.promise, signal);
             expect(operation.personalToolParticipants?.resolve()?.profileId).toBe(profile.id);
             expect(operation.result).toBeNull();
@@ -442,10 +443,14 @@ describe("steering input custody", () => {
             expect(dispatchInboundMessageMock).toHaveBeenCalledOnce();
             expect(dispatchInboundMessageMock.mock.calls[0]?.[0]).toMatchObject({
               replyOptions: {
-                messageInjectionDisposition: "rejected",
+                messageInjectionDisposition: refused
+                  ? "collaborative-steering-disabled"
+                  : "rejected",
                 operatorAuthority: { profileId: incomingProfile.id },
               },
             });
+            // The execution stub holds staged custody; the real dispatch refusal test
+            // separately verifies durable cancellation and duplicate/recovery refusal.
             expect(await listSessionPendingInputs(fixture.scope)).toMatchObject({
               total: 1,
               items: [
@@ -498,7 +503,7 @@ describe("steering input custody", () => {
             );
           }
           expect(streamMocks.streamSimple).toHaveBeenCalledTimes(2);
-        } else if (queued) {
+        } else if (forwarded) {
           expect(input).toMatchObject({ message: { content: fixture.params.message } });
           expect(input).not.toHaveProperty("message.__openclaw.steerTargetRunId");
           expect(streamMocks.streamSimple).toHaveBeenCalledOnce();

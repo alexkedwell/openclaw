@@ -175,6 +175,7 @@ export type EmbeddedRunToolAuthorityBinding = (registration: {
 }) => {
   source: "reply" | "attempt";
   sourceTurnId?: string;
+  readonly requesterPrincipalKey?: string;
   acceptsRequesterOrigin: (origin: RequesterOrigin) => boolean;
   project: (overlay: ReplyToolAuthorityOverlay) => string | undefined;
   projectAsync: (overlay: ReplyToolAuthorityOverlay) => Promise<string | undefined>;

@@ -14,7 +14,7 @@ type ReplyOperationAdmissionSnapshot =
   | {
       status: "accepted";
       mode: "steer" | "followup";
-      reason?: "requester-mismatch" | "steering-unavailable";
+      reason?: "requester-mismatch" | "steering-unavailable" | "explicit-followup";
     }
   | {
       status: "skipped";
@@ -23,6 +23,7 @@ type ReplyOperationAdmissionSnapshot =
         | "aborted"
         | "lifecycle-invalidated"
         | "queue-cap"
+        | "collaborative-steering-disabled"
         | "question-response-indeterminate"
         | "question-response-refused"
         | "question-response-rejected";
@@ -52,6 +53,8 @@ export type ReplyOperationRunState = {
     }>;
   };
   admission?: ReplyOperationAdmissionSnapshot;
+  /** Set only when an explicit followup reaches the execution owner's start callback. */
+  explicitFollowupStarted?: true;
   /** Latest queue-owned disposition; original acceptance still records custody. */
   followupQueueDisposition?: FollowupQueueDisposition;
   /** The Gateway accepted this question answer or rejected its values before commitment. */

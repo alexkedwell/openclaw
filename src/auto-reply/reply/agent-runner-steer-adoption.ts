@@ -17,7 +17,10 @@ import {
   scheduleFollowupDrainAfterReplyOperationClear,
   type RunReplyAgentParams,
 } from "./agent-runner-core.js";
-import { resolveReplySteeringAuthority } from "./agent-runner-fallback-authority.js";
+import {
+  hasReplySteeringRequesterMismatch,
+  resolveReplySteeringAuthority,
+} from "./agent-runner-fallback-authority.js";
 import {
   admitFollowupRunLifecycle,
   isFollowupRunAborted,
@@ -26,6 +29,7 @@ import {
   scheduleFollowupDrain,
   type FollowupRun,
 } from "./queue.js";
+import { refuseCollaborativeSteering } from "./queue/lifecycle.js";
 import type { ReplyOperationRunState } from "./reply-operation-run-state.js";
 import type { ReplyMessageInjectionRejectionReason } from "./reply-run-registry.contracts.js";
 import {
@@ -204,6 +208,17 @@ export async function runActiveReplySteer(
     const injectionTarget = replyRunRegistry.resolveCurrentMessageInjectionTarget(activeReplyKey);
     if (!injectionTarget) {
       return await fallback("injection_unavailable");
+    }
+    assertReadCurrent();
+    if (
+      isInboundUserMessage &&
+      followupRun.run.config.messages?.queue?.allowCollaborativeSteering === false &&
+      hasReplySteeringRequesterMismatch(followupRun, activeReplyOperation)
+    ) {
+      await refuseCollaborativeSteering(followupRun, replyOperationRunState, () =>
+        parked.consume("consumed"),
+      );
+      return "handled";
     }
     delivery = prepareSteeringDelivery({
       agentId: followupRun.run.agentId,

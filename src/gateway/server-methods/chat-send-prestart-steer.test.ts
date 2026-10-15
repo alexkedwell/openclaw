@@ -42,6 +42,28 @@ vi.mock("../../auto-reply/reply/agent-runner-execution.js", async (importOrigina
   executeAgentTurn: runtime.execute,
 }));
 
+function createControlUiRequestClient() {
+  const profile = ensureGatewayOwnerProfile("Gateway Owner");
+  return {
+    ...createOperatorWsClient({
+      connId: "prestart-owner",
+      clientInfo: { id: "openclaw-control-ui", mode: "webchat" },
+      scopes: ["operator.write"],
+    }),
+    usesSharedGatewayAuth: true,
+    authenticatedUserProfile: {
+      profileId: profile.id,
+      displayName: profile.displayName,
+      hasAvatar: false,
+      updatedAt: profile.updatedAt,
+    },
+    internal: {
+      authenticatedOperator: true as const,
+      operatorRoleActor: { kind: "system" as const },
+    },
+  };
+}
+
 test.for(["accepted", "unavailable", "rejected"] as const)(
   "preserves a prestart steer through workspace preparation when late injection is %s",
   async (injection, { signal }) => {
@@ -100,27 +122,9 @@ test.for(["accepted", "unavailable", "rejected"] as const)(
         }
       }),
     };
-    const profile = ensureGatewayOwnerProfile("Gateway Owner");
     const requestOptions = {
       context,
-      client: {
-        ...createOperatorWsClient({
-          connId: "prestart-owner",
-          clientInfo: { id: "openclaw-control-ui", mode: "webchat" },
-          scopes: ["operator.write"],
-        }),
-        usesSharedGatewayAuth: true,
-        authenticatedUserProfile: {
-          profileId: profile.id,
-          displayName: profile.displayName,
-          hasAvatar: false,
-          updatedAt: profile.updatedAt,
-        },
-        internal: {
-          authenticatedOperator: true as const,
-          operatorRoleActor: { kind: "system" as const },
-        },
-      },
+      client: createControlUiRequestClient(),
     };
     clients.add(requestOptions.client);
     const createWorktree = captureMethodCall("createWithOutcome")(ManagedWorktreeService.prototype);
@@ -392,7 +396,12 @@ test("queues a fresh follow-up while stopped preparation still owns the reply sl
   let initialOperation: ReplyOperation | undefined;
   let sessionKey: string | undefined;
   const consumed: string[] = [];
+  const clients = new Set<GatewayClient & { connId: string }>();
   const context = {
+    getClientConnIds: (filter?: (client: GatewayClient) => boolean) =>
+      new Set(
+        [...clients].filter((client) => !filter || filter(client)).map((client) => client.connId),
+      ),
     chatAbortControllers: new Map<string, ChatAbortControllerEntry>(),
     chatQueuedTurns: new Map(),
     broadcast: vi.fn((event: string, payload: unknown) => {
@@ -406,7 +415,8 @@ test("queues a fresh follow-up while stopped preparation still owns the reply sl
       }
     }),
   };
-  const requestOptions = { ...controlUiClient, context };
+  const requestOptions = { client: createControlUiRequestClient(), context };
+  clients.add(requestOptions.client);
   runtime.execute.mockImplementation(async ({ followupRun, opts, replyOperation }) => {
     const runId = expectDefined(opts?.runId, "runtime run ID");
     if (!initialOperation) {
@@ -511,6 +521,7 @@ test("queues a fresh follow-up while stopped preparation still owns the reply sl
       clearFollowupQueueForTest(sessionKey);
     }
     await released;
+    clients.clear();
     dispatchInboundMessageMock.mockReset();
     runtime.execute.mockReset();
     testState.agentConfig = undefined;

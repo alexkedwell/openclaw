@@ -8,6 +8,7 @@ import {
 import type { SessionPendingInput } from "../config/sessions/session-pending-input.types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { SqliteWorkerError } from "../infra/sqlite-worker-contract.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { AgentDatabaseAdmissionError } from "../state/agent-database-admission.js";
 import { createDirectChatContext } from "./server-chat.agent-events.test-helpers.js";
 import { createMockGatewayRecoveryRuntime } from "./server-recovery-runtime.test-support.js";
@@ -373,8 +374,17 @@ it.each([
     } else {
       io.load.mockRejectedValue(error);
     }
+    const retries = Array.from({ length: attempts - 1 }, () => createDeferredCore());
+    for (const retry of retries) {
+      warn.mockImplementationOnce(() => retry.resolve());
+    }
     const recovery = recoverSessionSendDeliveries(context, controller().signal);
-    await Promise.all([recovery, vi.runAllTimersAsync()]);
+    for (const retry of retries) {
+      // A dynamic requester import can finish after an empty fake-timer drain.
+      await Promise.race([retry.promise, recovery]);
+      await vi.runAllTimersAsync();
+    }
+    await recovery;
     expect(dispatch).not.toHaveBeenCalled();
     expect(io.restoreOperator).toHaveBeenCalledTimes(stage === "requester" ? attempts : 0);
     const report = io.report.mock.calls[0]![1].selectReport(undefined);

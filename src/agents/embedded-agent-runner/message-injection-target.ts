@@ -121,6 +121,9 @@ export function captureDirectEmbeddedMessageInjectionTarget(
       get toolAuthorityFingerprint() {
         return backend.toolAuthorityFingerprint;
       },
+      get requesterPrincipalKey() {
+        return toolAuthority.requesterPrincipalKey;
+      },
       acceptParticipant: (overlay) => toolAuthority.personalToolParticipants?.accept(overlay),
       projectToolAuthorityFingerprint: (overlay) => {
         try {

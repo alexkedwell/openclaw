@@ -126,6 +126,10 @@ let gatewayKernel: Awaited<ReturnType<typeof import("./server-kernel.js").create
 let gatewayContext: GatewayRequestContext;
 let workspace: string;
 
+export function waitForProofRun(runId: unknown): Promise<RunResult> {
+  return gateway.client.request<RunResult>("agent.wait", { runId, timeoutMs: 30_000 });
+}
+
 function resetGatewayState() {
   resetConfigOverrides();
   clearRuntimeConfigSnapshot();

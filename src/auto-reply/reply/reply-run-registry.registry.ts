@@ -178,6 +178,9 @@ export const replyRunRegistry: ReplyRunRegistry = {
         get toolAuthorityFingerprint() {
           return backend.toolAuthorityFingerprint ?? operation.toolAuthorityFingerprint;
         },
+        get requesterPrincipalKey() {
+          return operation.requesterPrincipalKey;
+        },
         acceptParticipant: (overlay) => operation.personalToolParticipants?.accept(overlay),
         projectToolAuthorityFingerprint: (overlay) =>
           operation.projectToolAuthorityFingerprint(overlay),

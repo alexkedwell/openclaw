@@ -21,6 +21,8 @@ import {
   getGatewayContextResolver,
   getPluginRuntimeGatewayRequestScope,
 } from "../../plugins/runtime/gateway-request-scope.js";
+import { observeAgentRunStart } from "../agent-run-start.js";
+import { isExplicitFollowupCommandTurn } from "../command-turn-context.js";
 import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
 import type { OriginatingChannelType } from "../templating.js";
 import type { ReplyPayload } from "../types.js";
@@ -42,7 +44,10 @@ import {
   createShouldEmitToolResult,
   isAudioPayload,
 } from "./agent-runner-helpers.js";
-import { deliverPreparedBlockReply } from "./agent-runner-presentation.js";
+import {
+  createReplyCompactionNotices,
+  deliverPreparedBlockReply,
+} from "./agent-runner-presentation.js";
 import { runReplyQuestionInput } from "./agent-runner-question-input.js";
 import { createReplyAgentRestartRecoveryController } from "./agent-runner-restart-recovery.js";
 import { buildReplyMediaContextParams } from "./agent-runner-run-params.js";
@@ -51,16 +56,12 @@ import { runActiveReplySteer } from "./agent-runner-steer-adoption.js";
 import { resolveQueuedReplyExecutionConfig } from "./agent-runner-utils.js";
 import { createBlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveEffectiveBlockStreamingConfig } from "./block-streaming.js";
-import {
-  type CompactionNoticePhase,
-  createCompactionNoticePayload,
-  shouldNotifyUserAboutCompaction,
-} from "./compaction-notice.js";
 import { createFollowupRunner } from "./followup-runner.js";
 import { REPLY_RUN_STILL_SHUTTING_DOWN_TEXT } from "./get-reply-run-queue.js";
 import { resolveOriginMessageProvider } from "./origin-routing.js";
 import { resolveActiveRunQueueAction } from "./queue-policy.js";
 import { enqueueFollowupRun, scheduleFollowupDrain } from "./queue.js";
+import { refuseCollaborativeSteering } from "./queue/lifecycle.js";
 import { bindReplyOperationQueueDisposition, resolveFollowupAbortSignal } from "./queue/types.js";
 import { REPLY_ADMISSION_TICKET } from "./reply-admission-ticket.js";
 import { createReplyMediaContext } from "./reply-media-paths.js";
@@ -140,9 +141,21 @@ export async function runReplyAgent(
     }));
   let didDeliverVisiblePartialReply = false;
   const onPartialReply = opts?.onPartialReply;
+  const explicitFollowup = isExplicitFollowupCommandTurn(sessionCtx);
+  if (explicitFollowup) {
+    followupRun.disableCollectBatching = true;
+  }
+  const replyOperationRunState = replyRunState.resolveReplyOperationRunState(opts);
   const runOpts = {
     ...opts,
     runId: opts?.runId ?? randomUUID(),
+    ...(explicitFollowup
+      ? observeAgentRunStart(opts, () => {
+          if (replyOperationRunState) {
+            replyOperationRunState.explicitFollowupStarted = true;
+          }
+        })
+      : {}),
     ...(onPartialReply
       ? {
           onPartialReply: async (
@@ -157,7 +170,6 @@ export async function runReplyAgent(
         }
       : {}),
   };
-  const replyOperationRunState = replyRunState.resolveReplyOperationRunState(opts);
   if (replyOperationRunState) {
     replyOperationRunState.replyCompletion = resolveReplyCompletion(
       followupRun.run.terminalReplyExpectation,
@@ -250,9 +262,14 @@ export async function runReplyAgent(
     : providedReplyOperation;
   const steeringRequesterMismatch =
     isActiveSteer && hasReplySteeringRequesterMismatch(followupRun, activeReplyOperation);
-  let shouldQueueRequesterMismatch =
-    steeringRequesterMismatch &&
-    followupRun.run.config.messages?.queue?.allowCollaborativeSteering === false;
+  if (messageInjectionDisposition === "collaborative-steering-disabled") {
+    try {
+      await refuseCollaborativeSteering(followupRun, replyOperationRunState);
+    } finally {
+      releaseUnusedAdmission();
+    }
+    return undefined;
+  }
   // A rejected or vanished target leaves input with the follow-up queue,
   // independently of whether the incoming requester could collaborate.
   const shouldQueueUnavailableSteer =
@@ -291,7 +308,6 @@ export async function runReplyAgent(
     return questionInput.payload;
   }
   const questionRequesterMismatch = questionInput.requesterMismatch === true;
-  shouldQueueRequesterMismatch ||= questionRequesterMismatch;
 
   const toolResultOptions = {
     getVerboseLevel: () =>
@@ -334,7 +350,7 @@ export async function runReplyAgent(
   if (
     isActiveSteer &&
     !shouldQueueUnavailableSteer &&
-    !shouldQueueRequesterMismatch &&
+    !questionRequesterMismatch &&
     !shouldQueueTerminalReceiptSteer &&
     messageInjectionDisposition === "none"
   ) {
@@ -364,7 +380,7 @@ export async function runReplyAgent(
     hasQueuedFollowups,
     isActive: isActive || questionRequesterMismatch,
     isHeartbeat,
-    shouldFollowup: shouldFollowup || shouldQueueUnavailableSteer || shouldQueueRequesterMismatch,
+    shouldFollowup: shouldFollowup || shouldQueueUnavailableSteer || questionRequesterMismatch,
     resetTriggered,
   });
   if (activeRunQueueAction === "drop") {
@@ -414,15 +430,17 @@ export async function runReplyAgent(
       replyOperationRunState.admission = {
         status: "accepted",
         mode: "followup",
-        ...(shouldQueueRequesterMismatch
-          ? { reason: "requester-mismatch" as const }
-          : effectiveShouldSteer &&
-              (isActive || messageInjectionDisposition === "rejected") &&
-              followupRun.currentInboundEventKind !== "room_event" &&
-              (!followupRun.run.inputProvenance ||
-                followupRun.run.inputProvenance.kind === "external_user")
-            ? { reason: "steering-unavailable" as const }
-            : {}),
+        ...(explicitFollowup
+          ? { reason: "explicit-followup" as const }
+          : questionRequesterMismatch
+            ? { reason: "requester-mismatch" as const }
+            : effectiveShouldSteer &&
+                (isActive || messageInjectionDisposition === "rejected") &&
+                followupRun.currentInboundEventKind !== "room_event" &&
+                (!followupRun.run.inputProvenance ||
+                  followupRun.run.inputProvenance.kind === "external_user")
+              ? { reason: "steering-unavailable" as const }
+              : {}),
       };
     }
     // The queue must stay dormant while the active owner can still collect
@@ -474,32 +492,12 @@ export async function runReplyAgent(
   const replyMediaContext = createReplyMediaContext(
     buildReplyMediaContextParams(followupRun, sessionKey, cfg),
   );
-  const compactionNoticeMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
-  const pendingCompactionNotices: ReplyPayload[] = [];
-  const sendDirectCompactionNotice = async (phase: CompactionNoticePhase, text?: string) => {
-    if (
-      phase !== "context_bounded" &&
-      phase !== "degraded" &&
-      !shouldNotifyUserAboutCompaction(cfg)
-    ) {
-      return;
-    }
-    const noticePayload = createCompactionNoticePayload({
-      phase,
-      text,
-      currentMessageId: compactionNoticeMessageId,
-      applyReplyToMode,
-    });
-    try {
-      if (opts?.onBlockReply) {
-        await opts.onBlockReply(noticePayload);
-      } else {
-        pendingCompactionNotices.push(noticePayload);
-      }
-    } catch (err) {
-      logVerbose(`context maintenance notice delivery failed: ${String(err)}`);
-    }
-  };
+  const { pendingCompactionNotices, sendDirectCompactionNotice } = createReplyCompactionNotices({
+    cfg,
+    currentMessageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
+    applyReplyToMode,
+    opts,
+  });
   const blockReplyPipeline =
     blockStreamingEnabled && (opts?.onPreparedBlockReply || opts?.onBlockReply)
       ? createBlockReplyPipeline({
