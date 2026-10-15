@@ -100,7 +100,8 @@ vi.mock("./auth-profile.js", () => ({
   resolveCodexAppServerAuthProfileStore: mocks.resolveCodexAppServerAuthProfileStore,
 }));
 
-vi.mock("./auth-cache-key.js", () => ({
+vi.mock("./auth-cache-key.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./auth-cache-key.js")>()),
   fingerprintTokenAuthProfileCacheKey: (accessToken: string) => `token:${accessToken}`,
   resolveCodexAppServerFallbackApiKeyCacheKey: mocks.resolveCodexAppServerFallbackApiKeyCacheKey,
   resolveCodexAppServerPreparedApiKeyCacheKey: mocks.resolveCodexAppServerPreparedApiKeyCacheKey,

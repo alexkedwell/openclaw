@@ -38,7 +38,8 @@ vi.mock("./auth-profile.js", () => ({
   resolveCodexAppServerAuthProfileStore: () => ({ version: 1, profiles: {} }),
 }));
 
-vi.mock("./auth-cache-key.js", () => ({
+vi.mock("./auth-cache-key.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./auth-cache-key.js")>()),
   resolveCodexAppServerFallbackApiKeyCacheKey: mocks.authBridge.fallbackApiKeyCacheKey,
 }));
 
