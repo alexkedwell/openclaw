@@ -190,8 +190,9 @@ neither Doctor nor the CLI start fence may keep the receipt pending; the next
 CLI start/repair or `openclaw doctor` completes it.
 
 An app-managed standalone service uses
-`<state>/runtime/<runtimeBuildId>/openclaw`, with the matching sidecar and
-`OPENCLAW_SQLITE_LIBRARY` environment. After an app update, the app reinstalls
+`<state>/runtime/<runtimeBuildId>/openclaw`, which selects SQLite from its matching
+sidecar. Only retained Bun-plus-script commands need the SQLite environment
+override for rollback. After an app update, the app reinstalls
 only services it owns whose executable is inside `<state>/runtime/` onto the new
 concrete build. A service using an executable outside that directory stays
 unchanged, including an unpinned executable. The update window reports

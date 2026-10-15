@@ -98,7 +98,6 @@ const environment = {
   CFFIXED_USER_HOME: home,
   TMPDIR: home,
   PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-  OPENCLAW_SQLITE_LIBRARY: sqliteLibrary,
   OPENCLAW_STATE_DIR: path.join(home, "state"),
   OPENCLAW_CONFIG_PATH: path.join(home, "openclaw.json"),
   OPENCLAW_NO_RESPAWN: "1",

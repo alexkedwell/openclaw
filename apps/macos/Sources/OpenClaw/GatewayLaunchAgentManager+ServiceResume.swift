@@ -110,10 +110,10 @@ extension GatewayLaunchAgentManager {
                 message: "The retained Gateway uses Node; update it through its existing installation.")
         }
         var environment = cli.environment
-        environment["OPENCLAW_SQLITE_LIBRARY"] = runtime.sqliteLibrary.path
+        environment["OPENCLAW_SQLITE_LIBRARY"] = runtime.sqliteLibraryOverride
         return InstalledServiceCLI(
             prefix: runtime.cliCommand,
-            sqliteLibrary: runtime.sqliteLibrary.path,
+            sqliteLibrary: runtime.sqliteLibraryOverride,
             environment: environment,
             usesGeneratedEnvironment: cli.usesGeneratedEnvironment,
             hadRuntimePin: cli.hadRuntimePin,

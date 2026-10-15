@@ -106,7 +106,7 @@ struct GatewayServiceRuntimeTests {
             launchAgentExists: false) == ["install", "--force", "--port", "29871"])
     }
 
-    @Test func `service install carries the selected build SQLite library and profile`() {
+    @Test func `standalone service install drops stale SQLite overrides and carries its profile`() {
         let runtime = BundledRuntime(root: URL(fileURLWithPath: "/profile/runtime/build-two"))
         let environment = GatewayLaunchAgentManager.daemonEnvironment(
             runtime: runtime,
@@ -117,7 +117,7 @@ struct GatewayServiceRuntimeTests {
             ],
             profile: AppProfile(environment: ["OPENCLAW_PROFILE": "service-proof"]),
             searchPaths: ["/usr/bin", "/bin"])
-        #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == "/profile/runtime/build-two/runtime/lib/libsqlite3.dylib")
+        #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == nil)
         #expect(environment["PATH"] == "/profile/runtime/build-two:/usr/bin:/bin")
         #expect(environment["OPENCLAW_PROFILE"] == "service-proof")
         let directory = FileManager.default.homeDirectoryForCurrentUser
@@ -236,7 +236,8 @@ struct GatewayServiceRuntimeTests {
                 "/other/lib/libsqlite3.dylib",
                 false,
                 "/old/bin:/usr/bin"),
-            (["/old/openclaw"], "/old/runtime/lib/libsqlite3.dylib", true, "/old:/usr/bin"),
+            (["/old/openclaw"], "/old/runtime/lib/libsqlite3.dylib", false, "/old:/usr/bin"),
+            (["/old/openclaw"], nil, true, "/old:/usr/bin"),
         ]
         for (prefix, library, matches, expectedPath) in fixtures {
             let cli = try #require(GatewayLaunchAgentManager.installedServiceCLI(

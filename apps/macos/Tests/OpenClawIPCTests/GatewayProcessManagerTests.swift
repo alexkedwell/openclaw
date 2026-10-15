@@ -978,7 +978,7 @@ struct GatewayProcessManagerTests {
             let command = try #require(GatewayLaunchAgentManager.testingResolvedDaemonCommandsSnapshot()
                 .first { $0.contains("install") })
             let expected = operatorRuntime ? original : GatewayLaunchAgentManager.InstalledServiceCLI(
-                prefix: replacement.cliCommand, sqliteLibrary: replacement.sqliteLibrary.path)
+                prefix: replacement.cliCommand, sqliteLibrary: nil)
             #expect(Array(command.prefix(2)) == expected.prefix)
             #expect(resumed.retainedServiceCLI?.sqliteLibrary == expected.sqliteLibrary)
             #expect(resumed.retainedServiceCLI?.environment["OPENCLAW_SQLITE_LIBRARY"] == expected.sqliteLibrary)

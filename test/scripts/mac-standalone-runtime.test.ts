@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -27,9 +28,9 @@ function compilerIdentity(arch: string) {
   };
 }
 
-function fixture(arch = "arm64") {
+function fixture(arch = "arm64", sqlite = "sqlite") {
   const root = temps.make("mac-standalone-");
-  for (const directory of ["scripts/lib", "dist", "bin", "input/runtime"]) {
+  for (const directory of ["scripts/lib", "dist", "bin", "input/runtime/lib"]) {
     mkdirSync(path.join(root, directory), { recursive: true });
   }
   copyFileSync("scripts/stage-mac-runtime.sh", path.join(root, "scripts/stage-mac-runtime.sh"));
@@ -38,10 +39,7 @@ function fixture(arch = "arm64") {
     path.join(root, "scripts/lib/mac-standalone-runtime.mjs"),
   );
   symlinkSync(process.execPath, path.join(root, "bin/node"));
-  writeFileSync(
-    path.join(root, "scripts/build-mac-sqlite.sh"),
-    '#!/bin/bash\nmkdir -p "$2/lib"\nprintf sqlite > "$2/lib/libsqlite3.dylib"\n',
-  );
+  writeFileSync(path.join(root, "input/runtime/lib/libsqlite3.dylib"), sqlite);
   const bytes = '#!/bin/sh\nprintf "OpenClaw 2026.10.14\\n"\n';
   writeFileSync(path.join(root, "input/openclaw"), bytes);
   chmodSync(path.join(root, "input/openclaw"), 0o755);
@@ -55,10 +53,19 @@ function fixture(arch = "arm64") {
     executable: { path: "openclaw", sizeBytes: Buffer.byteLength(bytes), sha256: hash(bytes) },
     runtime: {
       path: "runtime",
-      sizeBytes: 2,
-      sha256: hash(`package.json\0file\0${hash("{}")}\n`),
-      fileCount: 1,
+      sizeBytes: 2 + Buffer.byteLength(sqlite),
+      sha256: hash(
+        `lib/libsqlite3.dylib\0file\0${hash(sqlite)}\npackage.json\0file\0${hash("{}")}\n`,
+      ),
+      fileCount: 2,
       symlinkCount: 0,
+      sqlite: {
+        source: "bundled",
+        path: "lib/libsqlite3.dylib",
+        version: "3.53.4",
+        sha256: hash(sqlite),
+      },
+      categories: { nativeLibraries: { files: 1, bytes: Buffer.byteLength(sqlite) } },
     },
     macos: {
       hardenedRuntime: true,
@@ -112,6 +119,8 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
       expect(packaged.buildId).toMatch(/^[a-f0-9]{64}$/);
       expect(packaged.openclaw.commit).toBe(commit);
       expect(packaged.runtime.sha256).not.toBe(f.manifest.runtime.sha256);
+      expect(packaged.runtime.sqlite).toEqual(f.manifest.runtime.sqlite);
+      expect(packaged.runtime.categories).toEqual(f.manifest.runtime.categories);
     },
   );
 
@@ -140,11 +149,7 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
 
   it("identifies the completed unsigned sidecar and preserves that identity during signing", () => {
     const first = fixture();
-    const second = fixture();
-    writeFileSync(
-      path.join(second.root, "scripts/build-mac-sqlite.sh"),
-      '#!/bin/bash\nmkdir -p "$2/lib"\nprintf other-sqlite > "$2/lib/libsqlite3.dylib"\n',
-    );
+    const second = fixture("arm64", "other-sqlite");
     for (const f of [first, second]) {
       const result = f.run();
       expect(result.status, result.stderr).toBe(0);
@@ -166,27 +171,27 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
     expect(signed.buildId).toBe(unsigned.buildId);
     expect(signed.executable.sha256).not.toBe(unsigned.executable.sha256);
     expect(signed.runtime.sha256).not.toBe(unsigned.runtime.sha256);
+    expect(signed.runtime.sqlite.sha256).toBe(hash("signed library"));
+    expect(signed.runtime.sqlite.version).toBe("3.53.4");
   });
 
-  it("reuses the builder's canonical SQLite library without producing a second copy", () => {
+  it("rejects a builder output without its bundled SQLite library", () => {
     const f = fixture();
-    const sqlite = "builder-sqlite";
-    mkdirSync(path.join(f.root, "input/runtime/lib"));
-    writeFileSync(path.join(f.root, "input/runtime/lib/libsqlite3.dylib"), sqlite);
-    f.manifest.runtime = {
-      path: "runtime",
-      sizeBytes: 2 + Buffer.byteLength(sqlite),
-      sha256: hash(
-        `lib/libsqlite3.dylib\0file\0${hash(sqlite)}\npackage.json\0file\0${hash("{}")}\n`,
-      ),
-      fileCount: 2,
-      symlinkCount: 0,
-    };
+    writeFileSync(
+      path.join(f.root, "scripts/build-mac-sqlite.sh"),
+      '#!/bin/bash\nmkdir -p "$2/lib"\nprintf app-built-sqlite > "$2/lib/libsqlite3.dylib"\n',
+    );
+    unlinkSync(path.join(f.root, "input/runtime/lib/libsqlite3.dylib"));
+    Object.assign(f.manifest.runtime, {
+      sizeBytes: 2,
+      sha256: hash(`package.json\0file\0${hash("{}")}\n`),
+      fileCount: 1,
+    });
     f.save();
     const result = f.run();
-    expect(result.status, result.stderr).toBe(0);
-    expect(readFileSync(path.join(f.output, "runtime/lib/libsqlite3.dylib"), "utf8")).toBe(sqlite);
-    expect(existsSync(path.join(f.output, "lib/libsqlite3.dylib"))).toBe(false);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("bundled SQLite");
+    expect(existsSync(f.output)).toBe(false);
   });
 
   it.each(["commit", "mode", "executable", "sidecar", "target", "entitlements"])(
@@ -259,8 +264,11 @@ int main(int argc, char **argv) {
   FILE *input = fopen(file, "r"); if (input) { fgets(mode, sizeof(mode), input); fclose(input); }
   if (argc > 1 && !strcmp(argv[1], "--version")) { puts("OpenClaw 2026.10.14"); return 0; }
   if (argc > 1 && !strcmp(argv[1], "doctor")) {
+    if (getenv("OPENCLAW_SQLITE_LIBRARY")) { fputs("unexpected SQLite override", stderr); return 92; }
+    char sqlite[PATH_MAX];
+    snprintf(sqlite, sizeof(sqlite), "%s/runtime/lib/libsqlite3.dylib", root);
     printf("SQLite (doctor process): %s (3.53.0, extension loading enabled)\\n",
-      !strcmp(mode, "wrong-sqlite") ? "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib" : getenv("OPENCLAW_SQLITE_LIBRARY"));
+      !strcmp(mode, "wrong-sqlite") ? "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib" : sqlite);
     return 0;
   }
   if (argc > 1 && !strcmp(argv[1], "memory")) {

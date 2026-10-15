@@ -136,8 +136,7 @@ extension BundledRuntime {
         return """
         #!/bin/sh
         \(Self.shimSignature)
-        \(profileLine)export OPENCLAW_SQLITE_LIBRARY=\(Self.shellQuote(current.sqliteLibrary.path))
-        exec \(Self.shellQuote(current.executable.path)) "$@"
+        \(profileLine)exec \(Self.shellQuote(current.executable.path)) "$@"
 
         """
     }

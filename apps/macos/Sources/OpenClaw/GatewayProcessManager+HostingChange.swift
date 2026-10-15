@@ -122,7 +122,7 @@ extension GatewayProcessManager {
                         if hosting == .service, let runtime = change.runtime {
                             self.retainedServiceCLI = try GatewayLaunchAgentManager.InstalledServiceCLI(
                                 prefix: runtime.cliCommand,
-                                sqliteLibrary: runtime.sqliteLibrary.path,
+                                sqliteLibrary: runtime.sqliteLibraryOverride,
                                 environment: self.appHostedEnvironment(runtime: runtime),
                                 usesGeneratedEnvironment: change.expectedService.definition.environment != nil &&
                                     change.expectedService.definition.wrapper != nil)

@@ -75,7 +75,7 @@ struct GatewayHostingChangeTests {
         #expect(environment["FIXTURE_API_KEY"] == "synthetic-service-key")
         #expect(environment["HTTPS_PROXY"] == "http://fixture.invalid:8080")
         #expect(environment["PATH"]?.contains("/fixture/service/bin") == true)
-        #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.sqliteLibrary.path)
+        #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == nil)
         #expect(environment["OPENCLAW_STATE_DIR"] == profile.stateDirectoryURL().path)
         #expect(environment["OPENCLAW_CONFIG_PATH"] == profile.stateDirectoryURL()
             .appendingPathComponent("openclaw.json").path)
@@ -227,7 +227,7 @@ struct GatewayHostingChangeTests {
             #expect(child["FIXTURE_CHANNEL_SETTING"] == "service-value")
             #expect(child["PATH"] ==
                 "\(runtime.executable.deletingLastPathComponent().path):/fixture/custom/bin:/usr/bin")
-            #expect(child["OPENCLAW_SQLITE_LIBRARY"] == runtime.sqliteLibrary.path)
+            #expect(child["OPENCLAW_SQLITE_LIBRARY"] == nil)
             #expect(child["OPENCLAW_PROFILE"] == "hosting-environment")
             #expect(child["OPENCLAW_STATE_DIR"] == profile.stateDirectoryURL().path)
             #expect(child["OPENCLAW_LAUNCHD_LABEL"] == nil)
@@ -237,7 +237,7 @@ struct GatewayHostingChangeTests {
             let installer = GatewayLaunchAgentManager.daemonEnvironment(
                 runtime: runtime,
                 installedCLI: .init(
-                    prefix: runtime.cliCommand, sqliteLibrary: runtime.sqliteLibrary.path, environment: environment),
+                    prefix: runtime.cliCommand, sqliteLibrary: nil, environment: environment),
                 environment: [:], profile: profile, searchPaths: ["/usr/bin"])
             #expect(installer["FIXTURE_CHANNEL_SETTING"] == "service-value")
             #expect(installer["PATH"]?.contains("/fixture/custom/bin") == true)

@@ -30,8 +30,9 @@ The signer seals App and Sparkle bundle owners once, after their nested code. A 
 Sign a private staged copy that no other process modifies. The signer rejects hardlinked files and special files such as FIFOs before attribute cleanup. Copy or rebuild the bundle if this check fails. Attribute cleanup and signing use macOS `/usr/bin/sandbox-exec`. It restricts filesystem writes to the fixed app and temporary signing directories. Extra inherited file descriptors are closed. Signing fails if this mutation boundary cannot start. There is no unrestricted fallback.
 
 The standalone builder owns sidecar pruning. Packaging verifies the builder's
-complete inventory before adding the macOS install-owner marker and SQLite
-library. The compiler and old loose interpreter layout are not packaged.
+complete inventory before adding the macOS install-owner marker. SQLite comes
+from that inventory and is signed with the app. The compiler and old loose
+interpreter layout are not packaged.
 Use `OPENCLAW_MAC_RUNTIME_MODE=jit` (default) or `bytecode`; both use the exact
 manifest entitlement map. See [standalone builds](/install/standalone).
 

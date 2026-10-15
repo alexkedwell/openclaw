@@ -22,7 +22,7 @@ enum GatewayLaunchAgentManager {
             let concrete = GatewayLaunchAgentManager.concreteServicePrefix(self.prefix)
             return concrete == GatewayLaunchAgentManager.concreteServicePrefix(runtime.cliCommand)
                 && self.sqliteLibrary.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() } ==
-                runtime.sqliteLibrary.resolvingSymlinksInPath()
+                runtime.sqliteLibraryOverride.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() }
         }
     }
 
@@ -235,7 +235,7 @@ enum GatewayLaunchAgentManager {
                 if let runtime {
                     installedCLI = try InstalledServiceCLI(
                         prefix: runtime.cliCommand,
-                        sqliteLibrary: runtime.sqliteLibrary.path,
+                        sqliteLibrary: runtime.sqliteLibraryOverride,
                         environment: self
                             .retainedServiceEnvironment(stateDirectory: AppProfile.current.stateDirectoryURL()))
                 }
@@ -445,7 +445,7 @@ enum GatewayLaunchAgentManager {
             installedCLI: environment.map {
                 InstalledServiceCLI(
                     prefix: runtime.cliCommand,
-                    sqliteLibrary: runtime.sqliteLibrary.path,
+                    sqliteLibrary: runtime.sqliteLibraryOverride,
                     environment: $0)
             },
             expectedServiceAuthority: custody,
@@ -752,7 +752,7 @@ extension GatewayLaunchAgentManager {
             }
             selectedCLI = InstalledServiceCLI(
                 prefix: runtime.cliCommand,
-                sqliteLibrary: runtime.sqliteLibrary.path,
+                sqliteLibrary: runtime.sqliteLibraryOverride,
                 environment: restoring.environment)
             if args.first == "install" { arguments += ["--restore-service-cli", restoration] }
         } else {
@@ -904,7 +904,7 @@ extension GatewayLaunchAgentManager {
         var paths = installedPaths + searchPaths
         if let runtime {
             paths.insert(runtime.executable.deletingLastPathComponent().path, at: 0)
-            result["OPENCLAW_SQLITE_LIBRARY"] = runtime.sqliteLibrary.path
+            result["OPENCLAW_SQLITE_LIBRARY"] = runtime.sqliteLibraryOverride
         }
         if let installedCLI {
             if let executable = installedCLI.prefix.first {

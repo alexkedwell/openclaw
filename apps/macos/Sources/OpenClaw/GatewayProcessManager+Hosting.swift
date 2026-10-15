@@ -292,6 +292,7 @@ extension GatewayProcessManager {
             .merging(capturedServiceEnvironment) { _, captured in captured }
         let servicePaths = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
         environment.merge(runtime.environment) { _, runtimeValue in runtimeValue }
+        environment["OPENCLAW_SQLITE_LIBRARY"] = runtime.sqliteLibraryOverride
         var seen = Set<String>()
         environment["PATH"] = ([runtime.executable.deletingLastPathComponent().path] + servicePaths + searchPaths)
             .filter { seen.insert($0).inserted }.joined(separator: ":")

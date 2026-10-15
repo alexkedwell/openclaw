@@ -76,8 +76,9 @@ runtime switch. Stale prebuilt output cannot be relabeled to match newer source.
 
 The OpenClaw Bun fork has one shared pin in `scripts/lib/openclaw-bun.json`.
 The compiler is staged outside the app and discarded after packaging.
-`scripts/build-mac-sqlite.sh` supplies the pinned SQLite library with extension
-loading. The app needs no runtime download during onboarding.
+The standalone builder supplies the pinned SQLite library with extension
+loading. The executable selects its bundled library without an app-provided
+environment override. The app needs no runtime download during onboarding.
 
 Packaging verifies the relocated executable's version, Gateway help, Doctor,
 and embedded node-worker readiness. Native portability and signature checks

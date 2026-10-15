@@ -7,6 +7,7 @@ struct BundledRuntime: Sendable {
     let executable: URL
     let packageRoot: URL
     let sqliteLibrary: URL
+    let sqliteLibraryOverride: String?
 
     static var isBundledApp: Bool {
         Bundle.main.bundleURL.pathExtension == "app"
@@ -15,10 +16,9 @@ struct BundledRuntime: Sendable {
     let cliCommand: [String]
 
     var environment: [String: String] {
-        [
-            "PATH": self.executable.deletingLastPathComponent().path,
-            "OPENCLAW_SQLITE_LIBRARY": self.sqliteLibrary.path,
-        ]
+        var environment = ["PATH": self.executable.deletingLastPathComponent().path]
+        environment["OPENCLAW_SQLITE_LIBRARY"] = self.sqliteLibraryOverride
+        return environment
     }
 
     struct Manifest: Decodable, Equatable, Sendable {
@@ -113,6 +113,7 @@ struct BundledRuntime: Sendable {
         self.packageRoot = root.appendingPathComponent("runtime")
         self.sqliteLibrary = self.packageRoot.appendingPathComponent("lib/libsqlite3.dylib")
         self.cliCommand = [self.executable.path]
+        self.sqliteLibraryOverride = nil
     }
 
     /// Only rollback consumes the pre-update command; new seeds always use the standalone layout.
@@ -125,6 +126,7 @@ struct BundledRuntime: Sendable {
         self.sqliteLibrary = cli.sqliteLibrary.map { URL(fileURLWithPath: $0) }
             ?? (standalone ? self.packageRoot : self.root).appendingPathComponent("lib/libsqlite3.dylib")
         self.cliCommand = cli.prefix
+        self.sqliteLibraryOverride = cli.sqliteLibrary ?? (standalone ? nil : self.sqliteLibrary.path)
     }
 
     private func command(entry: String) -> [String] {

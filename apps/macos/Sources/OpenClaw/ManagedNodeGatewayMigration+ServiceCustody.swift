@@ -102,7 +102,7 @@ extension ManagedNodeGatewayMigration {
               let cli = GatewayLaunchAgentManager.installedServiceCLI(
                   snapshot: snapshot, environmentFile: artifacts.environment, environmentWrapper: artifacts.wrapper),
               cli.matchesBundledRuntime(runtime),
-              snapshot.environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.sqliteLibrary.path,
+              snapshot.environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.sqliteLibraryOverride,
               snapshot.port == port,
               snapshot.programArguments.contains("--allow-unconfigured") == allowUnconfigured
         else { throw Failure(message: "The Gateway service does not match this Bun installation; it was preserved.") }

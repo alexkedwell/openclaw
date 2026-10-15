@@ -96,8 +96,7 @@ struct BundledRuntimeTests {
                 #expect(manifest.commands == [command])
                 #expect(launch.command[0] == relocated.appendingPathComponent("Contents/Resources/runtime/openclaw")
                     .path)
-                #expect(manifest.pathEnv == relocated
-                    .appendingPathComponent("Contents/Resources/runtime/runtime/lib/libsqlite3.dylib").path)
+                #expect(manifest.pathEnv.isEmpty)
                 #expect(!launch.command.contains(external.path))
             } catch {
                 await worker.stop()
@@ -163,10 +162,27 @@ struct BundledRuntimeTests {
         #expect(setup.currentDirectoryURL == runtime.packageRoot)
         #expect(setup.environment["PATH"] == worker.environment["PATH"])
         #expect(setup.environment["PATH"] == runtime.root.path)
-        #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == worker.environment["OPENCLAW_SQLITE_LIBRARY"])
-        #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.root
-            .appendingPathComponent("runtime/lib/libsqlite3.dylib").path)
+        #expect(worker.environment["OPENCLAW_SQLITE_LIBRARY"] == nil)
+        #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == nil)
         #expect(setup.environment["OPENCLAW_PROFILE"] == "browser-fixture")
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func `retained runtime launches preserve recorded SQLite overrides and legacy fallback`(
+        standalone: Bool,
+        recordedOverride: Bool)
+    {
+        let root = URL(fileURLWithPath: "/fixture/previous")
+        let cli = GatewayLaunchAgentManager.InstalledServiceCLI(
+            prefix: standalone ? [root.appendingPathComponent("openclaw").path] : [
+                root.appendingPathComponent("bin/bun").path,
+                root.appendingPathComponent("lib/node_modules/openclaw/openclaw.mjs").path,
+            ],
+            sqliteLibrary: recordedOverride ? "/fixture/retained/libsqlite3.dylib" : nil)
+        let runtime = BundledRuntime(retainedCLI: cli)
+        let expected = recordedOverride ? "/fixture/retained/libsqlite3.dylib" :
+            standalone ? nil : "/fixture/previous/lib/libsqlite3.dylib"
+        #expect(runtime.environment["OPENCLAW_SQLITE_LIBRARY"] == expected)
     }
 
     @Test func `seeding publishes a relocatable current runtime and probes each copied build once`() async throws {
@@ -200,7 +216,7 @@ struct BundledRuntimeTests {
             #expect(result.success)
             #expect(result
                 .stdout ==
-                "seed-fixture\n\(runtimeRoot.path)/current/runtime/lib/libsqlite3.dylib\nargument with spaces\n")
+                "seed-fixture\n\nargument with spaces\n")
         }
         #expect(try FileManager.default.destinationOfSymbolicLink(
             atPath: runtimeRoot.appendingPathComponent("previous").path) == "build-0")
@@ -288,7 +304,7 @@ struct BundledRuntimeTests {
         _ = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
         let result = await ShellExecutor.runDetailed(command: [cli.path], cwd: nil, env: [:], timeout: 5)
         #expect(result.success)
-        #expect(result.stdout == "shim-fixture\n\(state.path)/runtime/current/runtime/lib/libsqlite3.dylib\n")
+        #expect(result.stdout == "shim-fixture\n\n")
         let operatorScript = "#!/bin/sh\nexec /custom/openclaw \"$@\"\n"
         try operatorScript.write(to: cli, atomically: true, encoding: .utf8)
         _ = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)

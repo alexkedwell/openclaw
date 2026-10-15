@@ -70,6 +70,12 @@ export async function verifyMacStandaloneRuntime(root, expected, mode, arch) {
   for (const key of ["sha256", "sizeBytes", "fileCount", "symlinkCount"]) {
     assert.equal(actual[key], manifest.runtime[key], `Standalone runtime ${key} mismatch`);
   }
+  assert(
+    fs
+      .lstatSync(path.join(root, "runtime/lib/libsqlite3.dylib"), { throwIfNoEntry: false })
+      ?.isFile(),
+    "Standalone bundled SQLite is missing; rebuild the complete standalone artifact",
+  );
   return manifest;
 }
 
@@ -92,7 +98,16 @@ export async function refreshMacStandaloneManifest(root, installOwner = false) {
     sizeBytes: fs.statSync(executable).size,
     sha256: await sha256File(executable),
   };
-  manifest.runtime = await describeStandaloneRuntime(path.join(root, "runtime"));
+  // Keep the builder's resource breakdown and provenance when resealing staged bytes.
+  manifest.runtime = {
+    ...manifest.runtime,
+    ...(await describeStandaloneRuntime(path.join(root, "runtime"))),
+  };
+  if (manifest.runtime.sqlite) {
+    manifest.runtime.sqlite.sha256 = await sha256File(
+      path.join(root, "runtime/lib/libsqlite3.dylib"),
+    );
+  }
   if (installOwner) {
     // Hash the complete unsigned payload, including the app-owned additions.
     // Resealing updates native hashes without changing this seed identity.
