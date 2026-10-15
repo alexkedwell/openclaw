@@ -2,10 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { withTempDir } from "openclaw/plugin-sdk/test-env";
 import { expect, it, vi } from "vitest";
-import {
-  reconcileCodexComputerUseStartArtifacts,
-  resolveCodexAppServerHomeDir,
-} from "./auth-bridge.js";
+import { resolveCodexAppServerHomeDir } from "./auth-start-options.js";
+import { reconcileCodexComputerUseStartArtifacts } from "./computer-use-artifacts.js";
 import type { CodexAppServerStartOptions } from "./config.js";
 import { resolveMacOSDesktopCodexAppPathCandidates } from "./desktop-app-paths.js";
 

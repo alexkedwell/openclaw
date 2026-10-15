@@ -16,7 +16,6 @@ import {
   applyCodexAppServerAuthProfile,
   bridgeCodexAppServerStartOptions,
   resolveCodexAppServerPreparedAuthProfileSnapshot,
-  reconcileCodexComputerUseStartArtifacts,
 } from "./auth-bridge.js";
 import {
   CodexAppServerAuthProfileUnavailableError,
@@ -38,7 +37,8 @@ import {
   withCodexAppServerAcquireDeadline,
 } from "./client-startup-retry.js";
 import { CodexAppServerClient, isUnsupportedCodexAppServerVersionError } from "./client.js";
-import type { CodexAppServerStartOptions } from "./config-contracts.js";
+import { reconcileCodexComputerUseStartArtifacts } from "./computer-use-artifacts.js";
+import type { CodexAppServerStartOptions, CodexPluginConfig } from "./config-contracts.js";
 import {
   resolveCodexAppServerRuntimeOptions,
   resolveCodexAppServerStartOptionsForAgent,
@@ -182,7 +182,7 @@ export function readCodexAppServerClientDesktopGeneration(
 
 export type CodexAppServerClientOptions = {
   startOptions?: CodexAppServerStartOptions;
-  pluginConfig?: unknown;
+  pluginConfig?: CodexPluginConfig;
   timeoutMs?: number;
   authProfileId?: string | null;
   authProfileStore?: AuthProfileStore;
@@ -343,7 +343,6 @@ async function resolveCodexAppServerClientStartContext(
       : {}),
     authRequirement,
     config: options?.config,
-    pluginConfig: options?.pluginConfig,
     ...(authProfileStore ? { authProfileStore } : {}),
   });
   return {

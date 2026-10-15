@@ -14,11 +14,7 @@ import {
 import { recordCodexThreadForkSettings } from "./client-fork-settings.js";
 import { hasCodexAppServerSiblingThreadWork } from "./client-runtime.js";
 import { createCodexEphemeralThreadPolicy } from "./client-thread-owner.js";
-import {
-  CodexAppServerRpcError,
-  isCodexAppServerOverloadError,
-  resolveCodexAppServerClientInstanceId,
-} from "./client.js";
+import { CodexAppServerRpcError, isCodexAppServerOverloadError } from "./client.js";
 import { buildCodexAppServerConnectionFingerprint } from "./plugin-app-cache-key.js";
 import {
   attestCodexThreadToolSurface,
@@ -274,7 +270,7 @@ export async function resumeExistingCodexThread(
     const resumePatch = {
       // Resume moves native subscription ownership to this physical client.
       // Keeping its previous client id disables warm reuse after every restart.
-      clientId: resolveCodexAppServerClientInstanceId(params.client),
+      clientId: params.client.getInstanceId(),
       pendingResumeConfiguration: undefined,
       ...(resumeBinding.agentWorkspaceDeveloperInstructions === undefined &&
       params.agentWorkspaceDeveloperInstructions !== undefined
@@ -430,7 +426,7 @@ export async function startFreshCodexThread(
   params: CodexStartOrResumeThreadParams,
   context: CodexStartThreadContext,
 ): Promise<CodexAppServerThreadLifecycleBinding> {
-  const clientId = resolveCodexAppServerClientInstanceId(params.client);
+  const clientId = params.client.getInstanceId();
   const {
     bindingIdentity,
     startModelSelection,

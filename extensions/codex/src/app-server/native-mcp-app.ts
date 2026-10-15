@@ -19,7 +19,8 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { z } from "zod";
 import { protectCodexAppServerLiveThread } from "./client-runtime.js";
-import { getCodexAppServerClientInstanceId, type CodexAppServerClient } from "./client.js";
+import type { CodexAppServerClient } from "./client.js";
+import { listCodexMcpServerStatuses } from "./mcp-server-status.js";
 import {
   projectCodexMcpServerMetadata,
   projectCodexMcpToolMetadata,
@@ -92,33 +93,27 @@ export function createNativeMcpRuntime(params: {
     if (statuses) {
       return statuses;
     }
-    const loaded: CodexMcpServerStatus[] = [];
-    const cursors = new Set<string>();
-    let cursor: string | undefined;
-    for (let page = 0; page < 100; page += 1) {
-      params.assertCurrent?.();
-      const response = await params.client.request(
-        "mcpServerStatus/list",
-        {
-          threadId: params.threadId,
-          detail: "full",
-          ...(cursor ? { cursor } : {}),
-        },
-        { assertCurrent: params.assertCurrent },
-      );
-      params.assertCurrent?.();
-      loaded.push(...response.data);
-      if (!response.nextCursor) {
-        statuses = loaded;
-        return statuses;
-      }
-      if (cursors.has(response.nextCursor)) {
-        throw new Error("Native MCP status cursor repeated");
-      }
-      cursor = response.nextCursor;
-      cursors.add(cursor);
-    }
-    throw new Error("Native MCP status exceeded the page limit");
+    statuses = await listCodexMcpServerStatuses(
+      async (cursor) => {
+        params.assertCurrent?.();
+        const response = await params.client.request(
+          "mcpServerStatus/list",
+          {
+            threadId: params.threadId,
+            detail: "full",
+            ...(cursor ? { cursor } : {}),
+          },
+          { assertCurrent: params.assertCurrent },
+        );
+        params.assertCurrent?.();
+        return response;
+      },
+      {
+        repeatedCursor: "Native MCP status cursor repeated",
+        pageLimit: "Native MCP status exceeded the page limit",
+      },
+    );
+    return statuses;
   };
   const getCatalog = async (): Promise<McpToolCatalog> => {
     if (catalog) {
@@ -171,7 +166,7 @@ export function createNativeMcpRuntime(params: {
     sessionId: params.attempt.sessionId,
     sessionKey: params.attempt.sessionKey,
     workspaceDir: params.attempt.workspaceDir,
-    configFingerprint: `${getCodexAppServerClientInstanceId(params.client)}:${params.threadId}`,
+    configFingerprint: `${params.client.getInstanceId()}:${params.threadId}`,
     mcpAppsEnabled: true,
     ...(params.appRequester ? { appRequester: params.appRequester } : {}),
     assertOwnerCurrent: params.assertCurrent,

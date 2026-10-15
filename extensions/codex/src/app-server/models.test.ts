@@ -24,8 +24,11 @@ const mocks = vi.hoisted(() => {
 vi.mock("./auth-bridge.js", () => ({
   applyCodexAppServerAuthProfile: mocks.authBridge.applyAuthProfile,
   bridgeCodexAppServerStartOptions: mocks.authBridge.startOptions,
-  reconcileCodexComputerUseStartArtifacts: mocks.authBridge.reconcileComputerUseArtifacts,
   resolveCodexAppServerHomeDir: (agentDir: string) => `${agentDir}/codex-home`,
+}));
+
+vi.mock("./computer-use-artifacts.js", () => ({
+  reconcileCodexComputerUseStartArtifacts: mocks.authBridge.reconcileComputerUseArtifacts,
 }));
 
 vi.mock("./auth-profile.js", () => ({

@@ -3,7 +3,10 @@ export * from "./session-binding.js";
 import type { inspectConversationBinding } from "openclaw/plugin-sdk/conversation-binding-inspection-runtime";
 import type { PluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { legacyCodexConversationBindingId } from "../conversation-binding-data.js";
-import { resolveCodexSupervisionAppServerRuntimeOptions } from "./config.js";
+import {
+  resolveCodexSupervisionAppServerRuntimeOptions,
+  type CodexPluginConfig,
+} from "./config.js";
 import { buildCodexAppServerConnectionFingerprint } from "./plugin-app-cache-key.js";
 import {
   bindingStoreKey,
@@ -90,7 +93,7 @@ export function createCodexTestBindingStore(): CodexAppServerBindingStore {
 }
 
 export function buildCodexSupervisionTestConnectionFingerprint(
-  pluginConfig: unknown = { supervision: { enabled: true } },
+  pluginConfig: CodexPluginConfig = { supervision: { enabled: true } },
 ): string {
   return buildCodexAppServerConnectionFingerprint(
     resolveCodexSupervisionAppServerRuntimeOptions({

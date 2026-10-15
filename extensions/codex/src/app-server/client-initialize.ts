@@ -32,19 +32,12 @@ export function createCodexInitializeDiagnostics() {
       current = snapshot;
       return {
         boundary(boundary: InitializeDiagnostic["boundary"]) {
-          if (current === snapshot) {
-            snapshot.boundary = boundary;
-          }
+          snapshot.boundary = boundary;
         },
         finish(succeeded: boolean) {
-          if (current === snapshot) {
-            snapshot.outcome = succeeded ? "succeeded" : "failed";
-          }
+          snapshot.outcome = succeeded ? "succeeded" : "failed";
         },
         attempt(ordinal: number) {
-          if (current !== snapshot) {
-            return undefined;
-          }
           const attempt: InitializeDiagnostic = {
             boundary: "request",
             outcome: "pending",
@@ -77,7 +70,7 @@ export function createCodexInitializeDiagnostics() {
     },
     snapshot(clientClosed: boolean, beforeClientClose = false) {
       if (beforeClientClose) {
-        return beforeClose ? { ...beforeClose } : undefined;
+        return beforeClose;
       }
       return current ? { ...current, clientClosed } : undefined;
     },

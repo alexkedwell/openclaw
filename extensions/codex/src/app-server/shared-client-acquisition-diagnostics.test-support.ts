@@ -6,6 +6,7 @@ import * as catalogEvents from "../session-catalog-events.js";
 import * as authBridge from "./auth-bridge.js";
 import type { CodexAppServerAuthHandoff } from "./auth-types.js";
 import { CodexAppServerClient } from "./client.js";
+import * as computerUseArtifacts from "./computer-use-artifacts.js";
 import { withCodexAppServerJsonClient } from "./request.js";
 import * as sharedClient from "./shared-client.js";
 import {
@@ -71,7 +72,9 @@ export function registerSharedClientAcquisitionDiagnosticsTests({
         },
       );
     } else if (boundary === "entry-selection") {
-      vi.mocked(authBridge.reconcileCodexComputerUseStartArtifacts).mockImplementationOnce(park);
+      vi.mocked(
+        computerUseArtifacts.reconcileCodexComputerUseStartArtifacts,
+      ).mockImplementationOnce(park);
     } else if (boundary === "catalog-observation") {
       vi.spyOn(catalogEvents, "observeCodexCatalogClient").mockImplementationOnce(park);
     } else if (boundary === "auth-handoff") {

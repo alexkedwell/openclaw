@@ -64,7 +64,7 @@ export function createCodexDiagnosticsConfirmation(
       CODEX_DIAGNOSTICS_CONFIRMATION_MAX_SCOPES
   ) {
     const oldestScopeKey = pendingCodexDiagnosticsConfirmationTokensByScope.keys().next().value;
-    if (typeof oldestScopeKey === "string") {
+    if (oldestScopeKey !== undefined) {
       for (const token of pendingCodexDiagnosticsConfirmationTokensByScope.get(oldestScopeKey) ??
         []) {
         pendingCodexDiagnosticsConfirmations.delete(token);
@@ -103,7 +103,7 @@ export function readCodexDiagnosticsConfirmationScope(ctx: PluginCommandContext)
     accountId: normalizeCodexDiagnosticsScopeField(ctx.accountId),
     channelId: normalizeCodexDiagnosticsScopeField(ctx.channelId),
     messageThreadId:
-      typeof ctx.messageThreadId === "string" || typeof ctx.messageThreadId === "number"
+      ctx.messageThreadId !== undefined
         ? normalizeCodexDiagnosticsScopeField(String(ctx.messageThreadId))
         : undefined,
     threadParentId: normalizeCodexDiagnosticsScopeField(ctx.threadParentId),

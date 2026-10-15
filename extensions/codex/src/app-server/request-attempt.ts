@@ -170,7 +170,7 @@ export function createCodexRequestAttempt(params: {
           },
         };
         waiter = localWaiter;
-        if (timeoutMs && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        if (timeoutMs !== undefined) {
           timer = setTimeout(
             () =>
               localWaiter.reject(

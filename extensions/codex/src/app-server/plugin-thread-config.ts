@@ -3,6 +3,7 @@ import { defaultCodexAppInventoryCache, CodexAppInventoryCache } from "./app-inv
 import { fingerprintCodexPolicy } from "./config-policy-json.js";
 import {
   resolveCodexPluginsPolicy,
+  type CodexPluginConfig,
   type CodexPluginDestructiveApprovalMode,
   type ResolvedCodexPluginPolicy,
   type ResolvedCodexPluginsPolicy,
@@ -64,7 +65,7 @@ export type CodexPluginThreadConfig = {
 };
 
 type BuildCodexPluginThreadConfigParams = {
-  pluginConfig?: unknown;
+  pluginConfig?: CodexPluginConfig;
   request: CodexPluginRuntimeRequest;
   configCwd?: string;
   threadId?: string;
@@ -79,13 +80,13 @@ type BuildCodexPluginThreadConfigParams = {
 const CODEX_PLUGIN_THREAD_CONFIG_INPUT_FINGERPRINT_VERSION = 15;
 const CODEX_PLUGIN_THREAD_CONFIG_FINGERPRINT_VERSION = 2;
 
-export function shouldBuildCodexPluginThreadConfig(pluginConfig?: unknown): boolean {
+export function shouldBuildCodexPluginThreadConfig(pluginConfig?: CodexPluginConfig): boolean {
   return resolveCodexPluginsPolicy(pluginConfig).configured;
 }
 
 /** Fingerprints policy and app-cache identity before runtime inventory is read. */
 export function buildCodexPluginThreadConfigInputFingerprint(params: {
-  pluginConfig?: unknown;
+  pluginConfig?: CodexPluginConfig;
   appCacheKey?: string;
 }): string {
   const policy = resolveCodexPluginsPolicy(params.pluginConfig);
@@ -104,7 +105,7 @@ export function buildCodexPluginThreadConfigInputFingerprint(params: {
 
 /** Builds the deny-all app patch used when plugin discovery exceeds its turn budget. */
 export function buildCodexPluginThreadConfigTimeoutFallback(params: {
-  pluginConfig?: unknown;
+  pluginConfig?: CodexPluginConfig;
   appCacheKey: string;
   message: string;
 }): CodexPluginThreadConfig {

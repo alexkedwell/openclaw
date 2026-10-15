@@ -14,7 +14,7 @@ import {
   isCodexAppServerLiveThreadProtected,
   protectCodexAppServerLiveThread,
 } from "./client-runtime.js";
-import { resolveCodexAppServerClientInstanceId, type CodexAppServerClient } from "./client.js";
+import type { CodexAppServerClient } from "./client.js";
 import { shouldAutoApproveCodexAppServerApprovals } from "./config.js";
 import { CodexAppServerEventProjector } from "./event-projector.js";
 import { buildCodexHookRequester } from "./hook-requester.js";
@@ -161,11 +161,8 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
   });
   const releaseSharedClientLeaseOnce = () => {
     const release = state.releaseSharedClientLease;
-    if (!release) {
-      return;
-    }
     state.releaseSharedClientLease = undefined;
-    release();
+    release?.();
   };
   const retireSharedCodexClientForOneShotCleanup = async () => {
     if (
@@ -266,9 +263,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
           : {}),
         binding: thread,
       });
-      const assertParentSessionCurrent = async () => {
-        await parent?.assertCurrent();
-      };
+      const assertParentSessionCurrent = async () => parent?.assertCurrent();
       const parentWriteAuthority = createNativeSubagentSessionAuthority(parent);
       const submissionStore: CodexNativeSubagentSubmissionStore | undefined =
         historyOwner && thread.lifecycle.preserveExistingBinding !== true
@@ -396,7 +391,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
     if (subscriptionSettlement?.thread === thread) {
       return subscriptionSettlement.retained;
     }
-    if (!thread || thread.clientId !== resolveCodexAppServerClientInstanceId(client)) {
+    if (!thread || thread.clientId !== client.getInstanceId()) {
       return false;
     }
     const hasNativeRetentionAuthority = () =>
@@ -420,7 +415,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
         publicationStarted = true;
         if (
           state.nativeSettlementExpired ||
-          thread.clientId !== resolveCodexAppServerClientInstanceId(client) ||
+          thread.clientId !== client.getInstanceId() ||
           !isSameCodexAppServerThreadOwner(bindingStore.read(bindingIdentity), thread)
         ) {
           return;
@@ -647,9 +642,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
         timeoutMs: appServer.requestTimeoutMs,
         onCleanupFailure: (error) => reportCodexBackgroundCleanupFailure(params, error),
       },
-      assertCurrent: () => {
-        connection.assertLegacyCurrent();
-      },
+      assertCurrent: connection.assertLegacyCurrent,
       assertCurrentAsync: runtime.nativeExecutionPolicy.assertCurrent,
       retainExecutionPolicy: runtime.nativeExecutionPolicy.retain,
       onPreToolUseFailure: (failure) => {

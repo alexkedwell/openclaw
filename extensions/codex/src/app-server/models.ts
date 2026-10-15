@@ -125,7 +125,7 @@ async function requestModelListPage(
 export function readModelListResult(value: unknown): CodexAppServerModelListResult {
   const response = assertCodexModelListResponse(value);
   const models = response.data.map(readCodexModel);
-  const nextCursor = response.nextCursor ?? undefined;
+  const nextCursor = response.nextCursor;
   return { models, ...(nextCursor ? { nextCursor } : {}) };
 }
 
@@ -161,6 +161,6 @@ function readCodexModel(value: CodexModel): CodexAppServerModel {
   };
 }
 
-function normalizeMaxPages(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 20;
+function normalizeMaxPages(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : 20;
 }

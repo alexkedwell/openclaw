@@ -64,8 +64,8 @@ function materializeCodexSchema(
   schema: unknown,
   externalRefPrefix = externalDefinitionRefPrefix,
 ): unknown {
-  const sharedDefinitions: unknown = sharedDefinitionsSchema.definitions;
-  if (!isRecord(schema) || !isRecord(sharedDefinitions)) {
+  const sharedDefinitions: Record<string, unknown> = sharedDefinitionsSchema.definitions;
+  if (!isRecord(schema)) {
     return schema;
   }
   const reachable = collectDefinitionRefs(schema, externalRefPrefix);
@@ -415,7 +415,7 @@ function readCodexShape<T>(validate: CodexValidator<T>, value: unknown): T | und
 
 function formatValidationErrors(validate: CodexValidator<unknown>, value: unknown): string {
   const errors = validate.errors(value);
-  if (!errors || errors.length === 0) {
+  if (errors.length === 0) {
     return "schema validation failed";
   }
   return errors
