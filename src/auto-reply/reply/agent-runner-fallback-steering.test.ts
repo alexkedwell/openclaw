@@ -379,6 +379,8 @@ describe("ordinary steering into automatic model fallback", () => {
         },
       });
       expect(candidates).toEqual(["openai/gpt-test", "test-alias/test-model"]);
+      const requesterPrincipalKey = operation.requesterPrincipalKey;
+      const toolAuthorityFingerprint = operation.toolAuthorityFingerprint;
       if (scenario === "new-selection") {
         run.run.provider = "test-provider";
         run.run.model = "test-model";
@@ -463,6 +465,8 @@ describe("ordinary steering into automatic model fallback", () => {
         });
       }
       expect(delivered).toEqual(shouldSteer ? [run.prompt] : []);
+      expect(operation.requesterPrincipalKey).toBe(requesterPrincipalKey);
+      expect(operation.toolAuthorityFingerprint).toBe(toolAuthorityFingerprint);
       if (crossProfile) {
         const dispatch = await createPersonalToolScreenDispatcher(["alice", "bob"]);
         await withGatewayToolCallerIdentity(
@@ -472,7 +476,19 @@ describe("ordinary steering into automatic model fallback", () => {
             personalToolParticipants: operation.personalToolParticipants,
           },
           async () => {
-            const unchanged = await dispatch();
+            const unselected = await dispatch();
+            if (shouldSteer) {
+              expect(unselected.broadcastToConnIds).not.toHaveBeenCalled();
+              expect(unselected.respond).toHaveBeenCalledWith(
+                false,
+                undefined,
+                expect.objectContaining({
+                  code: "INVALID_REQUEST",
+                  message: expect.stringContaining("Several people have steered this turn"),
+                }),
+              );
+            }
+            const unchanged = shouldSteer ? await dispatch("alice") : unselected;
             expect(unchanged.broadcastToConnIds).toHaveBeenCalledWith(
               "ui.command",
               expect.any(Object),
@@ -480,7 +496,7 @@ describe("ordinary steering into automatic model fallback", () => {
             );
             const other = await dispatch("bob");
             if (shouldSteer) {
-              // Accepted collaboration retains the incumbent default and existing participant lookup.
+              // Personal tools retain their explicit participant selection after collaboration.
               expect(other.broadcastToConnIds).toHaveBeenCalledWith(
                 "ui.command",
                 expect.any(Object),
