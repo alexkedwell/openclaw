@@ -79,7 +79,8 @@ const mocks = vi.hoisted(() => ({
 }));
 mocks.waitForCodexDesktopGeneration.mockImplementation(async () => mocks.desktopGeneration);
 
-vi.mock("./auth-bridge.js", () => ({
+vi.mock("./auth-bridge.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./auth-bridge.js")>()),
   applyCodexAppServerAuthProfile: mocks.applyCodexAppServerAuthProfile,
   bridgeCodexAppServerStartOptions: mocks.bridgeCodexAppServerStartOptions,
   resolveCodexAppServerPreparedAuthProfileSnapshot:
@@ -89,7 +90,8 @@ vi.mock("./auth-bridge.js", () => ({
     path.join(path.resolve(agentDir), "codex-home"),
 }));
 
-vi.mock("./computer-use-artifacts.js", () => ({
+vi.mock("./computer-use-artifacts.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./computer-use-artifacts.js")>()),
   reconcileCodexComputerUseStartArtifacts: mocks.reconcileCodexComputerUseStartArtifacts,
 }));
 

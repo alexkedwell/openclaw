@@ -10,8 +10,9 @@ const graphMessagesMockState = vi.hoisted(() => ({
   findPreferredDmByUserId: vi.fn(),
 }));
 
-vi.mock("./graph.js", () => {
+vi.mock("./graph.js", async (importOriginal) => {
   return {
+    ...(await importOriginal<typeof import("./graph.js")>()),
     resolveGraphToken: graphMessagesMockState.resolveGraphToken,
     fetchGraphJson: graphMessagesMockState.fetchGraphJson,
     fetchAllGraphPages: graphMessagesMockState.fetchAllGraphPages,

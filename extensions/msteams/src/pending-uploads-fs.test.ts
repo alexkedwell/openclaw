@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { OpenAsyncKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
   createPluginStateKeyedStoreForTests,
   openOpenClawStateDatabase,
@@ -89,7 +90,22 @@ describe("msteams pending uploads (fs-backed)", () => {
     expect(await getPendingUploadFs("does-not-exist")).toBeUndefined();
   });
 
-  it("stores multi-megabyte uploads with bulk host reads", async () => {
+  it.each(["bulk", "legacy"])("stores multi-megabyte uploads with %s host reads", async (mode) => {
+    if (mode === "legacy") {
+      setMSTeamsRuntime({
+        ...msteamsRuntimeStub,
+        state: {
+          ...msteamsRuntimeStub.state,
+          openKeyedStore: <T>(options: OpenAsyncKeyedStoreOptions) => {
+            const { lookupMany: _lookupMany, ...store } = createPluginStateKeyedStoreForTests<T>(
+              "msteams",
+              options,
+            );
+            return store;
+          },
+        },
+      });
+    }
     const payload = Buffer.alloc(6 * 1024 * 1024, 7);
 
     await storeUpload({ id: "upload-large", buffer: payload, filename: "large.bin" });
