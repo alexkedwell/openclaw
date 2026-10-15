@@ -1,3 +1,4 @@
+import { isStandaloneRuntimeExecutable } from "../../cli-invocation.mjs";
 import { SUPPORTED_NODE_VERSIONS } from "../../node-version.mjs";
 import { isBunRuntime, isNodeRuntime } from "./runtime-binary.js";
 import {
@@ -10,7 +11,6 @@ import {
 import * as runtimePins from "./runtime-pin-state.js";
 import type { GatewayServiceCommand, ServiceConfigIssue } from "./service-audit-types.js";
 import { normalizeServicePathEntry } from "./service-path-policy.js";
-import { readStandaloneRuntimeManifest } from "./standalone-runtime.js";
 
 export const SERVICE_RUNTIME_AUDIT_CODES = {
   gatewayRuntimeBun: "gateway-runtime-bun",
@@ -32,7 +32,7 @@ export async function auditGatewayRuntime(
     return undefined;
   }
 
-  const bun = isBunRuntime(execPath) || Boolean(readStandaloneRuntimeManifest(execPath));
+  const bun = isBunRuntime(execPath) || isStandaloneRuntimeExecutable(execPath);
   if (!bun && !isNodeRuntime(execPath)) {
     return undefined;
   }

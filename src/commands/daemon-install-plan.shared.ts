@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isStandaloneRuntimeExecutable } from "../../cli-invocation.mjs";
 import {
   resolveBunRuntimeInfo,
   resolvePinnedDaemonRuntimePath,
@@ -7,7 +8,6 @@ import {
   resolvePreferredNodePath,
 } from "../daemon/runtime-paths.js";
 import type { GatewayServiceEnvironmentValueSource } from "../daemon/service-types.js";
-import { readStandaloneRuntimeManifest } from "../daemon/standalone-runtime.js";
 import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
 import type { DaemonInstallWarnFn } from "./daemon-install-runtime-warning.js";
 import type { GatewayDaemonRuntime } from "./daemon-runtime.js";
@@ -70,7 +70,7 @@ export async function resolveDaemonInstallRuntimeInputs(params: {
     !params.runtimeExplicit &&
     params.pinnedRuntimePath === undefined &&
     params.runtimePath === undefined &&
-    readStandaloneRuntimeManifest(process.execPath)
+    isStandaloneRuntimeExecutable()
   ) {
     // A compiled payload has no script entrypoint for a discovered host interpreter.
     const runtimePath = await resolvePinnedDaemonRuntimePath(process.execPath, "bun", params.env);

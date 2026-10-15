@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import {
+  isStandaloneRuntimeExecutable,
+  readStandaloneRuntimeManifest,
+} from "../../cli-invocation.mjs";
 import { quoteCliArg } from "../cli/quote-cli-arg.js";
 import { consumeRootCommandOptionToken, FLAG_TERMINATOR } from "../infra/cli-root-options.js";
 import { pathExists } from "../infra/fs-safe.js";
@@ -13,7 +17,6 @@ import {
   type GatewayServiceCommandConfig,
   type GatewayServiceState,
 } from "./service-types.js";
-import { readStandaloneRuntimeManifest } from "./standalone-runtime.js";
 import { isSystemdManagerUid } from "./systemd-bus-query.js";
 
 export type GatewayServiceLayoutSummary = {
@@ -48,7 +51,7 @@ export async function resolveGatewayServiceInstallationRefreshRoot(params: {
     !root ||
     !command ||
     isBunRuntime(command.programArguments[0] ?? "") ||
-    readStandaloneRuntimeManifest(command.programArguments[0] ?? "") ||
+    isStandaloneRuntimeExecutable(command.programArguments[0] ?? "") ||
     state.loadState.status === "unknown" ||
     (state.runtime?.status !== "running" && state.runtime?.status !== "stopped") ||
     (process.platform === "linux" && !isSystemdManagerUid(managerUid)) ||

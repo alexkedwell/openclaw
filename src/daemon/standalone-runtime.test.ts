@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { resolveDaemonInstallRuntimeInputs } from "../commands/daemon-install-plan.shared.js";
@@ -41,6 +42,31 @@ function standaloneFixture(options: { reportedVersion?: string; manifest?: unkno
 }
 
 describe.skipIf(process.platform === "win32")("standalone service runtime", () => {
+  it("uses the embedded runtime identity when planning the current executable's service", async () => {
+    const executable = standaloneFixture();
+    const originalExecPath = process.execPath;
+    process.execPath = executable;
+    vi.stubGlobal(
+      "__openclawStandaloneRootUrl",
+      pathToFileURL(path.join(path.dirname(executable), "runtime")).href,
+    );
+    fs.unlinkSync(path.join(path.dirname(executable), "manifest.json"));
+    try {
+      expect(resolveGatewayDaemonRuntime([executable, "gateway"])).toBe("bun");
+      await expect(
+        resolveGatewayProgramArguments({
+          runtime: "bun",
+          runtimePath: executable,
+          dev: true,
+          port: 19523,
+        }),
+      ).resolves.toEqual({ programArguments: [executable, "gateway", "--port", "19523"] });
+    } finally {
+      process.execPath = originalExecPath;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(["implicit", "explicit-node", "retained-path", "saved-pin"] as const)(
     "preserves %s runtime selection when a supported host Node is available",
     async (selection) => {

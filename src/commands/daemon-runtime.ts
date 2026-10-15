@@ -1,5 +1,5 @@
+import { isStandaloneRuntimeExecutable } from "../../cli-invocation.mjs";
 import { isBunRuntime } from "../daemon/runtime-binary.js";
-import { readStandaloneRuntimeManifest } from "../daemon/standalone-runtime.js";
 
 export type GatewayDaemonRuntime = "bun" | "node";
 
@@ -32,7 +32,7 @@ export function resolveGatewayDaemonRuntime(
   programArguments: string[] | undefined,
 ): GatewayDaemonRuntime {
   const executable = programArguments?.[0];
-  return executable && (isBunRuntime(executable) || readStandaloneRuntimeManifest(executable))
+  return executable && (isBunRuntime(executable) || isStandaloneRuntimeExecutable(executable))
     ? "bun"
     : DEFAULT_GATEWAY_DAEMON_RUNTIME;
 }

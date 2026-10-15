@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import {
+  isStandaloneRuntimeExecutable,
+  readStandaloneRuntimeManifest,
+} from "../../cli-invocation.mjs";
+import {
   nodeRuntimeFailure,
   nodeRuntimeNote,
   SQLITE_CAPABILITY_PROBE,
@@ -25,7 +29,6 @@ import { runExec } from "../process/exec.js";
 import { matchesVersionManagerPath } from "../shared/version-manager-path.js";
 import { isBunRuntime, isNodeRuntime } from "./runtime-binary.js";
 import { normalizeServicePathEntry } from "./service-path-policy.js";
-import { readStandaloneRuntimeManifest } from "./standalone-runtime.js";
 
 function getPathModule(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix;
@@ -344,7 +347,7 @@ export async function resolveRecordedDaemonRuntime(
     return undefined;
   }
   const runtime =
-    isBunRuntime(runtimePath) || readStandaloneRuntimeManifest(runtimePath)
+    isBunRuntime(runtimePath) || isStandaloneRuntimeExecutable(runtimePath)
       ? "bun"
       : isNodeRuntime(runtimePath)
         ? "node"
@@ -521,7 +524,7 @@ export async function resolvePreferredBunPath(
   const platform = params.platform ?? process.platform;
   const execFileImpl = params.execFile ?? execFileAsync;
   const currentExecPath = params.execPath ?? process.execPath;
-  if (readStandaloneRuntimeManifest(currentExecPath)) {
+  if (isStandaloneRuntimeExecutable(currentExecPath)) {
     const runtime = await resolveBunRuntimeInfo(currentExecPath, execFileImpl, env);
     if (runtime.status === "probe-failed") {
       throw runtime.error;
@@ -585,7 +588,7 @@ export async function resolvePinnedDaemonRuntimePath(
   const matchesRuntime =
     runtime === "node"
       ? isNodeRuntime(runtimePath)
-      : Boolean(readStandaloneRuntimeManifest(runtimePath)) || isBunRuntime(runtimePath);
+      : isStandaloneRuntimeExecutable(runtimePath) || isBunRuntime(runtimePath);
   if (!matchesRuntime) {
     throw new Error(`--runtime-path must name a ${runtime} executable: ${runtimePath}`);
   }
