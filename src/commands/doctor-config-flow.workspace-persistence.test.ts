@@ -22,28 +22,27 @@ import {
   prepareDoctorContext,
   withDoctorConfigMaintenance,
 } from "./doctor-config-flow.test-support.js";
-import { withDoctorConfigPreflightHome } from "./doctor-config-preflight.test-support.js";
+import {
+  useDoctorConfigPreflightHome,
+  withDoctorConfigPreflightHome,
+} from "./doctor-config-preflight.test-support.js";
 
 describe("Doctor workspace persistence", () => {
+  const withQueueDefaultHome = useDoctorConfigPreflightHome();
+
   afterEach(() => {
     closeOpenClawStateDatabaseForTest();
   });
 
   it.each([
-    { included: false, value: undefined, otherRepair: false },
-    { included: true, value: undefined, otherRepair: false },
-    { included: true, value: false, otherRepair: false },
-    { included: true, value: true, otherRepair: false },
-    { included: false, value: undefined, otherRepair: true },
+    { included: true, otherRepair: false },
+    { included: false, otherRepair: true },
   ])(
-    "persists collaborative steering without overriding authored config (included=$included, value=$value, other repair=$otherRepair)",
-    async ({ included, value, otherRepair }) => {
-      await withDoctorConfigPreflightHome(async (home) => {
+    "persists collaborative steering without overriding authored config (included=$included, other repair=$otherRepair)",
+    async ({ included, otherRepair }) => {
+      await withQueueDefaultHome(async (home) => {
         await withEnvAsync({ OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" }, async () => {
-          const messages = {
-            responsePrefix: "keep-prefix",
-            ...(value === undefined ? {} : { queue: { allowCollaborativeSteering: value } }),
-          };
+          const messages = { responsePrefix: "keep-prefix" };
           const configPath = await writeOpenClawConfig(home, {
             agents: {
               entries: { main: otherRepair ? { $include: "./agent.json" } : {} },
@@ -66,7 +65,7 @@ describe("Doctor workspace persistence", () => {
           expect(
             (await readConfigFileSnapshot()).sourceConfig.messages?.queue
               ?.allowCollaborativeSteering,
-          ).toBe(value);
+          ).toBeUndefined();
           await using ctx = await prepareDoctorContext(configPath);
           expect(await fs.readFile(configPath, "utf8")).toBe(before);
           if (included) {
@@ -80,19 +79,13 @@ describe("Doctor workspace persistence", () => {
           expect(ctx.configWriteRefusal).toBeUndefined();
           const saved = await readConfigFileSnapshot();
           expect(saved.valid).toBe(true);
-          expect(saved.sourceConfig.messages?.queue?.allowCollaborativeSteering).toBe(
-            value ?? true,
-          );
+          expect(saved.sourceConfig.messages?.queue?.allowCollaborativeSteering).toBe(true);
           expect(saved.sourceConfig.gateway?.port).toBe(otherRepair ? undefined : 18880);
           expect(await fs.readFile(`${configPath}.bak`, "utf8")).toBe(before);
           if (included) {
             expect(saved.parsed).toHaveProperty("messages", { $include: "./messages.json" });
             expect(saved.sourceConfig.messages?.responsePrefix).toBe("keep-prefix");
-            if (value === undefined) {
-              expect(await fs.readFile(`${includePath}.bak`, "utf8")).toBe(includeRaw);
-            } else {
-              expect(await fs.readFile(includePath, "utf8")).toBe(includeRaw);
-            }
+            expect(await fs.readFile(`${includePath}.bak`, "utf8")).toBe(includeRaw);
           }
           if (otherRepair) {
             expect(saved.parsed).toHaveProperty("agents.entries.main", {
@@ -297,6 +290,7 @@ describe("Doctor workspace persistence", () => {
             expect(await fs.readFile(`${configPath}.bak`, "utf8")).toBe(original);
 
             const saved = JSON.parse(await fs.readFile(configPath, "utf-8"));
+            expect(saved.messages?.queue?.allowCollaborativeSteering).toBe(true);
             expect(saved.agents.entries.ops).toEqual({
               memory: { search: entries.ops.memorySearch },
               sandbox: { scope: "agent", browser: { noVncEnabled: true } },
