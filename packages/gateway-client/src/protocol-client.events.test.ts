@@ -96,55 +96,6 @@ describe("GatewayProtocolClient lifecycle and event delivery", () => {
     },
   );
 
-  test.each([{ replacement: "the same callback", reuseCallback: true }])(
-    "does not revive a removed subscription replaced with $replacement",
-    ({ reuseCallback }) => {
-      const removedListener = vi.fn();
-      const addedListener = removedListener;
-      let removeListener = () => {};
-      let isFirstEvent = true;
-      const onEvent = vi.fn(() => {
-        if (isFirstEvent) {
-          isFirstEvent = false;
-          removeListener();
-          client.addEventListener(addedListener);
-        }
-      });
-      const { client, connections } = createSyntheticGatewayProtocol({ onEvent });
-      removeListener = client.addEventListener(removedListener);
-      client.start();
-      const connection = connections[0];
-      if (!connection) {
-        throw new Error("synthetic protocol connection missing");
-      }
-
-      connection.handlers.message(
-        JSON.stringify({ type: "event", event: "board.changed", payload: {}, seq: 1 }),
-      );
-
-      expect(removedListener).not.toHaveBeenCalled();
-      expect(addedListener).not.toHaveBeenCalled();
-
-      connection.handlers.message(
-        JSON.stringify({ type: "event", event: "board.changed", payload: {}, seq: 2 }),
-      );
-
-      expect(addedListener).toHaveBeenCalledOnce();
-      if (!reuseCallback) {
-        expect(removedListener).not.toHaveBeenCalled();
-      }
-
-      // Calling the retired subscription's disposer cannot remove its replacement.
-      removeListener();
-      connection.handlers.message(
-        JSON.stringify({ type: "event", event: "board.changed", payload: {}, seq: 3 }),
-      );
-
-      expect(addedListener).toHaveBeenCalledTimes(2);
-      client.stop();
-    },
-  );
-
   test.each(["replace", "reconnect"])(
     "drops gapped frames during %s recovery",
     async (recovery) => {

@@ -93,7 +93,9 @@ export async function* parseOpenAIChatGptResponsesSse(
     void reader.cancel(cancelReason).catch(() => undefined);
     try {
       reader.releaseLock();
-    } catch {}
+    } catch {
+      // A pending read may retain its lock; cleanup cannot replace the stream outcome.
+    }
   }
 }
 

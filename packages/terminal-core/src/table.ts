@@ -474,7 +474,7 @@ export function renderTable(opts: RenderTableOptions): string {
       let flexCols = columns.flatMap((column, i) => (column.flex ? [i] : []));
       if (flexCols.length > 0) {
         const caps = columns.map((c) =>
-          typeof c.maxWidth === "number" && c.maxWidth > 0
+          c.maxWidth !== undefined && c.maxWidth > 0
             ? Math.floor(c.maxWidth)
             : Number.POSITIVE_INFINITY,
         );

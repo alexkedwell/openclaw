@@ -128,7 +128,5 @@ export function normalizeSystemAgentPluginReference(
     delete reference.setting;
   }
   addDeclaredCapabilities(reference, raw.declared);
-  return JSON.stringify(reference).length <= SYSTEM_AGENT_PLUGIN_REFERENCE_MAX_CHARS
-    ? reference
-    : undefined;
+  return reference;
 }

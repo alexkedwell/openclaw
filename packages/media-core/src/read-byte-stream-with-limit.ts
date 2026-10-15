@@ -39,13 +39,17 @@ function destroyReadableOnOverflow(stream: unknown, err: Error): void {
       // same error to destroy() also emits it on Node streams, which can become
       // an unrelated uncaught exception after the awaited rejection settles.
       readable.destroy();
-    } catch {}
+    } catch {
+      // Cleanup must not replace the overflow error already reported to the caller.
+    }
     return;
   }
   if (typeof readable.cancel === "function") {
     try {
       void Promise.resolve(readable.cancel(err)).catch(() => undefined);
-    } catch {}
+    } catch {
+      // Cleanup must not replace the overflow error already reported to the caller.
+    }
   }
 }
 

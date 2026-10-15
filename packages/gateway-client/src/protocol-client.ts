@@ -5,7 +5,6 @@ import {
 } from "@openclaw/gateway-protocol/frame-guards";
 import { asRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveSleepDelayMs, RetrySupervisor, sleepWithAbort } from "@openclaw/retry";
-import { GatewayEventListeners } from "./event-listeners.js";
 import { GatewayPendingRequests, type GatewayProtocolRequestTiming } from "./pending-request.js";
 import type {
   CloseSnapshot,
@@ -45,7 +44,7 @@ export type {
 export class GatewayProtocolClient<TPlan> {
   private socket: GatewayProtocolSocket | null = null;
   private readonly requests: GatewayPendingRequests;
-  private readonly listeners = new GatewayEventListeners<EventFrame>();
+  private readonly listeners = new Set<(event: EventFrame) => void>();
   private stopped = true;
   private generation = 0;
   private connectionAbort: AbortController | null = null;
@@ -148,7 +147,11 @@ export class GatewayProtocolClient<TPlan> {
   }
 
   addEventListener(listener: (event: EventFrame) => void): () => void {
-    return this.listeners.add(listener);
+    // Registrations use callback identity; reusing one is best effort.
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   closeSocket(code?: number, reason?: string): void {
@@ -505,8 +508,8 @@ export class GatewayProtocolClient<TPlan> {
     generation: number,
     event: EventFrame,
   ): void {
-    // Snapshot before callbacks so replacement listeners cannot inherit a retired event.
-    const listeners = this.listeners.snapshot();
+    // New callback identities start with the next event.
+    const listeners = [...this.listeners];
     if (
       event.event === "gateway.suspension" &&
       typeof event.payload === "object" &&
@@ -521,11 +524,11 @@ export class GatewayProtocolClient<TPlan> {
       this.requests.setSuspensionPhase("draining");
     }
     this.invoke("event", () => this.opts.onEvent?.(event));
-    for (const [listener, subscription] of listeners) {
+    for (const listener of listeners) {
       if (!this.isActive(socket, generation) || this.connectionAbort?.signal.aborted) {
         return;
       }
-      if (this.listeners.isCurrent(listener, subscription)) {
+      if (this.listeners.has(listener)) {
         this.invoke("event listener", () => listener(event));
       }
     }

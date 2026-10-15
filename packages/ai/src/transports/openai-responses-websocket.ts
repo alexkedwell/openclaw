@@ -125,7 +125,9 @@ const degradedWebSocketConnections = new Map<string, DegradedWebSocketConnection
 function closeWebSocketSilently(socket: ResponsesWS, reason = "done"): void {
   try {
     socket.close({ code: 1000, reason });
-  } catch {}
+  } catch {
+    // Closing an already-unusable socket must not replace its owner's outcome.
+  }
 }
 
 function invalidateOwnedWebSocketSession(

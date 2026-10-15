@@ -47,7 +47,7 @@ export function createResponsesRequestFetch(
     const dispatchFetch = fetchOverride ?? buildGuardedModelFetch(model);
     fetchOverride = async (input, init) => {
       const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
-      await lifecycle.beforeDispatch(signal ?? undefined);
+      await lifecycle.beforeDispatch(signal);
       signal?.throwIfAborted();
       lifecycle.assertCurrent();
       return dispatchFetch(input, init);

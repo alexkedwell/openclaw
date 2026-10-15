@@ -33,7 +33,7 @@ export function readQuestionResourcePreview(value: unknown): QuestionResourcePre
     return {
       type: "mcp_app_tool",
       name: value.name,
-      ...(record(value.arguments) ? { arguments: value.arguments } : {}),
+      ...(value.arguments !== undefined ? { arguments: value.arguments } : {}),
     };
   }
   if (value.type !== "resource_link" || !bounded(value.uri) || !bounded(value.name, 256)) {
@@ -91,13 +91,11 @@ export function readQuestionResourceInput(value: unknown): QuestionResourceInput
     }
     userOptions = {
       kind: value.userOptions.kind,
-      ...(Array.isArray(accept)
-        ? { accept: accept.filter((entry): entry is string => typeof entry === "string") }
-        : {}),
+      ...(accept !== undefined ? { accept } : {}),
     };
   }
   return {
-    ...(typeof value.viewId === "string" ? { viewId: value.viewId } : {}),
+    ...(value.viewId !== undefined ? { viewId: value.viewId } : {}),
     selection: value.selection,
     ...(userOptions ? { userOptions } : {}),
   };

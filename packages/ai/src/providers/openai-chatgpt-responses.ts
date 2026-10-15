@@ -1335,6 +1335,7 @@ async function readChatGptResponsesErrorTextLimited(
       // This provider module is browser-safe, so keep error-body cleanup on Web APIs.
       await cancel();
     }
+    // A pending read may retain its lock; cleanup cannot replace the HTTP failure.
     try {
       reader.releaseLock();
     } catch {}
@@ -1350,6 +1351,7 @@ function parseErrorResponse(raw: string, response: Response): CodexApiError {
   let code: string | undefined;
   let payload: Record<string, unknown> | undefined;
 
+  // Non-JSON or malformed error bodies retain their original HTTP status and text.
   try {
     const parsed = JSON.parse(raw) as {
       error?: {

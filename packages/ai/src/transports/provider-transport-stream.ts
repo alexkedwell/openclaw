@@ -41,7 +41,7 @@ function createProviderOwnedGoogleTransportStreamFn(
         model,
       },
     });
-  const streamFn = resolveStream(model.provider) ?? resolveStream("google") ?? undefined;
+  const streamFn = resolveStream(model.provider) ?? resolveStream("google");
   return streamFn
     ? (requestModel, context, options) =>
         streamFn(requestModel, context, {

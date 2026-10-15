@@ -6,6 +6,7 @@ import type {
 } from "openai/resources/responses/responses.js";
 import type { BaseOpenAIStreamOptions, CompactionReplayRejection } from "../provider-options.js";
 import {
+  COMPACTION_WINDOW_MAX_BYTES,
   isOpenAIResponsesCompactionOutput,
   readOpenAIResponsesCompactionWindow,
   type OpenAIResponsesCompactionOutput,
@@ -119,8 +120,17 @@ export function captureOpenAIResponsesCompaction(
         }
       : {}),
   } satisfies OpenAIResponsesCompactionReplayState;
-  if (compactedOutput && !readOpenAIResponsesCompactionWindow(replay, model)) {
-    throw new Error("Responses compact endpoint checkpoint is invalid or exceeds 16 MiB");
+  if (compactedOutput) {
+    const checkpoint = compactedOutput.at(-1);
+    if (
+      checkpoint?.type !== "compaction" ||
+      checkpoint.encrypted_content !== replay.data ||
+      checkpoint.id !== replay.id ||
+      (outputTokens !== undefined && (!Number.isSafeInteger(outputTokens) || outputTokens < 0)) ||
+      Buffer.byteLength(JSON.stringify(replay), "utf8") > COMPACTION_WINDOW_MAX_BYTES
+    ) {
+      throw new Error("Responses compact endpoint checkpoint is invalid or exceeds 16 MiB");
+    }
   }
   output.providerReplay = replay;
 }

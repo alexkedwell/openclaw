@@ -203,10 +203,7 @@ export function resolveCompactionReplayPressure<T extends ReplayMessage>(
     throw new CompactionReplayRefreshRequiredError();
   }
   const ownerIndex = messages.findIndex((message) => message === checkpoint.owner);
-  const owner = messages[ownerIndex];
-  if (!owner) {
-    return undefined;
-  }
+  const owner = checkpoint.owner;
   const prefixTokens =
     checkpoint.family === "anthropic"
       ? estimate.text(checkpoint.summary)

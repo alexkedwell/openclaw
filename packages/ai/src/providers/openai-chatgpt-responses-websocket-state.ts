@@ -86,7 +86,9 @@ export function getOpenAICodexWebSocketRuntimeState(
 export function closeWebSocketSilently(socket: WebSocketLike, code = 1000, reason = "done"): void {
   try {
     socket.close(code, reason);
-  } catch {}
+  } catch {
+    // Closing an already-unusable socket must not replace its owner's outcome.
+  }
 }
 
 export function isWebSocketReusable(socket: WebSocketLike): boolean {
