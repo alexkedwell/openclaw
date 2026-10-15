@@ -94,8 +94,8 @@ struct BundledRuntimeTests {
             do {
                 let manifest = try await worker.start(launch: launch)
                 #expect(manifest.commands == [command])
-                #expect(launch.command[0] == relocated.appendingPathComponent("Contents/Resources/runtime/openclaw")
-                    .path)
+                #expect(URL(fileURLWithPath: launch.command[0]).resolvingSymlinksInPath() == relocated
+                    .appendingPathComponent("Contents/Resources/runtime/openclaw").resolvingSymlinksInPath())
                 #expect(manifest.pathEnv.isEmpty)
                 #expect(!launch.command.contains(external.path))
             } catch {
@@ -151,7 +151,8 @@ struct BundledRuntimeTests {
         #expect(setup.command[0] == worker.command[0])
         #expect(setup.command[1].hasSuffix("/dist/extensions/browser/setup-entry.js"))
         #expect(worker.command[1].hasSuffix("/dist/mac-node-worker.js"))
-        #expect(runtime.root == relocated.appendingPathComponent("Contents/Resources/runtime"))
+        #expect(runtime.root.resolvingSymlinksInPath() == relocated
+            .appendingPathComponent("Contents/Resources/runtime").resolvingSymlinksInPath())
         #expect(runtime.executable == runtime.root.appendingPathComponent("openclaw"))
         #expect(runtime.packageRoot == runtime.root.appendingPathComponent("runtime"))
         #expect(setup.command[0] == runtime.executable.path)

@@ -974,12 +974,17 @@ struct GatewayProcessManagerTests {
                 ["status", "--runtime-intent-only", "--json"],
             ])
             let resumed = GatewayProcessManager()
-            #expect(await resumed.enableLaunchAgentIfNeeded(port: 29871).installed)
+            let enabled = await resumed.enableLaunchAgentIfNeeded(port: 29871)
+            try #require(enabled.installed, "\(enabled.error ?? "Service installation was skipped")")
             let command = try #require(GatewayLaunchAgentManager.testingResolvedDaemonCommandsSnapshot()
                 .first { $0.contains("install") })
             let expected = operatorRuntime ? original : GatewayLaunchAgentManager.InstalledServiceCLI(
                 prefix: replacement.cliCommand, sqliteLibrary: nil)
-            #expect(Array(command.prefix(2)) == expected.prefix)
+            #expect(Array(command.prefix(expected.prefix.count)) == expected.prefix)
+            let runtime = try #require(command.firstIndex(of: "--runtime"))
+            #expect(command.dropFirst(runtime + 1).first == "bun")
+            let runtimePath = try #require(command.firstIndex(of: "--runtime-path"))
+            #expect(command.dropFirst(runtimePath + 1).first == expected.prefix.first)
             #expect(resumed.retainedServiceCLI?.sqliteLibrary == expected.sqliteLibrary)
             #expect(resumed.retainedServiceCLI?.environment["OPENCLAW_SQLITE_LIBRARY"] == expected.sqliteLibrary)
         }

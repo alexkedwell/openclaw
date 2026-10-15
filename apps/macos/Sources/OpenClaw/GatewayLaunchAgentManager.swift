@@ -260,9 +260,11 @@ enum GatewayLaunchAgentManager {
                 launchAgentExists: existed)
             if !existed, let preserved = whenMissingCLI {
                 guard let executable = preserved.prefix.first, executable.hasPrefix("/"),
-                      ["node", "bun"].contains(URL(fileURLWithPath: executable).lastPathComponent)
+                      self.serviceCLIEntrypoint(preserved.prefix) != nil
                 else { return "The retained Gateway runtime could not be inspected." }
-                arguments += ["--runtime", URL(fileURLWithPath: executable).lastPathComponent]
+                let runtimeName = preserved.prefix.count == 1 ? "bun" : URL(fileURLWithPath: executable)
+                    .lastPathComponent
+                arguments += ["--runtime", runtimeName]
                 // The historical app-tools Node install remains unpinned so it can migrate later.
                 if preserved.hadRuntimePin ||
                     !self.isManagedNode(executable, stateDirectory: AppProfile.current.stateDirectoryURL())
@@ -299,7 +301,7 @@ enum GatewayLaunchAgentManager {
         whenMissingCLI: InstalledServiceCLI?) throws -> InstalledServiceCLI?
     {
         guard BundledRuntime.isBundledApp, serviceExists else {
-            // Pause removes the plist. Resume retains the existing Node version owner.
+            // Pause removes the plist. Resume retains the recorded runtime owner.
             return try serviceExists ? nil : whenMissingCLI.map { try self.resumedServiceCLI($0) }
         }
         let artifacts = self.generatedEnvironmentArtifacts(
