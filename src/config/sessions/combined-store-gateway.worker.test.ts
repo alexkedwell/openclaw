@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { observeHostDataSql } from "../../../test/helpers/sqlite-statement-execution-counter.js";
 import {
   loadUsageSessionContext,
@@ -12,11 +14,13 @@ import {
   closeOpenClawAgentDatabaseByPathAsync,
   closeOpenClawAgentDatabasesAsync,
 } from "../../state/openclaw-agent-db-lifecycle.js";
+import { registerOpenClawAgentDatabaseAsyncResource } from "../../state/openclaw-agent-db-resources.js";
 import {
   openOpenClawAgentDatabase,
   resolveOpenClawAgentSqlitePath,
 } from "../../state/openclaw-agent-db.js";
 import { resolveIncognitoOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
+import { beginAgentDeletionJournal } from "../../test-utils/agent-deletion-journal.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { withMockedPlatform } from "../../test-utils/vitest-spies.js";
 import * as configEnv from "../config-env-vars.js";
@@ -26,6 +30,7 @@ import { loadCombinedSessionStoreForGatewayCore } from "./combined-store-gateway
 import { upsertSessionEntryCore } from "./session-accessor.entry.js";
 import { replaceSessionEntrySync } from "./session-accessor.js";
 import { memorySessionActorOwners } from "./session-actor-memory-owner.js";
+import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
 
 const boundary = vi.hoisted(
   (): {
@@ -74,6 +79,94 @@ vi.mock("../../infra/worker-task-pool.js", async (importOriginal) => {
     },
   };
 });
+
+it.each([
+  { layout: "separate", when: "before-read" },
+  { layout: "shared", when: "before-read" },
+  { layout: "legacy-partitioned", when: "before-read" },
+  { layout: "separate", when: "during-topology" },
+])(
+  "keeps $layout aggregate reads available while another agent's resources close ($when)",
+  async ({ layout, when }) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const storePath =
+        layout === "shared"
+          ? state.statePath("shared.sqlite")
+          : layout === "legacy-partitioned"
+            ? state.statePath("sessions.json")
+            : undefined;
+      const cfg: OpenClawConfig = {
+        agents: { entries: { main: {}, retiring: {} } },
+        ...(storePath ? { session: { store: storePath } } : {}),
+      };
+      for (const agentId of ["main", "retiring"]) {
+        replaceSessionEntrySync(
+          { agentId, storePath, sessionKey: `agent:${agentId}:main` },
+          {
+            sessionId: `${agentId}-session`,
+            updatedAt: 1,
+            ...(agentId === "main" ? { parentSessionKey: "agent:retiring:main" } : {}),
+          },
+        );
+      }
+      const retiringPath =
+        layout === "legacy-partitioned"
+          ? resolveSqliteTargetFromSessionStorePath(storePath!, { agentId: "retiring" }).path
+          : openOpenClawAgentDatabase({ agentId: "retiring" }).path;
+      const closing = createDeferred();
+      const release = createDeferred();
+      const unregister = registerOpenClawAgentDatabaseAsyncResource({
+        agentId: "retiring",
+        path: retiringPath,
+        revoke: closing.resolve,
+        close: () => release.promise,
+      });
+      let closed: Promise<boolean> | undefined;
+      const beginClosing = () => {
+        beginAgentDeletionJournal({
+          agentId: "retiring",
+          operationId: "delete-retiring",
+          agentDir: path.dirname(retiringPath),
+          workspaceDir: state.statePath("workspace-retiring"),
+          sessionsDir: state.statePath("agents", "retiring", "sessions"),
+          deleteFiles: false,
+        });
+        closed = closeOpenClawAgentDatabaseByPathAsync(retiringPath, "retiring");
+      };
+      if (when === "during-topology") {
+        boundary.beforeRequest = (request) => {
+          if (!closed && isRecord(request) && request.kind === "combined-store-topology") {
+            beginClosing();
+          }
+        };
+      } else {
+        beginClosing();
+        await closing.promise;
+      }
+      try {
+        for (const agentId of [undefined, "main"]) {
+          const asyncResult = await loadCombinedSessionStoreForGatewayCoreAsync(cfg, { agentId });
+          const syncResult = loadCombinedSessionStoreForGatewayCore(cfg, { agentId });
+          for (const result of [asyncResult, syncResult]) {
+            expect(Object.keys(result.store)).toEqual(["agent:main:main"]);
+            expect(result.store["agent:main:main"]?.sessionId).toBe("main-session");
+            expect(
+              result.targetsBySessionKey
+                .get("agent:main:main")
+                ?.readSourceEntry("agent:retiring:main"),
+            ).toBeUndefined();
+          }
+        }
+        expect(closed).toBeDefined();
+      } finally {
+        boundary.beforeRequest = undefined;
+        release.resolve();
+        await closed;
+        unregister();
+      }
+    });
+  },
+);
 
 it("retains later stores while an earlier context read settles", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {

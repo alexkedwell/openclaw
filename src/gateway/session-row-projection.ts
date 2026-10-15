@@ -50,7 +50,7 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
   const env = cloneEnvWithPlatformSemantics(process.env);
   env.OPENCLAW_STATE_DIR = resolveStateDir(env);
   const profileCatalogPath = resolveOpenClawStateSqlitePath(env);
-  const discoveryRead = prepareAgentDatabaseDeletionSnapshotRead({ env }, "runtime");
+  const discoveryRead = prepareAgentDatabaseDeletionSnapshotRead({ env }, "runtime-discovery");
   const subagents = createSubagentSessionListReadView({ env });
   if (!subagents.snapshotIdentity()) {
     await subagents.prepare();
@@ -311,6 +311,9 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
           });
           break;
         } catch (error) {
+          if (disposed || epoch !== revision) {
+            break;
+          }
           if (!(error instanceof SessionRowFactsPending)) {
             throw error;
           }
@@ -732,6 +735,7 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
         modelCatalog: catalog.current,
         rowContext: metadata.current,
         scope: scope.select,
+        physicalStorePaths: scope.physicalPaths,
       };
     },
     isCurrent,

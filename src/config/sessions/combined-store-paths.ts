@@ -15,6 +15,7 @@ import { resolveStateDir } from "../state-dir.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
 import type { GatewaySessionStoreDiscovery } from "./combined-store.types.js";
 import { resolveSessionStorePathCore } from "./paths.js";
+import { resolveUnsuffixedSqliteTargetFromSessionStorePath } from "./session-sqlite-target-paths.js";
 import { resolvePersistedSessionStoreOwner } from "./session-store-owner.js";
 import {
   resolveConfiguredAgentDatabaseCandidatePaths,
@@ -135,6 +136,24 @@ export function discoveryReadOptions(discovery?: GatewaySessionStoreDiscovery) {
     : {};
 }
 
+/** Exclude retired discovery targets before resolution can open their databases. */
+export function gatewayDiscoveryReadOptions(
+  cfg: OpenClawConfig,
+  discovery?: GatewaySessionStoreDiscovery,
+) {
+  const excluded = createGatewayRetainedStoreMatcher(cfg, discovery);
+  return {
+    ...discoveryReadOptions(discovery),
+    excludeTarget: (target: SessionStoreTarget) =>
+      Boolean(
+        excluded(
+          resolveUnsuffixedSqliteTargetFromSessionStorePath(target.storePath).path,
+          target.agentId,
+        ),
+      ),
+  };
+}
+
 export function resolveSharedStoreRowOwner(
   cfg: OpenClawConfig,
   selected: SessionStoreTarget,
@@ -170,7 +189,12 @@ export function createGatewayRetainedStoreMatcher(
         readConfiguredTargets,
         discovery.snapshot,
         "database",
-        "runtime",
+        "runtime-discovery",
       )
-    : createRetainedAgentDatabaseMatcher(env, readConfiguredTargets, "database", "runtime");
+    : createRetainedAgentDatabaseMatcher(
+        env,
+        readConfiguredTargets,
+        "database",
+        "runtime-discovery",
+      );
 }

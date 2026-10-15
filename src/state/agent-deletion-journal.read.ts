@@ -134,8 +134,8 @@ export function readRetainedAgentDeletionsFromDatabase(
           .selectAll()
           .where((eb) => {
             const retained = eb.and([eb("cleanup_completed", "=", 1), eb("delete_files", "=", 0)]);
-            // Pending stores belong to deletion recovery, not offline migration.
-            return purpose === "maintenance"
+            // Pending stores leave runtime discovery as soon as deletion commits.
+            return purpose !== "runtime"
               ? eb.or([retained, eb("cleanup_completed", "=", 0)])
               : retained;
           })
