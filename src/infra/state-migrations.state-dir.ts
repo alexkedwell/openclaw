@@ -29,12 +29,6 @@ import { listRetiredDeliveryQueueFiles } from "./state-migrations.retired-delive
 import { assertNoRetiredStateFiles } from "./state-migrations.retired-files.js";
 import { assertNoRetiredRuntimeStateFiles } from "./state-migrations.retired-runtime-files.js";
 
-let autoMigrateStateDirChecked = false;
-
-export function resetAutoMigrateLegacyStateDirForTest() {
-  autoMigrateStateDirChecked = false;
-}
-
 type StateDirMigrationResult = {
   migrated: boolean;
   skipped: boolean;
@@ -265,13 +259,9 @@ type StateDirMigrationParams = {
   homedir?: () => string;
 };
 
-/** Reserve the once-only migration while its caller transfers maintenance custody. */
+/** Relocate synchronously before its caller reacquires maintenance custody. */
 export function prepareLegacyStateDirMigration(params: StateDirMigrationParams) {
-  if (autoMigrateStateDirChecked) {
-    return undefined;
-  }
   const result = migrateLegacyStateDirRoot(params);
-  autoMigrateStateDirChecked = true;
   return {
     stateDir: resolveStateDir(params.env ?? process.env, params.homedir ?? os.homedir),
     result,
@@ -281,8 +271,7 @@ export function prepareLegacyStateDirMigration(params: StateDirMigrationParams) 
 export async function autoMigrateLegacyStateDir(
   params: StateDirMigrationParams,
 ): Promise<StateDirMigrationResult> {
-  const prepared = prepareLegacyStateDirMigration(params);
-  return prepared ? prepared.result : { migrated: false, skipped: true, changes: [], warnings: [] };
+  return prepareLegacyStateDirMigration(params).result;
 }
 
 function migrateLegacyStateDirRoot(params: StateDirMigrationParams): StateDirMigrationResult {

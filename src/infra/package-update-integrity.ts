@@ -197,16 +197,6 @@ export function createPackageIntegrityReader(timeoutMs = UPDATE_RUNNER_TIMEOUT_M
     deadlineAtMonotonicMs,
   };
   let timeoutObservedAtMonotonicMs: number | undefined;
-  let pendingIo = 0;
-
-  async function trackIo<T>(operation: () => Promise<T>): Promise<T> {
-    pendingIo++;
-    try {
-      return await operation();
-    } finally {
-      pendingIo--;
-    }
-  }
 
   async function observe<T>(
     phase: "baseline" | "retained" | "restored" | "transaction",
@@ -234,7 +224,6 @@ export function createPackageIntegrityReader(timeoutMs = UPDATE_RUNNER_TIMEOUT_M
         elapsedMs: settledAtMonotonicMs - startedAtMonotonicMs,
         outcome: timeoutObservedAtMonotonicMs === undefined ? outcome : "timed-out",
         timeoutObservedAtMonotonicMs,
-        pendingIo,
       });
     }
   }
@@ -242,7 +231,7 @@ export function createPackageIntegrityReader(timeoutMs = UPDATE_RUNNER_TIMEOUT_M
   async function read<T>(operation: () => Promise<T>, closeLate?: (value: T) => Promise<void>) {
     let pending: Promise<T> | undefined;
     const value = await awaitWithinDeadline(
-      () => (pending = trackIo(operation)),
+      () => (pending = operation()),
       deadlineAtMonotonicMs,
       now,
     );
@@ -253,7 +242,7 @@ export function createPackageIntegrityReader(timeoutMs = UPDATE_RUNNER_TIMEOUT_M
       if (pending && closeLate) {
         void pending
           .then(
-            (late) => trackIo(() => closeLate(late)),
+            (late) => closeLate(late),
             () => {},
           )
           .catch(() => {});
@@ -264,7 +253,7 @@ export function createPackageIntegrityReader(timeoutMs = UPDATE_RUNNER_TIMEOUT_M
   }
 
   async function close(resource: { close: () => Promise<void> }) {
-    const closing = trackIo(() => resource.close()).catch(() => {});
+    const closing = (async () => resource.close())().catch(() => {});
     if (
       (await awaitWithinDeadline(() => closing, deadlineAtMonotonicMs, now)) ===
       ABSOLUTE_DEADLINE_EXPIRED
@@ -520,7 +509,7 @@ export function createPackageIntegrityReader(timeoutMs = UPDATE_RUNNER_TIMEOUT_M
         const admittedAtNs = BigInt(Date.now()) * 1_000_000n;
         const reusable = stat.ctimeNs + SETTLED_CTIME_MARGIN_NS <= admittedAtNs;
         pending.push({
-          outcome: trackIo(() => hasher.hash(file, stat)).then(
+          outcome: hasher.hash(file, stat).then(
             (fileDigest) => {
               fields.set("sha256", fileDigest);
               retained.push("file", fileDigest);

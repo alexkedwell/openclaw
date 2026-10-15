@@ -398,7 +398,6 @@ describe("package verification bounds", () => {
         expect(record).toMatchObject({
           outcome: "completed",
           budgetMs: UPDATE_RUNNER_TIMEOUT_MS,
-          pendingIo: 0,
         });
         expect(record.timeoutObservedAtMonotonicMs).toBeUndefined();
         expect(Number(record.elapsedMs)).toBeGreaterThan(0);
@@ -549,7 +548,6 @@ describe("package verification bounds", () => {
             budgetMs: 40,
             deadlineClock: "monotonic",
           });
-          expect(Number(settled!.pendingIo)).toBeGreaterThanOrEqual(window);
           expect(settled!.deadlineAtMonotonicMs).toBe(begin!.deadlineAtMonotonicMs);
           expect(settled!.elapsedMs).toBe(
             Number(settled!.settledAtMonotonicMs) - Number(begin!.startedAtMonotonicMs),
@@ -645,7 +643,6 @@ describe("package verification bounds", () => {
         expect(observations.findLast((record) => record.event === "reader-settled")).toMatchObject({
           phase: "baseline",
           outcome: "timed-out",
-          pendingIo: 1,
           timeoutObservedAtMonotonicMs: expect.any(Number),
         });
       } finally {

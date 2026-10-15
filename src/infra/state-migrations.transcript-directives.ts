@@ -190,23 +190,6 @@ function planTranscriptSession(
   });
 }
 
-function assertTranscriptSessionSourceUnchanged(
-  database: DatabaseSync,
-  sessionId: string,
-  planned: readonly TranscriptRowPlan[],
-): void {
-  const current = readTranscriptSessionRows(database, sessionId);
-  if (
-    current.length !== planned.length ||
-    current.some(
-      (row, index) =>
-        row.seq !== planned[index]?.seq || row.event_json !== planned[index]?.eventJson,
-    )
-  ) {
-    throw new Error(`Transcript source changed before migration commit for ${sessionId}`);
-  }
-}
-
 function transcriptSessionsNeedMigration(
   database: DatabaseSync,
   pathname: string,
@@ -275,13 +258,15 @@ async function migrateTranscriptSessions(params: {
       return rewrittenSessions;
     }
     for (const sessionId of sessionIds) {
-      const planned = planTranscriptSession(params.database, params.pathname, sessionId);
-      const changedRows = planned.filter((row) => row.rewrittenEventJson !== row.eventJson);
-      runSqliteImmediateTransactionSync(
+      const rewrittenRows = runSqliteImmediateTransactionSync(
         params.database,
         () => {
           assertAgentDatabaseMaintenanceAuthority();
-          assertTranscriptSessionSourceUnchanged(params.database, sessionId, planned);
+          const changedRows = planTranscriptSession(
+            params.database,
+            params.pathname,
+            sessionId,
+          ).filter((row) => row.rewrittenEventJson !== row.eventJson);
           if (changedRows.length > 0) {
             params.beforeRewrite();
           }
@@ -298,6 +283,7 @@ async function migrateTranscriptSessions(params: {
             sessionId,
           });
           assertAgentDatabaseMaintenanceAuthority();
+          return changedRows.length;
         },
         {
           busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
@@ -305,7 +291,7 @@ async function migrateTranscriptSessions(params: {
           operationLabel: "historical-transcript-directives",
         },
       );
-      rewrittenSessions += changedRows.length > 0 ? 1 : 0;
+      rewrittenSessions += rewrittenRows > 0 ? 1 : 0;
       afterSessionId = sessionId;
     }
     // Keep the caller responsive between bounded batches. The next transaction

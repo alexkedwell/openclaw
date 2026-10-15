@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendRegularFile } from "@openclaw/fs-safe/advanced";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { awaitGateBeforeSettlement, createDeferred } from "../../test/helpers/promise.js";
 import { createSuiteLogPathTracker } from "./log-test-helpers.js";
@@ -133,6 +134,7 @@ describe("async logger file transport", () => {
   );
 
   it("rescues the unissued tail without replaying an in-flight batch", async () => {
+    const processOn = vi.spyOn(process, "on");
     const logPath = logPathTracker.nextPath();
     const issued = createDeferred();
     const release = createDeferred();
@@ -166,7 +168,11 @@ describe("async logger file transport", () => {
         maxFileBytes: 1024 * 1024,
         payload: '{"index":4}\n',
       });
-      fileLogTransport.drainSync();
+      const exitHandler = expectDefined(
+        processOn.mock.calls.find(([event]) => event === "exit")?.[1],
+        "file transport process-exit handler",
+      );
+      exitHandler(0);
     } finally {
       release.resolve();
       await flushing;

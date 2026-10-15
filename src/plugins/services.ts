@@ -202,16 +202,19 @@ async function startPreparedPluginServices({
     }
     return undefined;
   };
+  const beginServiceStop = (entry: OwnedPluginService) => {
+    entry.stopRequested = true;
+    entry.scheduling.scheduler.beginClose();
+    entry.stopNodeInvocations?.();
+    void entry.stopControlUiIngress?.();
+  };
   const stopService = async (
     entry: OwnedPluginService,
     failures?: unknown[],
     deadline?: number,
     beforeStop?: Promise<unknown>,
   ) => {
-    entry.stopRequested = true;
-    entry.scheduling.scheduler.beginClose();
-    entry.stopNodeInvocations?.();
-    void entry.stopControlUiIngress?.();
+    beginServiceStop(entry);
     const recordFailure = (error: unknown) => {
       if (!failures) {
         return;
@@ -397,10 +400,7 @@ async function startPreparedPluginServices({
         }
         for (const entry of selected) {
           entry.reloading = reloading;
-          entry.stopRequested = true;
-          entry.scheduling.scheduler.beginClose();
-          entry.stopNodeInvocations?.();
-          void entry.stopControlUiIngress?.();
+          beginServiceStop(entry);
         }
         try {
           await stopServices(
@@ -439,10 +439,7 @@ async function startPreparedPluginServices({
         (entry) => !options?.pluginIds || options.pluginIds.has(entry.pluginId),
       );
       for (const entry of selected) {
-        entry.stopRequested = true;
-        entry.scheduling.scheduler.beginClose();
-        entry.stopNodeInvocations?.();
-        void entry.stopControlUiIngress?.();
+        beginServiceStop(entry);
       }
       const strict = options?.strict === true;
       const deadline = strict ? options.deadlineAtMs : undefined;
