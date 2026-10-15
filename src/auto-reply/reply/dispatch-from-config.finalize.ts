@@ -73,14 +73,6 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
   const finalResult = heartbeatReply ? heartbeatReply.reply : replyResult;
   const replies = Array.isArray(finalResult) ? finalResult : finalResult ? [finalResult] : [];
   const queueAdmission = state.replyOperationRunState.admission;
-  if (state.replyOperationRunState.explicitFollowupStarted) {
-    replies.unshift(
-      markReplyPayloadForSourceSuppressionDelivery({
-        text: "Your followup has started.",
-        isStatusNotice: true,
-      }),
-    );
-  }
   const collaborativeSteeringRefused =
     queueAdmission?.status === "skipped" &&
     queueAdmission.reason === "collaborative-steering-disabled";
