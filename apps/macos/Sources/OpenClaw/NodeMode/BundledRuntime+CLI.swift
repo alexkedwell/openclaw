@@ -129,7 +129,7 @@ extension BundledRuntime {
         return size == expected.count && stored == expected
     }
 
-    private static func cliShim(profile: AppProfile, homeDirectory: URL) -> String {
+    static func cliShim(profile: AppProfile, homeDirectory: URL) -> String {
         let current = Self(root: profile.stateDirectoryURL(homeDirectory: homeDirectory)
             .appendingPathComponent("runtime/current"))
         let profileLine = profile.name.map { "export OPENCLAW_PROFILE=\(Self.shellQuote($0))\n" } ?? ""

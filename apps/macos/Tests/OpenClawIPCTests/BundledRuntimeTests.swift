@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import OpenClawKit
@@ -53,9 +54,15 @@ struct BundledRuntimeTests {
             ofItemAtPath: runtime.appendingPathComponent("openclaw").path)
         try Data().write(to: runtime.appendingPathComponent("runtime/lib/libsqlite3.dylib"))
         try JSONSerialization.data(withJSONObject: [
-            "schemaVersion": 1, "buildId": buildID ?? builtAt,
+            "schemaVersion": 1, "mode": "jit", "buildId": buildID ?? builtAt,
             "openclaw": ["version": "2026.8.1", "commit": String(repeating: "a", count: 40)],
-            "executable": ["path": "openclaw"], "runtime": ["path": "runtime"],
+            "executable": [
+                "path": "openclaw",
+                "sizeBytes": Data(contentsOf: runtime.appendingPathComponent("openclaw")).count,
+                "sha256": SHA256.hash(data: Data(contentsOf: runtime.appendingPathComponent("openclaw")))
+                    .map { String(format: "%02x", $0) }.joined(),
+            ],
+            "runtime": ["path": "runtime", "sizeBytes": 0],
         ]).write(to: runtime.appendingPathComponent("manifest.json"))
         try Data().write(to: dist.appendingPathComponent("mac-node-worker.js"))
         let browser = dist.appendingPathComponent("extensions/browser")
@@ -106,7 +113,10 @@ struct BundledRuntimeTests {
         await worker.stop()
     }
 
-    @Test(arguments: ["missing", "executable", "sidecar", "sqlite", "version", "commit", "buildId"])
+    @Test(arguments: [
+        "missing", "executable", "sidecar", "sqlite", "version", "commit", "buildId", "mode", "schemaVersion",
+        "executablePath", "runtimePath", "executableSize", "runtimeSize",
+    ])
     func `incomplete payload never falls back to development source`(failure: String) async throws {
         let root = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -124,6 +134,14 @@ struct BundledRuntimeTests {
                 var identity = try #require(payload["openclaw"] as? [String: String])
                 identity[failure] = "mismatched"
                 payload["openclaw"] = identity
+            } else if failure == "schemaVersion" {
+                payload[failure] = 2
+            } else if failure.hasSuffix("Path") || failure.hasSuffix("Size") {
+                let field = failure.hasPrefix("executable") ? "executable" : "runtime"
+                var entry = try #require(payload[field] as? [String: Any])
+                entry[failure.hasSuffix("Path") ? "path" : "sizeBytes"] = failure.hasSuffix("Path")
+                    ? "../outside" : -1
+                payload[field] = entry
             } else { payload[failure] = "mismatched" }
             try JSONSerialization.data(withJSONObject: payload).write(to: info)
         }
@@ -186,7 +204,48 @@ struct BundledRuntimeTests {
         #expect(runtime.environment["OPENCLAW_SQLITE_LIBRARY"] == expected)
     }
 
-    @Test func `seeding publishes a relocatable current runtime and probes each copied build once`() async throws {
+    @Test func `seeding validates the payload without executing it`() async throws {
+        let home = try makeFirstRunTempDirForTests()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let app = home.appendingPathComponent("NoProbe.app")
+        _ = try self.makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
+        let runtime = try await BundledRuntime.seed(
+            bundle: #require(Bundle(url: app)),
+            profile: AppProfile(environment: ["OPENCLAW_PROFILE": "no-probe"]),
+            homeDirectory: home)
+        #expect(!FileManager.default.fileExists(atPath: runtime.root.appendingPathComponent("version-probes").path))
+        #expect(FileManager.default.isExecutableFile(atPath: runtime.executable.path))
+    }
+
+    @Test func `a resealed bundle reuses its intact seed with the same build identity`() async throws {
+        let home = try makeFirstRunTempDirForTests()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let app = home.appendingPathComponent("Resealed.app")
+        _ = try self.makeBundle(at: app, builtAt: "2026-08-27T00:00:00.000Z", command: "unused")
+        let bundle = try #require(Bundle(url: app))
+        let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "resealed"])
+        let first = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
+        let original = try Data(contentsOf: first.executable)
+        let source = try BundledRuntime.resolve(bundle: bundle)
+        var resealed = original
+        resealed.append(Data("# new signature bytes\n".utf8))
+        try resealed.write(to: source.executable)
+        let manifestURL = source.root.appendingPathComponent("manifest.json")
+        var manifest = try #require(JSONSerialization.jsonObject(
+            with: Data(contentsOf: manifestURL)) as? [String: Any])
+        manifest["executable"] = [
+            "path": "openclaw", "sizeBytes": resealed.count,
+            "sha256": SHA256.hash(data: resealed).map { String(format: "%02x", $0) }.joined(),
+        ]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
+
+        let reused = try await BundledRuntime.seed(bundle: bundle, profile: profile, homeDirectory: home)
+        #expect(reused.root.path == first.root.path)
+        #expect(try Data(contentsOf: reused.executable) == original)
+        #expect(!FileManager.default.fileExists(atPath: reused.root.appendingPathComponent("version-probes").path))
+    }
+
+    @Test func `seeding publishes a relocatable current runtime without probing copied builds`() async throws {
         let home = try makeFirstRunTempDirForTests()
         defer { try? FileManager.default.removeItem(at: home) }
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "seed-fixture"])
@@ -205,8 +264,7 @@ struct BundledRuntimeTests {
             #expect(seeded.root.path == runtimeRoot.appendingPathComponent("build-\(index)").path)
             #expect(try FileManager.default.destinationOfSymbolicLink(
                 atPath: runtimeRoot.appendingPathComponent("current").path) == "build-\(index)")
-            #expect(try String(contentsOf: seeded.root.appendingPathComponent("version-probes"), encoding: .utf8)
-                == "probe\n")
+            #expect(!FileManager.default.fileExists(atPath: seeded.root.appendingPathComponent("version-probes").path))
             let readOnly = try #require(try BundledRuntime.seeded(profile: profile, homeDirectory: home))
             #expect(readOnly.cliCommand == seeded.cliCommand)
             let result = await ShellExecutor.runDetailed(
@@ -235,8 +293,19 @@ struct BundledRuntimeTests {
             [.posixPermissions: 0o755],
             ofItemAtPath: brokenApp.appendingPathComponent("Contents/Resources/runtime/openclaw").path)
         let broken = try #require(Bundle(url: brokenApp))
-        await #expect(throws: BundledRuntime.SeedError.self) {
+        await #expect(throws: MacNodeHostWorker.WorkerError.self) {
             try await BundledRuntime.seed(bundle: broken, profile: profile, homeDirectory: home)
+        }
+        let corruptApp = home.appendingPathComponent("Corrupt.app")
+        _ = try self.makeBundle(
+            at: corruptApp, builtAt: "2026-08-27T00:00:03.000Z", buildID: "corrupt-build", command: "unused")
+        let corruptExecutable = corruptApp.appendingPathComponent("Contents/Resources/runtime/openclaw")
+        var bytes = try Data(contentsOf: corruptExecutable)
+        bytes[bytes.count - 2] ^= 1
+        try bytes.write(to: corruptExecutable)
+        await #expect(throws: BundledRuntime.ValidationError.self) {
+            try await BundledRuntime.seed(
+                bundle: #require(Bundle(url: corruptApp)), profile: profile, homeDirectory: home)
         }
         #expect(try FileManager.default.destinationOfSymbolicLink(
             atPath: runtimeRoot.appendingPathComponent("current").path) == "build-1")

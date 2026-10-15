@@ -40,8 +40,11 @@ for the default state directory, `~/.config/openclaw/gateway.env`.
 
 The app first copies its runtime to `<state>/runtime/<runtimeBuildId>/`, where
 `<state>` is `~/.openclaw` or `~/.openclaw-<profile>`. Copies use one APFS
-directory clone when available, falling back to a file copy, and are published atomically after provenance and
-executable checks succeed. The child and app-managed service use the concrete
+directory clone when available, falling back to a file copy. Before publishing a
+copy atomically, the app checks the manifest identity, contained paths, payload
+sizes, and executable checksum. Seeding and standalone CLI version discovery
+read this metadata without executing the binary; its first execution starts
+the requested command. The child and app-managed service use the concrete
 build directory so each process keeps its matching package and SQLite library.
 The `runtime/current` symlink selects the runtime for the terminal CLI shim.
 The app retains the current and previous builds; older copies are removed only

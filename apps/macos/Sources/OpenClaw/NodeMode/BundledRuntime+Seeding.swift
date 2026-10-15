@@ -1,17 +1,16 @@
 import Darwin
 import Foundation
+import OSLog
 
 extension BundledRuntime {
     enum SeedError: LocalizedError {
         case invalidBuildID
         case invalidCurrent
-        case runtimeProbe(String)
 
         var errorDescription: String? {
             switch self {
             case .invalidBuildID: "The app's runtime build ID is invalid. Reinstall OpenClaw.app."
             case .invalidCurrent: "The seeded runtime link is invalid. Retry OpenClaw setup."
-            case let .runtimeProbe(detail): "The bundled OpenClaw runtime could not start: \(detail)"
             }
         }
     }
@@ -35,12 +34,8 @@ extension BundledRuntime {
         // A loose-runtime seed is an upgrade input, never a runnable current payload.
         guard FileManager.default.fileExists(atPath: runtime.root.appendingPathComponent("manifest.json").path)
         else { return nil }
-        let manifest = try runtime.manifest()
-        guard manifest.schemaVersion == 1, manifest.buildId == buildID,
-              manifest.executable.path == "openclaw", manifest.runtime.path == "runtime",
-              FileManager.default.isExecutableFile(atPath: runtime.executable.path),
-              FileManager.default.fileExists(atPath: runtime.packageRoot.path),
-              FileManager.default.isReadableFile(atPath: runtime.sqliteLibrary.path)
+        let manifest = try runtime.validatedManifest()
+        guard manifest.buildId == buildID
         else { throw SeedError.invalidCurrent }
         // A newly updated app must still recognize the old seed so PostUpdate can reseed it.
         return runtime
@@ -49,6 +44,7 @@ extension BundledRuntime {
     @concurrent
     fileprivate static func prepareSeed(bundle: Bundle, profile: AppProfile, homeDirectory: URL) async throws -> Self {
         let source = try self.resolve(bundle: bundle)
+        let expectedManifest = try source.manifest()
         guard let buildID = bundle.infoDictionary?["OpenClawRuntimeBuildID"] as? String,
               self.isBuildDirectoryName(buildID)
         else { throw SeedError.invalidBuildID }
@@ -61,19 +57,20 @@ extension BundledRuntime {
             let partial = directory.appendingPathComponent("\(buildID).partial-\(UUID().uuidString)")
             defer { try? fileManager.removeItem(at: partial) }
             try self.cloneRuntimeTree(from: source.root, to: partial)
-            let staged = try self.resolve(root: partial, bundle: bundle)
-            let result = await ShellExecutor.runDetailed(
-                command: [staged.executable.path, "--version"],
-                cwd: nil,
-                env: staged.environment,
-                timeout: CommandResolver.versionProbeTimeout)
-            guard result.success, !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw SeedError.runtimeProbe(result.errorMessage ?? result.stderr)
+            guard try Self(root: partial).validatedManifest(verifyExecutable: true) == expectedManifest else {
+                throw ValidationError.invalidManifest
             }
             try Task.checkCancellation()
             try fileManager.moveItem(at: partial, to: target)
         } else {
-            _ = try self.resolve(root: target, bundle: bundle)
+            let manifest = try Self(root: target).validatedManifest(verifyExecutable: true)
+            // Re-signing the same build changes payload hashes but preserves its seed identity.
+            guard manifest.buildId == expectedManifest.buildId,
+                  manifest.openclaw == expectedManifest.openclaw,
+                  manifest.mode == expectedManifest.mode
+            else {
+                throw ValidationError.invalidManifest
+            }
         }
         if previous != buildID {
             if let previous {
@@ -92,6 +89,11 @@ extension BundledRuntime {
             profile: profile,
             homeDirectory: homeDirectory,
             allowsPersistentIntegration: allowsPersistentIntegration)
+        Logger(subsystem: "ai.openclaw", category: "bundled-runtime.seed").notice(
+            """
+            runtime seed ready build=\(buildID, privacy: .public) \
+            executable=\(runtime.executable.path, privacy: .public)
+            """)
         return runtime
     }
 

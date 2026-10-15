@@ -1341,9 +1341,13 @@ struct BundledGatewayPreparationTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runtime.executable.path)
         try Data().write(to: runtime.sqliteLibrary)
         try JSONSerialization.data(withJSONObject: [
-            "schemaVersion": 1, "buildId": runtime.root.lastPathComponent,
-            "openclaw": ["version": "2026.9.1", "commit": "fixture"],
-            "executable": ["path": "openclaw"], "runtime": ["path": "runtime"],
+            "schemaVersion": 1, "mode": "jit", "buildId": runtime.root.lastPathComponent,
+            "openclaw": ["version": "2026.9.1", "commit": String(repeating: "a", count: 40)],
+            "executable": [
+                "path": "openclaw", "sizeBytes": Data(contentsOf: runtime.executable).count,
+                "sha256": String(repeating: "a", count: 64),
+            ],
+            "runtime": ["path": "runtime", "sizeBytes": 0],
         ]).write(to: runtime.root.appendingPathComponent("manifest.json"))
         try FileManager.default.createSymbolicLink(
             atPath: current.path,

@@ -230,6 +230,12 @@ enum CLIInstaller {
     {
         let location = self.managedExecutableLocation()
         if let installedCLI {
+            if installedCLI.prefix.count == 1,
+               let executable = installedCLI.prefix.first,
+               let status = self.standaloneStatus(location: executable, expectedVersion: expectedVersion)
+            {
+                return status
+            }
             let environment = GatewayLaunchAgentManager.daemonEnvironment(
                 installedCLI: installedCLI,
                 profile: serviceProfile)
@@ -287,6 +293,9 @@ enum CLIInstaller {
         expectedVersion: String?,
         preferredPaths: [String]) async -> Status
     {
+        if let status = self.standaloneStatus(location: location, expectedVersion: expectedVersion) {
+            return status
+        }
         let environment = self.probeEnvironment(
             location: location,
             preferredPaths: preferredPaths)
@@ -308,6 +317,31 @@ enum CLIInstaller {
             return .unusable(location: location)
         }
         return versionStatus
+    }
+
+    private static func standaloneStatus(location: String, expectedVersion: String?) -> Status? {
+        do {
+            let executable = URL(fileURLWithPath: location)
+            if let manifest = try BundledRuntime.validatedStandaloneManifest(executable: executable) {
+                return self.classifyVersion(
+                    location: location, output: manifest.openclaw.version, expectedVersion: expectedVersion)
+            }
+            // The app's terminal shim follows runtime/current; inspect that payload without
+            // launching the wrapper and assessing a freshly seeded executable a second time.
+            guard location == self.managedExecutableLocation(),
+                  let text = try? String(contentsOf: executable, encoding: .utf8),
+                  text == BundledRuntime.cliShim(
+                      profile: .current,
+                      homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+            else { return nil }
+            guard let runtime = try BundledRuntime.seeded(),
+                  let manifest = try BundledRuntime.validatedStandaloneManifest(executable: runtime.executable)
+            else { return .unusable(location: location) }
+            return self.classifyVersion(
+                location: location, output: manifest.openclaw.version, expectedVersion: expectedVersion)
+        } catch {
+            return .unusable(location: location)
+        }
     }
 
     static func classifyVersion(

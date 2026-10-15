@@ -29,10 +29,13 @@ struct BundledRuntime: Sendable {
 
         struct Payload: Decodable, Equatable, Sendable {
             let path: String
+            let sizeBytes: Int
+            let sha256: String?
         }
 
         let schemaVersion: Int
-        let buildId: String
+        let mode: String
+        let buildId: String?
         let openclaw: OpenClaw
         let executable: Payload
         let runtime: Payload
@@ -87,15 +90,12 @@ struct BundledRuntime: Sendable {
         let info = bundle.infoDictionary ?? [:]
         let appBuild = ArtifactBuildInfo(infoDictionary: info)
         do {
-            let manifest = try runtime.manifest()
-            guard manifest.schemaVersion == 1,
-                  manifest.executable.path == "openclaw", manifest.runtime.path == "runtime",
+            let manifest = try runtime.validatedManifest()
+            guard let runtimeBuildID = info["OpenClawRuntimeBuildID"] as? String,
+                  !runtimeBuildID.isEmpty,
                   manifest.openclaw.version == appBuild.version,
                   manifest.openclaw.commit == appBuild.gitCommit,
-                  manifest.buildId == info["OpenClawRuntimeBuildID"] as? String,
-                  FileManager.default.isExecutableFile(atPath: runtime.executable.path),
-                  FileManager.default.fileExists(atPath: runtime.packageRoot.path),
-                  FileManager.default.isReadableFile(atPath: runtime.sqliteLibrary.path)
+                  manifest.buildId == runtimeBuildID
             else {
                 throw MacNodeHostWorker.WorkerError.unavailable(reason: "Private runtime build does not match this app")
             }
