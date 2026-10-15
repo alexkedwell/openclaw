@@ -10,6 +10,7 @@ import {
 } from "../../infra/agent-events.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { diagnosticLogger } from "../../logging/diagnostic-runtime.js";
+import { isExplicitCommandTurn, resolveCommandTurnContext } from "../command-turn-context.js";
 import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 import {
@@ -35,6 +36,7 @@ import {
 } from "./reply-run-registry.js";
 import { waitForReplyOperationBackend } from "./reply-run-registry.state.js";
 import { refreshReplyOperationTyping } from "./reply-run-typing.js";
+import { resolveInboundReplyToolAuthorityOverlay } from "./reply-tool-authority.js";
 import { buildChannelSourceTurnId } from "./source-turn-id.js";
 import { prepareSteeringDelivery } from "./steering-delivery-preparation.js";
 import type { TypingSignaler } from "./typing-mode.js";
@@ -103,6 +105,9 @@ export async function runActiveReplySteer(
     typing,
     typingSignals,
   } = params;
+  const isInboundUserMessage =
+    followupRun.currentInboundEventKind !== "room_event" &&
+    (!followupRun.run.inputProvenance || followupRun.run.inputProvenance.kind === "external_user");
   // Steer against the operation that owns THIS session's run slot. A native
   // command continuation whose slot adoption was skipped (#104844) still
   // carries a source-keyed reservation; steering by its stale sessionId
@@ -149,7 +154,11 @@ export async function runActiveReplySteer(
       replyOperationRunState.admission = {
         status: "accepted",
         mode: "followup",
-        ...(reason === "requester-mismatch" ? { reason } : {}),
+        ...(reason === "requester-mismatch"
+          ? { reason }
+          : isInboundUserMessage
+            ? { reason: "steering-unavailable" as const }
+            : {}),
       };
     }
     diagnosticLogger.warn("steering rejected; applying follow-up policy", {
@@ -206,10 +215,24 @@ export async function runActiveReplySteer(
       assertCurrent: assertReadCurrent,
     });
     const steeringDelivery = delivery;
+    const collaborativeCaller =
+      followupRun.run.config.messages?.queue?.allowCollaborativeSteering !== false &&
+      isInboundUserMessage &&
+      !isExplicitCommandTurn(resolveCommandTurnContext(params.sessionCtx))
+        ? resolveInboundReplyToolAuthorityOverlay({
+            ctx: params.sessionCtx,
+            sessionEntry: params.sessionEntry,
+            senderIsOwner: followupRun.run.senderIsOwner === true,
+            operatorAuthority: followupRun.operatorAuthority,
+            toolsAllow: followupRun.toolsAllow,
+            disableTools: followupRun.disableTools === true,
+          })
+        : undefined;
     const steeringAuthority = await resolveReplySteeringAuthority(
       followupRun,
       activeReplyOperation,
       assertReadCurrent,
+      collaborativeCaller,
     );
     releaseToolAuthority = steeringAuthority.toolAuthority.release;
     assertReadCurrent();
@@ -271,12 +294,15 @@ export async function runActiveReplySteer(
         }),
       ),
       steeringMode: "all",
-      isInboundUserMessage:
-        followupRun.currentInboundEventKind !== "room_event" &&
-        (followupRun.run.inputProvenance?.kind === undefined ||
-          followupRun.run.inputProvenance.kind === "external_user"),
+      isInboundUserMessage,
       terminalReplyExpectation: followupRun.run.terminalReplyExpectation,
       toolAuthorityFingerprint: steeringAuthority.toolAuthorityFingerprint,
+      ...(steeringAuthority.collaborativeCaller
+        ? {
+            toolAuthorityOverlay: steeringAuthority.collaborativeCaller,
+            allowCollaborativeSteering: true,
+          }
+        : {}),
       personalToolParticipant: {
         operatorAuthority: followupRun.operatorAuthority,
         senderId: followupRun.run.senderId,

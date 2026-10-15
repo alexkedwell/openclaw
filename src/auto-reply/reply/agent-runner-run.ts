@@ -248,10 +248,13 @@ export async function runReplyAgent(
   const activeReplyOperation = sessionKey
     ? replyRunRegistry.get(sessionKey)
     : providedReplyOperation;
-  let shouldQueueRequesterMismatch =
+  const steeringRequesterMismatch =
     effectiveShouldSteer &&
     isActive &&
     hasReplySteeringRequesterMismatch(followupRun, activeReplyOperation);
+  let shouldQueueRequesterMismatch =
+    steeringRequesterMismatch &&
+    followupRun.run.config.messages?.queue?.allowCollaborativeSteering === false;
   // A source-only reservation still owns completion, but is not a steering target.
   const shouldQueueProvidedSteer =
     effectiveShouldSteer &&
@@ -284,7 +287,7 @@ export async function runReplyAgent(
 
   // Direct question creators can attest their caller before publishing a reply operation.
   const questionInput: Awaited<ReturnType<typeof runReplyQuestionInput>> =
-    shouldQueueRequesterMismatch && activeReplyOperation
+    steeringRequesterMismatch && activeReplyOperation
       ? { handled: false }
       : await runReplyQuestionInput(params);
   if (questionInput.handled) {
@@ -417,7 +420,15 @@ export async function runReplyAgent(
       replyOperationRunState.admission = {
         status: "accepted",
         mode: "followup",
-        ...(shouldQueueRequesterMismatch ? { reason: "requester-mismatch" as const } : {}),
+        ...(shouldQueueRequesterMismatch
+          ? { reason: "requester-mismatch" as const }
+          : effectiveShouldSteer &&
+              (isActive || messageInjectionDisposition === "rejected") &&
+              followupRun.currentInboundEventKind !== "room_event" &&
+              (!followupRun.run.inputProvenance ||
+                followupRun.run.inputProvenance.kind === "external_user")
+            ? { reason: "steering-unavailable" as const }
+            : {}),
       };
     }
     // The queue must stay dormant while the active owner can still collect

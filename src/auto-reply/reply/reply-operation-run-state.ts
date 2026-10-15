@@ -11,7 +11,11 @@ import type { SessionEventExecution } from "./session-event-contract.js";
 
 type ReplyOperationAdmissionSnapshot =
   | { status: "owned" }
-  | { status: "accepted"; mode: "steer" | "followup"; reason?: "requester-mismatch" }
+  | {
+      status: "accepted";
+      mode: "steer" | "followup";
+      reason?: "requester-mismatch" | "steering-unavailable";
+    }
   | {
       status: "skipped";
       reason:

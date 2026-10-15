@@ -31,6 +31,7 @@ OpenClaw serializes inbound auto-reply runs (all channels) through a tiny in-pro
 When unset, all inbound channel surfaces use:
 
 - `mode: "steer"`
+- `allowCollaborativeSteering: true`
 - a built-in 500ms debounce for steer, followup, and collect batching
 - `cap: 20`
 - `drop: "summarize"`
@@ -50,10 +51,9 @@ Messages from channels using durable ingress admission, including Discord and Te
 
 For runtime-specific timing and dependency behavior, see [Steering queue](/concepts/queue-steering). For the explicit `/steer <message>` command, see [Steer](/tools/steer).
 
-Gateway input retains its authenticated operator and original scope ceiling while
-queued or delegated to a child. Collecting messages or steering an active run
-requires compatible operator sources and tool permissions; other input waits in
-FIFO order instead of borrowing the active or newest sender's permissions.
+Queued Gateway input retains its authenticated requester. Each new execution resolves current applicable policy. Collecting messages requires compatible operator sources and tool permissions.
+
+By default, admitted human input in the same conversation can steer an active turn under that turn's unchanged identity and prepared permissions. This lets Bob influence actions using permissions Alice has that Bob does not. Set `messages.queue.allowCollaborativeSteering: false` to require the same requester and compatible permissions; other input queues under its own identity. The option does not change queue modes or explicit cross-session `sessions_send(mode="steer")` authorization. See [Steering scope](/concepts/queue-steering#scope).
 
 An accepted turn can continue after its request returns or its client disconnects.
 That does not extend revoked device authority or permissions removed by a current
@@ -67,6 +67,7 @@ Configure globally or per channel via `messages.queue`:
   messages: {
     queue: {
       mode: "steer",
+      allowCollaborativeSteering: true,
       cap: 20,
       drop: "summarize",
       byChannel: { discord: "collect", x: "followup" },

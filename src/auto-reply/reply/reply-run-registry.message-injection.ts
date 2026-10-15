@@ -392,11 +392,12 @@ async function beginPreparedReplyMessageInjectionTarget(
   const owner = target[replyMessageInjectionTargetOwner];
   const {
     canAdmit,
-    toolAuthorityOverlay,
+    toolAuthorityOverlay: incomingOverlay,
+    allowCollaborativeSteering,
     toolAuthorityPreparation,
     personalToolParticipant,
     assertCurrent,
-    allowPendingUserInputAnswer,
+    allowPendingUserInputAnswer: requestedPendingUserInputAnswer,
     inboundAudio,
     ...backendOptions
   } = options ?? {};
@@ -427,9 +428,30 @@ async function beginPreparedReplyMessageInjectionTarget(
       outcome: Promise.resolve(failure),
     };
   }
-  const projectedToolAuthorityFingerprint = toolAuthorityOverlay
-    ? await owner.projectToolAuthorityFingerprintAsync(toolAuthorityOverlay)
+  let selectedOverlay = incomingOverlay;
+  let allowPendingUserInputAnswer = requestedPendingUserInputAnswer;
+  let projectedToolAuthorityFingerprint = selectedOverlay
+    ? await owner.projectToolAuthorityFingerprintAsync(selectedOverlay)
     : backendOptions.toolAuthorityFingerprint;
+  if (
+    allowCollaborativeSteering &&
+    backendOptions.isInboundUserMessage &&
+    incomingOverlay &&
+    (!projectedToolAuthorityFingerprint ||
+      projectedToolAuthorityFingerprint !== owner.toolAuthorityFingerprint)
+  ) {
+    const collaborativeOverlay = { ...incomingOverlay, allowCollaborativeSteering: true as const };
+    const incumbentFingerprint =
+      await owner.projectToolAuthorityFingerprintAsync(collaborativeOverlay);
+    if (incumbentFingerprint && incumbentFingerprint !== projectedToolAuthorityFingerprint) {
+      selectedOverlay = collaborativeOverlay;
+      projectedToolAuthorityFingerprint = incumbentFingerprint;
+      // Collaboration permits ordinary input, not answering or canceling another
+      // requester's pending question. Compatible input keeps its strict preparation.
+      allowPendingUserInputAnswer = false;
+    }
+  }
+  const toolAuthorityOverlay = selectedOverlay;
   const sourceBound =
     assertCurrent !== undefined ||
     (toolAuthorityPreparation !== undefined && toolAuthorityPreparation.authorityKind !== "run");
@@ -486,6 +508,7 @@ async function beginPreparedReplyMessageInjectionTarget(
       ...(resolved.errorMessage ? { errorMessage: resolved.errorMessage } : {}),
     };
     const cancelPendingImage =
+      allowPendingUserInputAnswer !== false &&
       options?.isInboundUserMessage === true &&
       hasPromptImageInput(options) &&
       (resolved.reason === "tool_authority_mismatch" ||

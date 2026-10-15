@@ -378,7 +378,10 @@ describe("doctor config flow", () => {
 
   it("preserves ownership of an explicitly empty included roster", async () => {
     await using result = await runConfig({
-      config: { agents: { entries: { main: {} } } },
+      config: {
+        agents: { entries: { main: {} } },
+        messages: { queue: { allowCollaborativeSteering: true } },
+      },
       parsedConfig: { $include: "./agents.json" },
       sourceConfigBeforeMigrations: { agents: { entries: {} } },
       agentRosterIncludeOwned: true,
@@ -567,7 +570,11 @@ describe("doctor config flow", () => {
   });
 
   it("emits warning-only stale channel cleanup without changing config", async () => {
-    const input = { agents: { entries: { ops: {} } }, channels: { matrix: { enabled: true } } };
+    const input = {
+      agents: { entries: { ops: {} } },
+      channels: { matrix: { enabled: true } },
+      messages: { queue: { allowCollaborativeSteering: true } },
+    };
     const channelDoctor = await import("./doctor/shared/channel-doctor.js");
     vi.mocked(channelDoctor.collectChannelDoctorStaleConfigMutations).mockResolvedValueOnce([
       {
@@ -637,7 +644,11 @@ describe("doctor config flow", () => {
       { type: "cli", command: "fixture-transcribe", args: ["{{AttachmentPath}}"] },
       { command: "fixture-transcribe", args: ["/synthetic/audio.wav"] },
     ] satisfies MediaUnderstandingModelConfig[];
-    const config: OpenClawConfig = { plugins: { enabled: false }, tools: { media: { models } } };
+    const config: OpenClawConfig = {
+      plugins: { enabled: false },
+      tools: { media: { models } },
+      messages: { queue: { allowCollaborativeSteering: true } },
+    };
     config.agents = { entries: { main: {} } };
     await using result = await runConfig({ config, repair: true });
     const warnings = terminalNoteMock.mock.calls
