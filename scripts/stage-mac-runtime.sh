@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DESTINATION="${1:?Usage: stage-mac-runtime.sh <destination> <architecture>}"
 shift
-[[ "$#" -eq 1 ]] || { echo "ERROR: Standalone Mac packaging requires one architecture; the builder does not emit a universal artifact." >&2; exit 1; }
+[[ "$#" -eq 1 ]] || { echo "ERROR: Standalone Mac packaging requires one architecture; build separate per-architecture artifacts." >&2; exit 1; }
 ARCH="$1"
 case "$ARCH" in arm64|x86_64) ;; *) echo "ERROR: Unsupported Mac runtime architecture: $ARCH" >&2; exit 1 ;; esac
 MODE="${OPENCLAW_MAC_RUNTIME_MODE:-jit}"

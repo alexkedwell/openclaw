@@ -35,6 +35,11 @@ library. The compiler and old loose interpreter layout are not packaged.
 Use `OPENCLAW_MAC_RUNTIME_MODE=jit` (default) or `bytecode`; both use the exact
 manifest entitlement map. See [standalone builds](/install/standalone).
 
+Package ARM64 and Intel apps separately with `BUILD_ARCHS=arm64` or
+`BUILD_ARCHS=x86_64`, using the matching runtime output. Universal builds are not
+supported. The release publisher must provide architecture-matched ZIPs, DMGs,
+and Sparkle updates, including updates from existing universal apps.
+
 ## Permission evidence
 
 Platform claims require real-device evidence. macOS permission proof requires a

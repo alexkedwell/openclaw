@@ -63,10 +63,11 @@ resources, including same-commit plugins.
 `OPENCLAW_MAC_RUNTIME_MODE=bytecode` to embed bytecode instead. Both modes use
 exactly the entitlements declared by the builder manifest. Packaging checks the
 manifest's version, commit, architecture, executable checksum, and complete
-sidecar checksum before copying any artifact. The standalone builder currently
-emits one architecture per output; pass `BUILD_ARCHS=arm64` or
-`BUILD_ARCHS=x86_64`. Universal packaging requires builder support and fails
-instead of silently shipping a single-architecture runtime.
+sidecar checksum before copying any artifact. Each app contains one architecture;
+pass `BUILD_ARCHS=arm64` or `BUILD_ARCHS=x86_64` to select its matching builder
+output. Both app and distribution packaging default to the host architecture.
+Universal and multi-architecture requests fail before building. ARM64 is currently
+qualified; Intel qualification awaits the builder's cross-compilation support.
 
 For an existing build, `OPENCLAW_MAC_RUNTIME_PREBUILT=/path/to/output` skips
 compilation while retaining every manifest check. The output must match this
@@ -131,14 +132,15 @@ To replace a release install, package the release identity from a clean
 checkout:
 
 ```bash
-BUILD_CONFIG=release BUNDLE_ID=ai.openclaw.mac ./scripts/package-mac-app.sh
+BUILD_CONFIG=release BUILD_ARCHS=arm64 BUNDLE_ID=ai.openclaw.mac ./scripts/package-mac-app.sh
 ```
 
 Release configuration runs `scripts/apple-release-source-check.sh`, which fails
 unless the checkout is clean at the commit being built, and it requires the MLX
-voice helper. It builds a universal app unless you set `BUILD_ARCHS` (for
-example `BUILD_ARCHS=arm64`). Before installing, check the designated
-requirement:
+voice helper. Build Intel artifacts separately with `BUILD_ARCHS=x86_64` once the
+builder supports that target. Release publishing must keep each architecture's
+ZIP, DMG, and Sparkle update separate, including native-architecture routing for
+existing universal installations. Before installing, check the designated requirement:
 
 ```bash
 codesign -dr - dist/OpenClaw.app

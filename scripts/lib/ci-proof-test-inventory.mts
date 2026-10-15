@@ -3862,6 +3862,7 @@ export const PR_PROTECTED_RUNTIME_TEST_FILES: readonly string[] = [
   "test/scripts/linux-app-channel.test.ts",
   "test/scripts/linux-updater-manifest.test.ts",
   "test/scripts/live-docker-stage.test.ts",
+  "test/scripts/mac-build-architecture.test.ts",
   "test/scripts/mac-elevation-artifact.test.ts",
   "test/scripts/mac-runtime.test.ts",
   "test/scripts/mac-standalone-runtime.test.ts",
