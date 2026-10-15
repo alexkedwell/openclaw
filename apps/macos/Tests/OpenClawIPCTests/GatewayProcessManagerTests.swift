@@ -2418,8 +2418,7 @@ struct GatewayProcessManagerTests {
                 let generation = manager.gatewayStartGeneration
                 var restartCount = 0
                 _ = try await supervisor.start(configuration: .init(
-                    bun: URL(fileURLWithPath: "/fixture/bun"),
-                    packageRoot: URL(fileURLWithPath: "/fixture/package"), environment: [:],
+                    executable: URL(fileURLWithPath: "/fixture/openclaw"), environment: [:],
                     logPath: "/unused/gateway.log", port: GatewayEnvironment.gatewayPort(),
                     allowUnconfigured: false))
                 { event in
