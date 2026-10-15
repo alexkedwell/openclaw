@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -151,8 +151,16 @@ describe("Muse native MSP harness", () => {
 
   it("streams reasoning and text, journals native tool pairs, and resumes after restart", async () => {
     const first = setup();
+    const prepareContinuationRetryCount = vi.fn();
+    first.params.hostCapabilities = {
+      ...first.params.hostCapabilities,
+      prepareContinuationRetryCount,
+    };
     try {
       const result = await first.harness.runAttempt({ ...first.params, prompt: "tool" });
+      expect(prepareContinuationRetryCount).toHaveBeenCalledExactlyOnceWith({
+        cwd: await realpath(workspace),
+      });
       expect(terminal(result).kind).toBe("ok");
       expect(result.assistantTexts).toEqual(["started: hello"]);
       expect(

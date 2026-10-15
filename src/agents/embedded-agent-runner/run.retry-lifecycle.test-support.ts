@@ -74,6 +74,9 @@ describe("direct embedded retry lifecycle", () => {
       let continuations = 0;
       let finalizations = 0;
       mockedRunEmbeddedAttempt.mockImplementation(async (attempt) => {
+        attempt.hostCapabilities?.prepareContinuationRetryCount?.({
+          cwd: attempt.cwd ?? attempt.workspaceDir,
+        });
         if (attempt.operation === "settled-tool-finalization") {
           finalizations += 1;
           expect(attempt.disableTools).toBe(true);

@@ -101,6 +101,8 @@ export type EmbeddedRunAttemptInternalParams = EmbeddedRunAttemptParams &
     compactionCountOwner?: "subscription" | "caller";
     /** Current-run committed plan facts; retained across attempts, never loaded from history. */
     completionCheck?: EmbeddedRunCompletionCheck;
+    /** Host-private receiver for the native owner's admitted Gateway-local settings cwd. */
+    prepareContinuationRetryCount?: (workspace: { cwd: string }) => void;
   };
 
 export type RunEmbeddedAgentParamsWithSessionFile = RunEmbeddedAgentInternalParams & {

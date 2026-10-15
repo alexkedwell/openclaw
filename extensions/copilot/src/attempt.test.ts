@@ -2267,17 +2267,33 @@ describe("runCopilotAttempt", () => {
                 ...(mode === "ro" ? { workspaceDir: sandboxDir } : {}),
               });
         const sdk = makeFakeSdk();
+        const prepareContinuationRetryCount = vi.fn();
+        const params = makeParams({ workspaceDir, ...(cwd ? { cwd } : {}) });
+        params.hostCapabilities = {
+          ...params.hostCapabilities,
+          prepareContinuationRetryCount,
+        };
         const createToolBridge = vi.fn(async (_input: CopilotToolBridgeInput) =>
           createStubToolBridge(),
         );
         try {
-          await runCopilotAttempt(makeParams({ workspaceDir, ...(cwd ? { cwd } : {}) }), {
+          await runCopilotAttempt(params, {
             createToolBridge,
             pool: makeFakePool(sdk),
             resolveSandboxContextOverride: async () => sandbox,
           });
           const bridgeArgs = expectDefined(createToolBridge.mock.calls[0]?.[0], "bridge input");
           const effectiveWorkspaceDir = mode === "ro" ? sandboxDir : workspaceDir;
+          if (mode === "unsandboxed") {
+            expect(prepareContinuationRetryCount).toHaveBeenCalledExactlyOnceWith({
+              cwd: bridgeArgs.cwd,
+            });
+            expect(prepareContinuationRetryCount.mock.invocationCallOrder[0]).toBeLessThan(
+              createToolBridge.mock.invocationCallOrder[0]!,
+            );
+          } else {
+            expect(prepareContinuationRetryCount).not.toHaveBeenCalled();
+          }
           expect(bridgeArgs.workspaceDir).toBe(effectiveWorkspaceDir);
           expect(requireCreateSessionConfig(sdk).workingDirectory).toBe(
             cwd ?? effectiveWorkspaceDir,

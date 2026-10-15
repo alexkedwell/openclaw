@@ -32,7 +32,7 @@ import {
   createOpenClawCodingToolsInternalAsync,
 } from "../agent-tools.js";
 import { log } from "../embedded-agent-runner/logger.js";
-import type { EmbeddedRunAttemptParams } from "../embedded-agent-runner/run/types.js";
+import type { EmbeddedRunAttemptInternalParams } from "../embedded-agent-runner/run/internal-params.js";
 import { runBestEffortCallback } from "../embedded-agent-subscribe.callback.js";
 import { createCronScheduledToolProjection } from "../exec-tool-target-pinning.js";
 import { throwAgentRunRestartAbortReason } from "../run-termination.js";
@@ -78,8 +78,8 @@ import { bindHarnessTrajectory } from "./host-trajectory.js";
 import { formatHarnessApprovalPresentation } from "./native-hook-relay-approval-presentation.js";
 import { createSessionNodeAuthorities } from "./node-execution-authority.js";
 
-type AgentHarnessHostAttempt = Partial<EmbeddedRunAttemptParams> &
-  Pick<EmbeddedRunAttemptParams, "admittedRunContext" | "runId">;
+type AgentHarnessHostAttempt = Partial<EmbeddedRunAttemptInternalParams> &
+  Pick<EmbeddedRunAttemptInternalParams, "admittedRunContext" | "runId">;
 type AgentHarnessHostApprovalResult = NonNullable<
   Awaited<ReturnType<AgentHarnessHostCapabilities["waitForApproval"]>>
 >;
@@ -101,6 +101,7 @@ export function createAgentHarnessHostCapabilities(params: {
   runWithScope: <T>(run: () => Promise<T>) => Promise<T>;
 } {
   const attempt = params.attempt;
+  const prepareContinuationRetryCount = attempt.prepareContinuationRetryCount;
   const requestCustody = captureExecRequestCustody(attempt);
   // Capture authority by value before any plugin handoff can mutate the attempt.
   const runtimePluginToolGrant = attempt.runtimePluginToolGrant
@@ -456,6 +457,15 @@ export function createAgentHarnessHostCapabilities(params: {
     kind: "agent-harness-host-capability" as const,
     version: 1 as const,
     assertActive,
+    ...(prepareContinuationRetryCount
+      ? {
+          prepareContinuationRetryCount: (workspace: Readonly<{ cwd: string }>) => {
+            assertActive();
+            prepareContinuationRetryCount(workspace);
+            assertActive();
+          },
+        }
+      : {}),
     captureRequestCustody: () => {
       assertActive();
       return requestCustody;

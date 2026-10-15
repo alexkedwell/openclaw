@@ -21,7 +21,7 @@ import {
 import { resolveSessionGitCoauthorPrompt } from "../../git-coauthor-prompt.js";
 import { createContextEngine } from "../../harness/context-engine-lifecycle.test-support.js";
 import { registerAgentHarness } from "../../harness/registry.js";
-import type { AgentHarness } from "../../harness/types.js";
+import type { AgentHarness, AgentHarnessAttemptParamsV2 } from "../../harness/types.js";
 import { registerSandboxBackend, type SandboxBackendFactory } from "../../sandbox/backend.js";
 import { createSandboxFsBridge } from "../../sandbox/fs-bridge.js";
 import { createSandboxTestContext } from "../../sandbox/test-fixtures.js";
@@ -151,6 +151,7 @@ type DispatchCase = {
   skillCatalog: "host" | "sandbox" | "none";
   oneShotCliRun?: boolean;
   managedWorkspace?: boolean;
+  explicitCwd?: boolean;
   realManagedWorkspace?: boolean;
   hostMedia?: "allowed" | "outside";
   retirePlacement?: boolean;
@@ -159,6 +160,7 @@ type DispatchCase = {
   retryCount?: number;
   legacyRetryCount?: number;
   legacyRetryDelayMs?: number;
+  retryPreparation?: "omit" | "mutate" | "change-cwd";
 };
 
 const dispatchCases: DispatchCase[] = [
@@ -176,6 +178,30 @@ const dispatchCases: DispatchCase[] = [
     skillCatalog: "host" as const,
     oneShotCliRun: undefined,
     configuredContextEngine: true,
+    retryCount: 0,
+    legacyRetryCount: 9,
+  },
+  ...([0, undefined] as const).map((retryCount) => ({
+    agentId: "main",
+    remoteSkills: false,
+    skillCatalog: "none" as const,
+    retryCount,
+    legacyRetryCount: 3,
+    retryPreparation: "mutate" as const,
+  })),
+  ...(["omit", "change-cwd"] as const).map((retryPreparation) => ({
+    agentId: "main",
+    remoteSkills: false,
+    skillCatalog: "none" as const,
+    retryCount: 0,
+    legacyRetryCount: 3,
+    retryPreparation,
+  })),
+  {
+    agentId: "main",
+    remoteSkills: false,
+    skillCatalog: "none",
+    explicitCwd: true,
     retryCount: 0,
     legacyRetryCount: 9,
   },
@@ -236,7 +262,7 @@ const dispatchCases: DispatchCase[] = [
 ];
 
 it.each(dispatchCases)(
-  "dispatches the generic harness for $agentId/global with policy $sandboxSessionKey, $skillCatalog skills, remote skills $remoteSkills, one-shot $oneShotCliRun, real managed workspace $realManagedWorkspace, host media $hostMedia, retired placement $retirePlacement, baseline $diffBaseline",
+  "dispatches the generic harness for $agentId/global with policy $sandboxSessionKey, $skillCatalog skills, remote skills $remoteSkills, one-shot $oneShotCliRun, real managed workspace $realManagedWorkspace, explicit cwd $explicitCwd, host media $hostMedia, retired placement $retirePlacement, baseline $diffBaseline",
   async ({
     agentId,
     sandboxSessionKey,
@@ -244,6 +270,7 @@ it.each(dispatchCases)(
     skillCatalog,
     oneShotCliRun,
     managedWorkspace,
+    explicitCwd,
     realManagedWorkspace,
     hostMedia,
     retirePlacement,
@@ -252,6 +279,7 @@ it.each(dispatchCases)(
     retryCount,
     legacyRetryCount,
     legacyRetryDelayMs,
+    retryPreparation,
   }) => {
     const gitCoauthorPrompt =
       "Git co-authors: add these exact trailers to every commit you make from this session.\n" +
@@ -390,23 +418,46 @@ it.each(dispatchCases)(
       });
       const admittedRunContext = await admission.admit("plugin-harness", "owner-test");
       setActivePluginRegistry(createEmptyPluginRegistry());
-      const runAttempt = vi.fn<AgentHarness["runAttempt"]>(async (params) => ({
-        terminal: { kind: "ok" },
-        sessionIdUsed: params.sessionId,
-        messagesSnapshot: [],
-        assistantTexts: [`${params.agentId} answered`],
-        toolMetas: [],
-        lastAssistant: undefined,
-        didSendViaMessagingTool: false,
-        messagingToolSentTexts: [],
-        messagingToolSentMediaUrls: [],
-        messagingToolSentTargets: [],
-        cloudCodeAssistFormatError: false,
-        replayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
-        itemLifecycle: { startedCount: 0, completedCount: 0, activeCount: 0 },
-        providerRetryMaxRetries: legacyRetryCount,
-        providerRetryMaxDelayMs: legacyRetryDelayMs,
-      }));
+      let retainedRetryPreparer:
+        | NonNullable<
+            AgentHarnessAttemptParamsV2["hostCapabilities"]
+          >["prepareContinuationRetryCount"]
+        | undefined;
+      const runAttempt = vi.fn<AgentHarness["runAttempt"]>(async (params) => {
+        retainedRetryPreparer = params.hostCapabilities?.prepareContinuationRetryCount;
+        expect(params).not.toHaveProperty("prepareContinuationRetryCount");
+        if (!remoteSkills && retryPreparation !== "omit") {
+          const cwd = params.cwd ?? params.workspaceDir;
+          retainedRetryPreparer?.({ cwd });
+          if (retryPreparation === "mutate") {
+            await fs.mkdir(path.join(cwd, ".openclaw"), { recursive: true });
+            await fs.writeFile(
+              path.join(cwd, ".openclaw", "settings.json"),
+              JSON.stringify({ retry: { provider: { maxRetries: 6 } } }),
+            );
+            retainedRetryPreparer?.({ cwd });
+          } else if (retryPreparation === "change-cwd") {
+            retainedRetryPreparer?.({ cwd: path.join(cwd, "different") });
+          }
+        }
+        return {
+          terminal: { kind: "ok" },
+          sessionIdUsed: params.sessionId,
+          messagesSnapshot: [],
+          assistantTexts: [`${params.agentId} answered`],
+          toolMetas: [],
+          lastAssistant: undefined,
+          didSendViaMessagingTool: false,
+          messagingToolSentTexts: [],
+          messagingToolSentMediaUrls: [],
+          messagingToolSentTargets: [],
+          cloudCodeAssistFormatError: false,
+          replayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+          itemLifecycle: { startedCount: 0, completedCount: 0, activeCount: 0 },
+          providerRetryMaxRetries: legacyRetryCount,
+          providerRetryMaxDelayMs: legacyRetryDelayMs,
+        };
+      });
       registerAgentHarness({
         id: "owner-fixture",
         label: "Owner fixture",
@@ -441,6 +492,13 @@ it.each(dispatchCases)(
         sessionKey: "global",
         sandboxSessionKey,
         workspaceDir,
+        ...(explicitCwd
+          ? {
+              cwd: path.join(workspaceDir, "packages", "app"),
+              sessionRoot: workspaceDir,
+              permissionMode: "full" as const,
+            }
+          : {}),
         ...(managedWorkspace
           ? {
               cwd: workspaceDir,
@@ -640,8 +698,9 @@ it.each(dispatchCases)(
               }))
           : undefined;
       if (retryCount !== undefined) {
-        const settingsDir =
-          managedWorkspace && !realManagedWorkspace
+        const settingsDir = explicitCwd
+          ? path.join(workspaceDir, "packages", "app", ".openclaw")
+          : managedWorkspace && !realManagedWorkspace
             ? path.join(projection, ".openclaw")
             : state.agentDir(agentId);
         await fs.mkdir(settingsDir, { recursive: true });
@@ -649,7 +708,7 @@ it.each(dispatchCases)(
           path.join(settingsDir, "settings.json"),
           JSON.stringify({ retry: { provider: { maxRetries: retryCount, maxRetryDelayMs: 5 } } }),
         );
-        if (managedWorkspace && !realManagedWorkspace) {
+        if (explicitCwd || (managedWorkspace && !realManagedWorkspace)) {
           await fs.mkdir(path.join(workspaceDir, ".openclaw"), { recursive: true });
           await fs.writeFile(
             path.join(workspaceDir, ".openclaw", "settings.json"),
@@ -660,6 +719,13 @@ it.each(dispatchCases)(
       const pending = prepareAndDispatchEmbeddedRunAttempt(input);
       void pending.catch(() => {});
       try {
+        if (retryPreparation === "change-cwd") {
+          await expect(pending).rejects.toThrow(
+            "Native execution cwd changed after continuation retry preparation",
+          );
+          expect(() => retainedRetryPreparer?.({ cwd: workspaceDir })).toThrow();
+          return;
+        }
         if (diffBaseline) {
           await awaitGateBeforeSettlement(
             baselineEntered.promise,
@@ -761,8 +827,19 @@ it.each(dispatchCases)(
         const { dispatchedAttempt: result } = await pending;
         expect(result.rawAttempt.terminal).toEqual({ kind: "ok" });
         expect(result.rawAttempt.assistantTexts).toEqual([`${agentId} answered`]);
-        expect(result.rawAttempt.providerRetryMaxRetries).toBe(retryCount ?? legacyRetryCount);
+        expect(result.rawAttempt.providerRetryMaxRetries).toBe(
+          retryPreparation === "omit" ? legacyRetryCount : (retryCount ?? legacyRetryCount),
+        );
         expect(result.rawAttempt.providerRetryMaxDelayMs).toBe(legacyRetryDelayMs);
+        expect(() => retainedRetryPreparer?.({ cwd: workspaceDir })).toThrow();
+        if (explicitCwd) {
+          expect(runAttempt.mock.calls[0]?.[0]).toMatchObject({
+            workspaceDir,
+            cwd: path.join(workspaceDir, "packages", "app"),
+            sessionRoot: workspaceDir,
+            permissionMode: "full",
+          });
+        }
         expect(runAttempt.mock.calls[0]?.[0].contextEngine).toBe(
           configuredContextEngine ? contextEngine : undefined,
         );

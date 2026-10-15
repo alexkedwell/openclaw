@@ -264,15 +264,27 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     : null;
   assertActiveRun();
   const pluginWorkspace = placement?.workspace;
-  const providerRetryMaxRetries = pluginWorkspace
-    ? prepareAgentProviderRetryCount({
-        sessionId,
-        cwd: pluginWorkspace.effectiveCwd,
-        agentDir,
-        cfg: params.config,
-        pluginMetadataSnapshot: runtime.pluginMetadataSnapshot,
-      })
-    : undefined;
+  let providerRetryMaxRetries: number | undefined;
+  let providerRetrySettingsCwd: string | undefined;
+  const prepareContinuationRetryCount = ({ cwd }: { cwd: string }) => {
+    assertActiveRun();
+    if (providerRetrySettingsCwd !== undefined) {
+      if (providerRetrySettingsCwd !== cwd) {
+        throw new Error("Native execution cwd changed after continuation retry preparation");
+      }
+      return;
+    }
+    // Only the native owner knows the admitted local cwd. Freeze before execution,
+    // including absence, so in-turn settings edits cannot change this attempt's budget.
+    providerRetryMaxRetries = prepareAgentProviderRetryCount({
+      sessionId,
+      cwd,
+      agentDir,
+      cfg: params.config,
+      pluginMetadataSnapshot: runtime.pluginMetadataSnapshot,
+    });
+    providerRetrySettingsCwd = cwd;
+  };
   const promptMedia = pluginWorkspace
     ? await prepareEmbeddedAttemptPromptExecution({
         attempt: { ...params, model: effectiveModel },
@@ -680,6 +692,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
       sessionPromptState.activePrompt.persisted = false;
     },
     prepareAssistantTranscriptMessage: params.prepareAssistantTranscriptMessage,
+    ...(runtime.pluginHarnessOwnsTransport ? { prepareContinuationRetryCount } : {}),
   };
   const rawAttempt = await withPreparedEmbeddedGatewayTools(attemptParams, () => {
     assertActiveRun();
