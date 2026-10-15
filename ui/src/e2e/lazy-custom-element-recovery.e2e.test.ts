@@ -4,7 +4,7 @@ import {
   buildControlUiFocusPath,
   type ControlUiFocusBuildTarget,
 } from "@openclaw/session-url-contract";
-import type { Page, Route, Video } from "playwright";
+import type { Page, Video } from "playwright";
 import { beforeEach, expect, it } from "vitest";
 import { ConnectErrorDetailCodes } from "../../../packages/gateway-protocol/src/connect-error-details.js";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
@@ -19,6 +19,7 @@ import {
 import {
   controlUiE2eBuiltModuleRequest,
   controlUiE2eRouteStylesheetRequest,
+  failControlUiModuleForDocuments,
 } from "./control-ui-built-module.test-support.ts";
 import {
   createControlUiE2eSuite,
@@ -58,8 +59,6 @@ async function installChunkFailure(
   let headCount = 0;
   let recoveryProbeCount = 0;
   let documentAvailable = options.automaticReload === true;
-  let chunkRequestCount = 0;
-  let failedChunkUrl: string | undefined;
   await page.route("**/*", async (route) => {
     if (route.request().method() !== "HEAD") {
       await route.fallback();
@@ -76,23 +75,9 @@ async function installChunkFailure(
     await options.manualProbe;
     await route.fallback();
   });
-  await page.route(chunk, async (route: Route) => {
-    // A shared module can have both a facade and implementation matching the
-    // prefix. Count retries of the injected failure, not its other dependencies.
-    failedChunkUrl ??= route.request().url();
-    if (route.request().url() !== failedChunkUrl) {
-      await route.fallback();
-      return;
-    }
-    chunkRequestCount += 1;
-    if (chunkRequestCount === 1) {
-      await route.abort("internetdisconnected");
-      return;
-    }
-    await route.fallback();
-  });
+  const failure = await failControlUiModuleForDocuments(page, chunk);
   return {
-    chunkRequestCount: () => chunkRequestCount,
+    chunkDocumentCount: failure.documentCount,
     headCount: () => headCount,
     recoveryProbeCount: () => recoveryProbeCount,
     restoreDocument: () => {
@@ -349,17 +334,17 @@ suite.define(() => {
         await page.goto(suite.server.baseUrl);
         await gateway.waitForRequest("connect");
         await page.locator(".connect-splash").waitFor();
-        expect(failure.chunkRequestCount()).toBe(0);
+        expect(failure.chunkDocumentCount()).toBe(0);
         await rejectLogin();
         const error = page.locator(".lazy-view-error");
         await error.waitFor();
         expect(await error.textContent()).toContain("Failed to fetch dynamically imported module");
-        expect(failure.chunkRequestCount()).toBe(1);
+        expect(failure.chunkDocumentCount()).toBe(1);
         await expect.poll(failure.headCount).toBeGreaterThanOrEqual(1);
         await retryThroughReload(page, error, failure, "Reload");
         await rejectLogin();
         await page.locator('.login-gate__failure[data-kind="auth-required"]').waitFor();
-        expect(failure.chunkRequestCount()).toBe(2);
+        expect(failure.chunkDocumentCount()).toBe(2);
         expect(await error.count()).toBe(0);
         const connectCount = (await gateway.getRequests("connect")).length;
         await gateway.deferNext("connect");
@@ -487,14 +472,14 @@ suite.define(() => {
           ).toBe(200);
           const error = await expectRealChunkFailure(page, testCase.label);
           const failedPathname = new URL(page.url()).pathname;
-          expect(failure.chunkRequestCount()).toBe(1);
+          expect(failure.chunkDocumentCount()).toBe(1);
           await expect.poll(failure.headCount).toBeGreaterThanOrEqual(1);
           expect(documentRequests).toBe(1);
 
           await retryThroughReload(page, error, failure);
           await testCase.ready(page);
 
-          await expect.poll(failure.chunkRequestCount).toBe(2);
+          await expect.poll(failure.chunkDocumentCount).toBe(2);
           expect(new URL(page.url()).pathname).toBe(failedPathname);
           expect(documentRequests).toBe(2);
         },
@@ -528,7 +513,7 @@ suite.define(() => {
       });
       const error = await expectRealChunkFailure(page, "command palette");
       await expect.poll(failure.headCount).toBeGreaterThanOrEqual(1);
-      expect(failure.chunkRequestCount()).toBe(1);
+      expect(failure.chunkDocumentCount()).toBe(1);
       if (captureUiProof) {
         await writeFile(
           path.join(artifactDir, "failure.png"),
@@ -544,7 +529,7 @@ suite.define(() => {
         .getByRole("textbox", { name: "Search or start a task…" })
         .waitFor();
 
-      await expect.poll(failure.chunkRequestCount).toBe(2);
+      await expect.poll(failure.chunkDocumentCount).toBe(2);
       expect(await page.locator("openclaw-command-palette").count()).toBe(1);
       if (captureUiProof) {
         await writeFile(
@@ -828,7 +813,7 @@ suite.define(() => {
           await retryThroughReload(page, error, failure);
         }
         await testCase.ready(page).waitFor();
-        expect(failure.chunkRequestCount()).toBe(2);
+        expect(failure.chunkDocumentCount()).toBe(2);
         expect(await page.locator(".lazy-view-error, openclaw-modal-dialog").count()).toBe(0);
         expect(await composer.inputValue()).toBe("Keep working");
         if (captureUiProof) {
@@ -956,7 +941,7 @@ suite.define(() => {
         await page.locator(".sidebar-rail").waitFor({ state: "attached" });
         const error = await expectRealChunkFailure(page, "openclaw-macos-titlebar-controls");
         await expect.poll(failure.headCount).toBeGreaterThanOrEqual(1);
-        expect(failure.chunkRequestCount()).toBe(1);
+        expect(failure.chunkDocumentCount()).toBe(1);
         const completedFailedHeadFrames = () =>
           page.evaluate(
             () =>
@@ -992,7 +977,7 @@ suite.define(() => {
         await expect.poll(() => new URL(page.url()).pathname).toBe("/new");
         await page.locator(".new-session-page__message").waitFor({ state: "visible" });
         expect(await error.count()).toBe(0);
-        expect(failure.chunkRequestCount()).toBe(2);
+        expect(failure.chunkDocumentCount()).toBe(2);
         expect(documentRequests).toBe(2);
         if (railProofDir) {
           await page.screenshot({
