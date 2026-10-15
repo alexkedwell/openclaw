@@ -237,6 +237,8 @@ export async function runActiveReplySteer(
     releaseToolAuthority = steeringAuthority.toolAuthority.release;
     assertReadCurrent();
     if (
+      activeReplyOperation.result ||
+      activeReplyOperation.abortSignal.aborted ||
       activeReplyOperation.key !== activeReplyKey ||
       replyRunRegistry.get(activeReplyKey) !== activeReplyOperation
     ) {
