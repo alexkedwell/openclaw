@@ -11,6 +11,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createPluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
+import { prepareAgentProviderRetryCount } from "./agent-project-settings-prepared.js";
 import {
   buildEmbeddedAgentSettingsSnapshot,
   resolveEmbeddedAgentProjectSettingsPolicy,
@@ -80,6 +81,82 @@ describe("buildEmbeddedAgentSettingsSnapshot", () => {
     expect(snapshot.compaction?.keepRecentTokens).toBe(64_000);
     expect(snapshot.compaction?.reserveTokens).toBe(32_000);
     expect(snapshot.hideThinkingBlock).toBe(true);
+  });
+});
+
+describe("prepareAgentProviderRetryCount", () => {
+  it.each([undefined, 0, 1, 4])("projects only the explicit count %s", async (maxRetries) => {
+    await withSettingsWorkspace(async (params) => {
+      await fs.writeFile(
+        path.join(params.agentDir, "settings.json"),
+        JSON.stringify({ retry: { provider: { maxRetries } } }),
+      );
+      expect(prepareAgentProviderRetryCount(params)).toBe(maxRetries);
+      // Sharing the snapshot must not remove the embedded manager's existing delay default.
+      expect(createPreparedEmbeddedAgentSettingsManager(params).getProviderRetrySettings()).toEqual(
+        { maxRetries, timeoutMs: undefined, maxRetryDelayMs: 60_000 },
+      );
+    });
+  });
+
+  it.each(["trusted", "sanitize", "ignore"] as const)(
+    "keeps %s precedence, frozen file inputs and explicit invalidation",
+    async (policy) => {
+      await withSettingsWorkspace(async (params) => {
+        const pluginRoot = path.join(params.cwd, "bundle");
+        await fs.mkdir(pluginRoot);
+        await fs.writeFile(
+          path.join(params.agentDir, "settings.json"),
+          JSON.stringify({ retry: { provider: { maxRetries: 4 } } }),
+        );
+        await fs.writeFile(
+          path.join(pluginRoot, "settings.json"),
+          JSON.stringify({ retry: { provider: { maxRetries: 1 } } }),
+        );
+        const projectPath = path.join(params.cwd, ".openclaw", "settings.json");
+        await fs.writeFile(projectPath, JSON.stringify({ retry: { provider: { maxRetries: 0 } } }));
+        const input = {
+          ...params,
+          cfg: {
+            agents: { defaults: { embeddedAgent: { projectSettingsPolicy: policy } } },
+            plugins: { entries: { "retry-bundle": { enabled: true } } },
+          },
+          pluginMetadataSnapshot: createPluginMetadataSnapshotFixture({
+            plugins: [
+              {
+                id: "retry-bundle",
+                rootDir: pluginRoot,
+                format: "bundle",
+                settingsFiles: ["settings.json"],
+              },
+            ],
+          }),
+        };
+        expect(prepareAgentProviderRetryCount(input)).toBe(policy === "ignore" ? 1 : 0);
+        await fs.writeFile(projectPath, JSON.stringify({ retry: { provider: { maxRetries: 2 } } }));
+        expect(prepareAgentProviderRetryCount(input)).toBe(policy === "ignore" ? 1 : 0);
+        clearPreparedEmbeddedAgentSettings([params.sessionId]);
+        expect(prepareAgentProviderRetryCount(input)).toBe(policy === "ignore" ? 1 : 2);
+      });
+    },
+  );
+
+  it("does not admit embedded retired settings, compaction or delay policy into native setup", async () => {
+    await withSettingsWorkspace(async (params) => {
+      await fs.writeFile(
+        path.join(params.agentDir, "settings.json"),
+        JSON.stringify({
+          queueMode: "all",
+          httpIdleTimeoutMs: "invalid for embedded",
+          compaction: { reserveTokens: -1 },
+          retry: { provider: { maxRetries: 0, maxRetryDelayMs: 5, timeoutMs: 9 } },
+        }),
+      );
+      expect(prepareAgentProviderRetryCount(params)).toBe(0);
+      expect(() => createPreparedEmbeddedAgentSettingsManager(params)).toThrow(
+        "queueMode: use steeringMode",
+      );
+    });
   });
 });
 

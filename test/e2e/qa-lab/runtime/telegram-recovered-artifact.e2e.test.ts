@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { withServer, withTempDir } from "openclaw/plugin-sdk/test-env";
@@ -256,6 +256,13 @@ test("delivers a recovered artifact once while preserving its inter-session tran
       async (apiRoot) => {
         enterPhase("temp-dir-start");
         return await withTempDir("openclaw-recovered-artifact-", async (workspace) => {
+          // Exercise terminal recovery after one failed provider attempt, without
+          // changing default retry behavior or replaying the completed write.
+          await mkdir(path.join(workspace, ".openclaw"), { recursive: true });
+          await writeFile(
+            path.join(workspace, ".openclaw", "settings.json"),
+            JSON.stringify({ retry: { provider: { maxRetries: 0 } } }),
+          );
           const owner = createQaGatewayChild();
           await runQaGatewayFixture(
             async () => {

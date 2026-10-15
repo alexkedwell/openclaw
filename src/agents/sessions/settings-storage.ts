@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { replaceFileAtomicSync } from "@openclaw/fs-safe/atomic";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { acquireFileLockSyncWithRetry } from "../../infra/file-lock-sync.js";
 import { resolveJsonSaveTarget } from "../../infra/json-file.js";
 import type { ThinkingBudgets, Transport } from "../../llm/types.js";
@@ -122,6 +123,31 @@ export interface SettingsStorage {
 export interface SettingsError {
   scope: SettingsScope;
   error: Error;
+}
+
+/** Read one scope without applying runtime-specific settings validation or defaults. */
+export function readSettingsScope(
+  storage: SettingsStorage,
+  scope: SettingsScope,
+): { settings: Settings; loadError: Error | null } {
+  try {
+    let content: string | undefined;
+    if (storage.readSettingsScope) {
+      content = storage.readSettingsScope(scope);
+    } else {
+      storage.withLock(scope, (current) => {
+        content = current;
+        return undefined;
+      });
+    }
+    const settings: unknown = content ? JSON.parse(content) : {};
+    if (!isRecord(settings)) {
+      throw new TypeError("Session settings must be an object");
+    }
+    return { settings: settings as Settings, loadError: null };
+  } catch (error) {
+    return { settings: {}, loadError: error as Error };
+  }
 }
 
 export class FileSettingsStorage implements SettingsStorage {

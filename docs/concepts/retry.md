@@ -94,7 +94,11 @@ policy does not wrap arbitrary Git commands run by agents or setup scripts.
 
 Discord and Telegram channel retry timings are built in and are not configurable in `openclaw.json`.
 
-The embedded runtime's existing session setting `retry.provider.maxRetries` overrides its recovery retry budget; `0` disables retries, and rate limits remain capped at 10 total attempts per consecutive outage. This is an embedded session setting, not an `openclaw.json` key, and it does not configure native harness request retries. Automatic recovery requires no new configuration.
+The existing session setting `retry.provider.maxRetries` overrides OpenClaw's continuation retry count for both the embedded runtime and native harnesses such as Codex. `0` disables these retries; rate limits remain capped at 10 total attempts per consecutive outage. Without an explicit setting, the harness's existing retry count or OpenClaw's default applies.
+
+This is a `settings.json` setting, not an `openclaw.json` key. OpenClaw merges agent-global settings, enabled bundle settings, and project settings from the effective workspace, subject to the existing project-settings trust policy. Prepared sessions retain that snapshot until a new session or explicit invalidation.
+
+Only the retry count is shared. `retry.provider.maxRetryDelayMs` and `timeoutMs` retain their embedded-runtime scope; native harness request retries, delays, and timeouts remain native-owned. Disabling continuation retries does not disable the separate tool-free finalizer for completed work. Automatic recovery requires no new configuration.
 
 ## Notes
 

@@ -156,6 +156,9 @@ type DispatchCase = {
   retirePlacement?: boolean;
   configuredContextEngine?: boolean;
   diffBaseline?: "settled" | "failed" | "revoked";
+  retryCount?: number;
+  legacyRetryCount?: number;
+  legacyRetryDelayMs?: number;
 };
 
 const dispatchCases: DispatchCase[] = [
@@ -173,6 +176,8 @@ const dispatchCases: DispatchCase[] = [
     skillCatalog: "host" as const,
     oneShotCliRun: undefined,
     configuredContextEngine: true,
+    retryCount: 0,
+    legacyRetryCount: 9,
   },
   {
     agentId: "work",
@@ -180,6 +185,7 @@ const dispatchCases: DispatchCase[] = [
     remoteSkills: false,
     skillCatalog: "sandbox" as const,
     oneShotCliRun: true,
+    retryCount: 1,
   },
   {
     agentId: "work",
@@ -187,6 +193,8 @@ const dispatchCases: DispatchCase[] = [
     remoteSkills: false,
     skillCatalog: "none" as const,
     oneShotCliRun: false,
+    legacyRetryCount: 3,
+    legacyRetryDelayMs: 12,
   },
   {
     agentId: "work",
@@ -195,6 +203,8 @@ const dispatchCases: DispatchCase[] = [
     skillCatalog: "none" as const,
     oneShotCliRun: false,
     managedWorkspace: true,
+    retryCount: 0,
+    legacyRetryCount: 9,
   },
   {
     agentId: "work",
@@ -239,6 +249,9 @@ it.each(dispatchCases)(
     retirePlacement,
     configuredContextEngine,
     diffBaseline,
+    retryCount,
+    legacyRetryCount,
+    legacyRetryDelayMs,
   }) => {
     const gitCoauthorPrompt =
       "Git co-authors: add these exact trailers to every commit you make from this session.\n" +
@@ -391,6 +404,8 @@ it.each(dispatchCases)(
         cloudCodeAssistFormatError: false,
         replayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
         itemLifecycle: { startedCount: 0, completedCount: 0, activeCount: 0 },
+        providerRetryMaxRetries: legacyRetryCount,
+        providerRetryMaxDelayMs: legacyRetryDelayMs,
       }));
       registerAgentHarness({
         id: "owner-fixture",
@@ -624,6 +639,24 @@ it.each(dispatchCases)(
                 },
               }))
           : undefined;
+      if (retryCount !== undefined) {
+        const settingsDir =
+          managedWorkspace && !realManagedWorkspace
+            ? path.join(projection, ".openclaw")
+            : state.agentDir(agentId);
+        await fs.mkdir(settingsDir, { recursive: true });
+        await fs.writeFile(
+          path.join(settingsDir, "settings.json"),
+          JSON.stringify({ retry: { provider: { maxRetries: retryCount, maxRetryDelayMs: 5 } } }),
+        );
+        if (managedWorkspace && !realManagedWorkspace) {
+          await fs.mkdir(path.join(workspaceDir, ".openclaw"), { recursive: true });
+          await fs.writeFile(
+            path.join(workspaceDir, ".openclaw", "settings.json"),
+            JSON.stringify({ retry: { provider: { maxRetries: 7 } } }),
+          );
+        }
+      }
       const pending = prepareAndDispatchEmbeddedRunAttempt(input);
       void pending.catch(() => {});
       try {
@@ -728,6 +761,8 @@ it.each(dispatchCases)(
         const { dispatchedAttempt: result } = await pending;
         expect(result.rawAttempt.terminal).toEqual({ kind: "ok" });
         expect(result.rawAttempt.assistantTexts).toEqual([`${agentId} answered`]);
+        expect(result.rawAttempt.providerRetryMaxRetries).toBe(retryCount ?? legacyRetryCount);
+        expect(result.rawAttempt.providerRetryMaxDelayMs).toBe(legacyRetryDelayMs);
         expect(runAttempt.mock.calls[0]?.[0].contextEngine).toBe(
           configuredContextEngine ? contextEngine : undefined,
         );

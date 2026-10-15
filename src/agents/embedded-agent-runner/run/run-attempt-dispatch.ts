@@ -9,6 +9,7 @@ import { copyExplicitSkillSelectionFileHost } from "../../../skills/discovery/sk
 import { createTrajectoryRuntimeRecorder } from "../../../trajectory/runtime.js";
 import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js";
 import { createAgentHarnessCompletionScope } from "../../agent-harness-completion-scope.js";
+import { prepareAgentProviderRetryCount } from "../../agent-project-settings-prepared.js";
 import { resolveDelegationCapability } from "../../delegation-capability.js";
 import { agentHarnessBuildsOpenClawTools } from "../../harness/tool-surface.js";
 import { applyAuthHeaderOverride, applyLocalNoAuthHeaderOverride } from "../../model-auth.js";
@@ -263,6 +264,15 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     : null;
   assertActiveRun();
   const pluginWorkspace = placement?.workspace;
+  const providerRetryMaxRetries = pluginWorkspace
+    ? prepareAgentProviderRetryCount({
+        sessionId,
+        cwd: pluginWorkspace.effectiveCwd,
+        agentDir,
+        cfg: params.config,
+        pluginMetadataSnapshot: runtime.pluginMetadataSnapshot,
+      })
+    : undefined;
   const promptMedia = pluginWorkspace
     ? await prepareEmbeddedAttemptPromptExecution({
         attempt: { ...params, model: effectiveModel },
@@ -691,6 +701,11 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
   }
   if (pluginWorkspace?.sandboxRuntime) {
     rawAttempt.sandboxRuntime = pluginWorkspace.sandboxRuntime;
+  }
+  // Host policy wins only when explicitly configured. Keep public harness result
+  // budgets on omission, and leave native transport delay/timeout policy untouched.
+  if (providerRetryMaxRetries !== undefined) {
+    rawAttempt.providerRetryMaxRetries = providerRetryMaxRetries;
   }
   return {
     dispatchedAttempt: { rawAttempt, preparedAttempt: attemptParams },
