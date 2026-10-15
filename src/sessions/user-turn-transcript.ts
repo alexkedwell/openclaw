@@ -128,8 +128,7 @@ export function createUserTurnTranscriptRecorder(
     if (!candidate) {
       return candidate;
     }
-    const metadata = { ...candidate["__openclaw"] };
-    delete metadata.requesterOrigin;
+    const { requesterOrigin: _previousOrigin, ...metadata } = candidate["__openclaw"] ?? {};
     if (requesterOrigin) {
       metadata.requesterOrigin = requesterOrigin;
     }
