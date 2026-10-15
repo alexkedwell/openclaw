@@ -10,6 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
@@ -294,10 +295,20 @@ int main(int argc, char **argv) {
 }
 
 describe.skipIf(process.platform !== "darwin")("Mac packaged SQLite capability admission", () => {
-  it.each(["valid", "wrong-sqlite", "vector-unavailable", "outside-vector"])(
-    "checks the actual CLI capability replies (%s)",
-    async (mode) => {
-      const root = temps.make("mac-runtime-capability-");
+  it.each([
+    { mode: "valid", underHome: false },
+    { mode: "valid", underHome: true },
+    { mode: "wrong-sqlite", underHome: false },
+    { mode: "vector-unavailable", underHome: false },
+    { mode: "outside-vector", underHome: false },
+  ])(
+    "checks CLI capabilities after relocation ($mode, source under home: $underHome)",
+    async ({ mode, underHome }) => {
+      const parent = temps.make(
+        "mac-runtime-capability-",
+        underHome ? os.userInfo().homedir : undefined,
+      );
+      const root = path.join(parent, "build", "OpenClaw.app", "Contents", "Resources", "runtime");
       const runtime = path.join(root, "runtime");
       for (const directory of ["dist/control-ui", "lib", "node_modules/sqlite-vec"]) {
         mkdirSync(path.join(runtime, directory), { recursive: true });

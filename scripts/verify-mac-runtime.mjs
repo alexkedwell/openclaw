@@ -22,46 +22,50 @@ if (!runtimeArg || !expectedInfoPath) {
     "Usage: verify-mac-runtime.mjs <runtime> <expected-build-info.json> [app] [architecture]",
   );
 }
-const runtime = fs.realpathSync(runtimeArg);
-const executable = path.join(runtime, "openclaw");
-const packageRoot = path.join(runtime, "runtime");
-const expected = JSON.parse(fs.readFileSync(expectedInfoPath, "utf8"));
-const selected = JSON.parse(fs.readFileSync(path.join(runtime, "manifest.json"), "utf8"));
-const manifest = await verifyMacStandaloneRuntime(runtime, expected, selected.mode, arch);
-assert.match(manifest.buildId, /^[a-f\d]{64}$/u, "Missing packaged runtime build identity");
-for (const legacy of ["bin", "lib/node_modules", "lib/libsqlite3.dylib"]) {
-  assert(!fs.existsSync(path.join(runtime, legacy)), `Legacy runtime layout remains: ${legacy}`);
-}
-assert(
-  fs.existsSync(path.join(packageRoot, "dist/control-ui/index.html")),
-  "Bundled Control UI is missing",
-);
-const sqliteLibrary = path.join(packageRoot, "lib/libsqlite3.dylib");
-assert(fs.existsSync(sqliteLibrary), "Bundled SQLite library is missing");
-assert.equal(
-  JSON.parse(fs.readFileSync(path.join(packageRoot, "openclaw-install-owner.json"), "utf8")).owner,
-  "macos-app",
-);
-const nativeFiles = auditMacRuntimePortability(runtime, executable);
-assert.equal(
-  execFileSync(
-    "/usr/bin/find",
-    [appArg ? fs.realpathSync(appArg) : runtime, "-type", "f", "-name", "node", "-print"],
-    { encoding: "utf8" },
-  ),
-  "",
-  "App bundle contains a Node executable",
-);
+const sourceRuntime = fs.realpathSync(runtimeArg);
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-proof-")));
-const sandbox = path.join(home, "runtime-proof.sb");
-fs.writeFileSync(
-  sandbox,
-  `(version 1)
+try {
+  const runtime = path.join(home, "runtime");
+  // Exercise the same relocation used by profile seeding, outside the denied account home.
+  execFileSync("/bin/cp", ["-cR", sourceRuntime, runtime]);
+  const executable = path.join(runtime, "openclaw");
+  const packageRoot = path.join(runtime, "runtime");
+  const expected = JSON.parse(fs.readFileSync(expectedInfoPath, "utf8"));
+  const selected = JSON.parse(fs.readFileSync(path.join(runtime, "manifest.json"), "utf8"));
+  const manifest = await verifyMacStandaloneRuntime(runtime, expected, selected.mode, arch);
+  assert.match(manifest.buildId, /^[a-f\d]{64}$/u, "Missing packaged runtime build identity");
+  for (const legacy of ["bin", "lib/node_modules", "lib/libsqlite3.dylib"]) {
+    assert(!fs.existsSync(path.join(runtime, legacy)), `Legacy runtime layout remains: ${legacy}`);
+  }
+  assert(
+    fs.existsSync(path.join(packageRoot, "dist/control-ui/index.html")),
+    "Bundled Control UI is missing",
+  );
+  const sqliteLibrary = path.join(packageRoot, "lib/libsqlite3.dylib");
+  assert(fs.existsSync(sqliteLibrary), "Bundled SQLite library is missing");
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(packageRoot, "openclaw-install-owner.json"), "utf8"))
+      .owner,
+    "macos-app",
+  );
+  const nativeFiles = auditMacRuntimePortability(runtime, executable);
+  assert.equal(
+    execFileSync(
+      "/usr/bin/find",
+      [appArg ? fs.realpathSync(appArg) : runtime, "-type", "f", "-name", "node", "-print"],
+      { encoding: "utf8" },
+    ),
+    "",
+    "App bundle contains a Node executable",
+  );
+  const sandbox = path.join(home, "runtime-proof.sb");
+  fs.writeFileSync(
+    sandbox,
+    `(version 1)
 (allow default)
 (deny network*)
 (deny file-write*)
 (deny file-read* (subpath (param "ORIGINAL_HOME")))
-(allow file-read* (subpath (param "RUNTIME")))
 (allow file-read* file-write* (subpath (param "ISOLATED_ROOT")))
 (allow file-write* (literal "/dev/null"))
 (deny process-exec (literal "/bin/launchctl"))
@@ -79,37 +83,34 @@ fs.writeFileSync(
   (subpath "/usr/local/opt/sqlite")
   (literal "/opt/local/lib/libsqlite3.dylib"))
 `,
-);
-const sandboxArgs = [
-  "-D",
-  `ORIGINAL_HOME=${os.userInfo().homedir}`,
-  "-D",
-  `RUNTIME=${runtime}`,
-  "-D",
-  `ISOLATED_ROOT=${home}`,
-  "-f",
-  sandbox,
-  "/usr/bin/arch",
-  `-${arch}`,
-  executable,
-];
-const environment = {
-  HOME: home,
-  CFFIXED_USER_HOME: home,
-  TMPDIR: home,
-  PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-  OPENCLAW_STATE_DIR: path.join(home, "state"),
-  OPENCLAW_CONFIG_PATH: path.join(home, "openclaw.json"),
-  OPENCLAW_NO_RESPAWN: "1",
-};
-const launch = (args) =>
-  execFileSync("/usr/bin/sandbox-exec", [...sandboxArgs, ...args], {
-    cwd: home,
-    env: environment,
-    encoding: "utf8",
-    timeout: 60_000,
-  });
-try {
+  );
+  const sandboxArgs = [
+    "-D",
+    `ORIGINAL_HOME=${os.userInfo().homedir}`,
+    "-D",
+    `ISOLATED_ROOT=${home}`,
+    "-f",
+    sandbox,
+    "/usr/bin/arch",
+    `-${arch}`,
+    executable,
+  ];
+  const environment = {
+    HOME: home,
+    CFFIXED_USER_HOME: home,
+    TMPDIR: home,
+    PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+    OPENCLAW_STATE_DIR: path.join(home, "state"),
+    OPENCLAW_CONFIG_PATH: path.join(home, "openclaw.json"),
+    OPENCLAW_NO_RESPAWN: "1",
+  };
+  const launch = (args) =>
+    execFileSync("/usr/bin/sandbox-exec", [...sandboxArgs, ...args], {
+      cwd: home,
+      env: environment,
+      encoding: "utf8",
+      timeout: 60_000,
+    });
   const workspace = path.join(home, "workspace");
   fs.mkdirSync(workspace);
   fs.writeFileSync(
