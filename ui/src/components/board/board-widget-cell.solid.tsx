@@ -14,7 +14,7 @@ import {
 import {
   ensureCustomElementDefined,
   isOptionalElementDefined,
-  LazyCustomElementRequestController,
+  createLazyCustomElementRequests,
 } from "../../app/lazy-custom-element.ts";
 import {
   BOARD_DOCUMENT_AUTO_MAX_ROWS,
@@ -29,7 +29,7 @@ import {
 import { formatUiError } from "../../lib/format-error.ts";
 import { useOptionalApplication } from "../../lib/reactive/context.ts";
 import { t } from "../../lib/reactive/i18n.ts";
-import { projectSource } from "../../lib/reactive/projection.ts";
+import { projectOwner, projectSource } from "../../lib/reactive/projection.ts";
 import { showToast } from "../../lib/toast.ts";
 import { defineSolidBridge, type SolidBridgeElement } from "../../lit/solid-bridge.ts";
 import { CustomPluginUiDisabled } from "../../plugins/control-ui-disabled.solid.tsx";
@@ -37,7 +37,7 @@ import { PluginContribution } from "../../plugins/control-ui-view.solid.tsx";
 import { LazyViewError } from "../solid/lazy-view-error.tsx";
 import type { MenuHandle } from "../solid/menu.tsx";
 import { BoardMcpAppContent } from "./board-mcp-app-content.tsx";
-import { BoardMcpAppLifecycle } from "./board-mcp-app-lifecycle.ts";
+import { createBoardMcpAppLifecycle } from "./board-mcp-app-lifecycle.ts";
 import {
   BoardGrantedCapabilities,
   BoardPendingCapabilities,
@@ -79,6 +79,7 @@ function BoardWidgetCellContent(
   let actionError = "";
   let actionPending = false;
   let menu: MenuHandle | undefined;
+  let widgetRoot: HTMLElement | undefined;
   let bodyErrored = false;
   let resetBodyError: (() => void) | undefined;
   let connected = true;
@@ -115,16 +116,15 @@ function BoardWidgetCellContent(
     },
     { equals: (previous, next) => previous.every((value, index) => value === next[index]) },
   );
-  const loader = new LazyCustomElementRequestController({ requestUpdate });
+  const loader = createLazyCustomElementRequests();
+  const loadState = projectOwner(loader, (owner) => owner.visibleState);
   const loadError = () => {
-    revision();
-    const value = loader.visibleState;
+    const value = loadState.read();
     return value?.status === "error" ? value : undefined;
   };
-  const appView = new BoardMcpAppLifecycle({
+  const appView = createBoardMcpAppLifecycle({
     active: () => untrack(active),
     connected: () => connected,
-    requestUpdate,
     sessionKey: () => untrack(() => props.sessionKey ?? ""),
     widget: () => untrack(() => props.widget),
   });
@@ -146,15 +146,15 @@ function BoardWidgetCellContent(
   });
   const state = createMemo(() => {
     revision();
+    const app = appView.snapshot();
     return {
-      // Publish activity with observed visibility, not ahead of the lifecycle effects.
-      active: untrack(active),
+      active: app.active,
       error: actionError,
       pending: actionPending,
       frameError: frame.error,
-      appView: appView.state,
-      loading: appView.loading,
-      nearVisible: appView.nearVisible,
+      appView: app.state,
+      loading: app.loading,
+      nearVisible: app.nearVisible,
     };
   });
   const activeKinds = () => gateway.read()?.hello?.controlUiWidgetKinds ?? [];
@@ -242,6 +242,7 @@ function BoardWidgetCellContent(
         contribution(),
         gatewayBinding(),
       ] as const,
+    // Owner callbacks intentionally read the current binding captured above.
     () =>
       untrack(() => {
         if (previousBoardRevision !== props.boardRevision) {
@@ -257,11 +258,8 @@ function BoardWidgetCellContent(
             actionError = "";
           }
           frame.widgetChanged(previousWidget, props.widget);
-          requestUpdate();
         }
         previousWidget = props.widget;
-        appView.update(props.widget, props.callbacks);
-        appView.activityChanged();
         frame.activityChanged();
         for (const element of CORE_BOARD_WIDGET_ELEMENTS) {
           loader.requestWhileActive(element, active() && contribution() === element);
@@ -284,15 +282,7 @@ function BoardWidgetCellContent(
       ] as const,
     () =>
       untrack(() => {
-        appView.observe(
-          host.querySelector(".board-widget"),
-          active() && props.widget?.contentKind === "mcp-app",
-        );
-        queueMicrotask(() => {
-          if (connected) {
-            appView.sync();
-          }
-        });
+        appView.synchronize(props.callbacks, widgetRoot ?? null);
         frame.update();
         if (props.loadingCovered && presentationReady()) {
           host.dispatchEvent(new Event("openclaw-board-widget-presentation", { bubbles: true }));
@@ -330,7 +320,6 @@ function BoardWidgetCellContent(
     for (const element of CORE_BOARD_WIDGET_ELEMENTS) {
       loader.requestWhileActive(element, false);
     }
-    appView.disconnect();
     frame.disconnect();
   });
   const unavailable = () => props.busy || state().pending || !canMutate();
@@ -416,7 +405,7 @@ function BoardWidgetCellContent(
             when={loadError()}
             fallback={
               <Show
-                when={(revision(), isOptionalElementDefined(contribution()!))}
+                when={(loadState.revision(), isOptionalElementDefined(contribution()!))}
                 fallback={<Loading />}
               >
                 <BoardCoreWidget
@@ -568,6 +557,9 @@ function BoardWidgetCellContent(
   return (
     <Show when={props.widget && props.rect && props.callbacks}>
       <section
+        ref={(element) => {
+          widgetRoot = element;
+        }}
         class={[
           "board-widget",
           {

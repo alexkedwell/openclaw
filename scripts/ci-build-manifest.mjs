@@ -955,6 +955,9 @@ const runSqliteSessionLifecycle =
   (changedScopeHasSqliteSessionLifecycleImpact ||
     selectedOwnerTest("test/scripts/sqlite-sessions-transcripts-flip-proof.built-cli.e2e.test.ts"));
 const postgresConformancePaths = [
+  "src/state/openclaw-agent-*",
+  "src/config/sessions/**",
+  "src/agents/harness/context-engine-turn-outbox*",
   "src/gateway/server*.ts",
   "src/cli/gateway-cli/run.ts",
   "src/commands/*preflight*.ts",
@@ -988,6 +991,8 @@ const postgresConformancePaths = [
   "src/infra/kysely-sync*.ts",
   "src/infra/sqlite-transaction.ts",
   "extensions/workboard/**",
+  "extensions/memory-core/src/memory/**",
+  "extensions/memory-core/src/memory-session-tombstones.ts",
   "src/config/zod-schema.database.ts",
   "scripts/test-database-conformance*.mjs",
 ];
