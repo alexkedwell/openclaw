@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   getCurrentPluginMetadataSnapshot,
@@ -6,12 +7,18 @@ import {
 } from "../plugins/current-plugin-metadata-snapshot.js";
 import { PluginInstance } from "../plugins/plugin-instance.js";
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
+import {
+  assertProviderAuthAuthority,
+  attachProviderAuthAuthority,
+  getProviderAuthAuthority,
+} from "../plugins/provider-auth-authority.js";
 import { createProviderAuthAvailability } from "../plugins/provider-auth-availability-core.js";
 import { resolveLoadedProviderRuntimePlugin } from "../plugins/provider-hook-runtime.js";
 import {
   resolveProviderSyntheticAuthWithPlugin,
   prepareProviderSyntheticAuthWithPlugin,
   captureProviderSyntheticAuthFacts,
+  prepareProviderRuntimeAuth,
 } from "../plugins/provider-runtime.js";
 import { restorePreparedSyntheticAuthFacts } from "../plugins/provider-synthetic-auth.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
@@ -42,8 +49,9 @@ import {
 import { createModelCatalogDecisions } from "./model-catalog-decisions.js";
 import type { ModelCatalogEntry } from "./model-catalog.types.js";
 import { prepareAgentRuntimeAuth } from "./runtime-plan/prepare-auth.js";
+import { makeProviderModelFixture } from "./test-helpers/provider-model-fixture.js";
 
-// Replace only the native loading bridge, not selection, instance, auth or secrets owners.
+// mock-isolation: Replace the native loading bridge; keep real selection, instance, auth and secrets owners.
 vi.mock("../plugins/provider-hook-runtime.js", async () => {
   const { createProviderHookRuntime } = await import("../plugins/provider-hook-runtime-core.js");
   const { createProviderRegistryResolver } = await import("../plugins/providers.runtime-core.js");
@@ -80,6 +88,7 @@ function fixture(
     scope?: "agent" | "plugin";
     runtimeScope?: "agent" | "plugin";
     hook?: ProviderPlugin["resolveSyntheticAuth"];
+    runtimeAuth?: ProviderPlugin["prepareRuntimeAuth"];
   } = {},
 ) {
   const cfg: OpenClawConfig = {
@@ -128,6 +137,7 @@ function fixture(
     authScope: options.runtimeScope ?? "plugin",
     resolveSyntheticAuth: hook,
     prepareSyntheticAuth: prepare,
+    prepareRuntimeAuth: options.runtimeAuth,
   } satisfies ProviderPlugin;
   const provider = options.wrapped ? instance.wrap(definition) : instance.adopt(definition);
   if (!options.missing && !options.disabled) {
@@ -658,12 +668,70 @@ describe("plugin physical credential ownership through common auth", () => {
     );
   });
 
+  it.each([false, true])(
+    "retains credential authority through an awaited exchange (revoked during exchange: %s)",
+    async (revokeDuringExchange) => {
+      const entered = createDeferred();
+      const exchanged = createDeferred<{ apiKey: string }>();
+      const f = fixture({
+        runtimeAuth: async () => {
+          entered.resolve();
+          return await exchanged.promise;
+        },
+      });
+      f.activate();
+      await f.run(async () => {
+        const auth = await resolveApiKeyForProviderCore(f.params);
+        if (!auth.apiKey) {
+          throw new Error("Missing fixture plugin credential");
+        }
+        const model = attachProviderAuthAuthority(
+          makeProviderModelFixture({
+            provider: id,
+            id: "fixture-model",
+            api: "openai-completions",
+            baseUrl: "https://provider.example/v1",
+          }),
+          getProviderAuthAuthority(auth),
+        );
+        const pending = prepareProviderRuntimeAuth({
+          provider: id,
+          config: f.cfg,
+          context: {
+            env: process.env,
+            provider: id,
+            modelId: model.id,
+            model,
+            apiKey: auth.apiKey,
+            authMode: auth.mode,
+          },
+        });
+        await entered.promise;
+        if (revokeDuringExchange) {
+          clearSecretsRuntimeSnapshotState();
+        }
+        exchanged.resolve({ apiKey: "exchanged-key" });
+        if (revokeDuringExchange) {
+          await expect(pending).rejects.toThrow("credential owner was retired or replaced");
+        } else {
+          const prepared = await pending;
+          expect(prepared?.apiKey).toBe("exchanged-key");
+          expect(() => assertProviderAuthAuthority(prepared)).not.toThrow();
+          clearSecretsRuntimeSnapshotState();
+          expect(() => assertProviderAuthAuthority(prepared)).toThrow(
+            "credential owner was retired or replaced",
+          );
+        }
+      });
+    },
+  );
+
   it("accepts a no-auth marker only as auth eligibility, without preparing artifacts or health", async () => {
     const f = fixture({
       hook: () => ({ apiKey: CUSTOM_LOCAL_AUTH_MARKER, mode: "api-key", source: "local-no-auth" }),
     });
     await f.run(async () => {
-      expect(await resolveApiKeyForProviderCore(f.params)).toEqual({
+      expect(await resolveApiKeyForProviderCore(f.params)).toMatchObject({
         apiKey: CUSTOM_LOCAL_AUTH_MARKER,
         mode: "api-key",
         source: "local-no-auth",

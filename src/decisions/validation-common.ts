@@ -1,4 +1,5 @@
 import { isProxy } from "node:util/types";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 
 export const decisionJsonLimits = { maxBytes: 1_048_576, maxNodes: 20_000, maxDepth: 32 };
 
@@ -9,12 +10,10 @@ type JsonValidationOptions = {
   rejectProxies?: boolean;
 };
 
-export function record(value: unknown): value is Record<string, unknown> {
-  // Decision evidence excludes class instances as well as arrays.
+export function isPlainDecisionRecord(value: unknown): value is Record<string, unknown> {
+  // The shared record guard accepts class instances; decision evidence must exclude them.
   return (
-    Boolean(value) &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
+    isRecord(value) &&
     (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
   );
 }
@@ -57,7 +56,7 @@ function finiteJsonUnchecked(
       return false;
     }
     const array = Array.isArray(entry);
-    if (array ? Object.getPrototypeOf(entry) !== Array.prototype : !record(entry)) {
+    if (array ? Object.getPrototypeOf(entry) !== Array.prototype : !isPlainDecisionRecord(entry)) {
       return false;
     }
     const keys = Reflect.ownKeys(entry);
@@ -121,5 +120,10 @@ export function finiteJson(
 }
 
 export function decisionEntry(value: unknown): boolean {
-  return value === null || typeof value === "string" || Array.isArray(value) || record(value);
+  return (
+    value === null ||
+    typeof value === "string" ||
+    Array.isArray(value) ||
+    isPlainDecisionRecord(value)
+  );
 }

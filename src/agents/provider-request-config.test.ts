@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { ConfiguredProviderRequest } from "../config/types.provider-request.js";
 import type { SecretRef } from "../config/types.secrets.js";
 import type { PluginMetadataSnapshotOwnerMaps } from "../plugins/plugin-metadata-snapshot.types.js";
+import {
+  attachProviderAuthAuthority,
+  assertProviderAuthAuthority,
+} from "../plugins/provider-auth-authority.js";
 import { resolveProviderTransportSsrFPolicy } from "./provider-network-policy.js";
 import {
   applyPreparedRuntimeAuthToModel,
@@ -122,12 +126,24 @@ describe("provider request config", () => {
         allowPrivateNetwork: false,
       },
     );
-    const prepared = applyPreparedRuntimeAuthToModel(model, {
-      request: {
-        headers: { "x-entitlement": "entitled" },
-        auth: { mode: "header", headerName: "x-session", value: "new-token" },
-      },
-    });
+    let credentialCurrent = true;
+    const retired = new Error("synthetic credential owner retired");
+    const prepared = applyPreparedRuntimeAuthToModel(
+      model,
+      attachProviderAuthAuthority(
+        {
+          request: {
+            headers: { "x-entitlement": "entitled" },
+            auth: { mode: "header" as const, headerName: "x-session", value: "new-token" },
+          },
+        },
+        () => {
+          if (!credentialCurrent) {
+            throw retired;
+          }
+        },
+      ),
+    );
     const request = getModelProviderRequestTransport(prepared);
     expect(request).toMatchObject({
       auth: { mode: "header", headerName: "x-session", value: "new-token" },
@@ -141,6 +157,9 @@ describe("provider request config", () => {
       "x-entitlement": "entitled",
       "x-session": "new-token",
     });
+    assertProviderAuthAuthority(prepared);
+    credentialCurrent = false;
+    expect(() => assertProviderAuthAuthority(prepared)).toThrow(retired);
   });
 
   it("merges discovered, provider, and model headers in precedence order", () => {
