@@ -6,6 +6,7 @@ import {
   prepareSystemAgentRunAdmission,
   type AdmittedRunContext,
 } from "../../admitted-run-context.js";
+import { prepareAgentRunTerminalReply } from "../../agent-run-terminal-reply.js";
 import {
   buildEmbeddedRunnerAssistant,
   makeEmbeddedRunnerAttempt,
@@ -59,12 +60,6 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
       phased: false,
     },
     {
-      name: "recovery answer visible in transcript",
-      expectation: "required",
-      delivery: "visible-during-recovery",
-      phased: false,
-    },
-    {
       name: "retained source mirror",
       expectation: "required",
       delivery: "missing",
@@ -80,9 +75,43 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
     },
     { name: "unconfirmed receipt", expectation: "required", delivery: "unknown", phased: false },
     { name: "optional helper", expectation: "optional", delivery: "missing", phased: false },
+    { name: "private result", expectation: "result-required", delivery: "missing", phased: false },
+    {
+      name: "private result held during recovery",
+      expectation: "result-required",
+      delivery: "pending-during-recovery",
+      phased: false,
+    },
+    {
+      name: "private result observation fails during recovery",
+      expectation: "result-required",
+      delivery: "unknown-during-recovery",
+      phased: false,
+    },
+    {
+      name: "recovery answer visible in transcript",
+      expectation: "result-required",
+      delivery: "visible-during-recovery",
+      phased: false,
+    },
+    {
+      name: "external cross-chat send with empty final",
+      expectation: "required",
+      delivery: "missing",
+      phased: false,
+      emptyFinal: true,
+    },
+    {
+      name: "private result after empty final",
+      expectation: "result-required",
+      delivery: "missing",
+      phased: false,
+      emptyFinal: true,
+    },
   ] as const)("settles $name followed by NO_REPLY without replaying tools", async (testCase) => {
     const { expectation, delivery, phased } = testCase;
     const history = "history" in testCase ? testCase.history : undefined;
+    const emptyFinal = "emptyFinal" in testCase;
     const earlierText = "## Result\n\n- **Saved** the note.";
     const attempt: EmbeddedRunAttemptWithReceiptEvidence = makeEmbeddedRunnerAttempt({
       sessionIdUsed: "session-settled",
@@ -93,7 +122,12 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
     const toolAssistant = buildEmbeddedRunnerAssistant({
       stopReason: "toolUse",
       content: [
-        { type: "toolCall", id: "reaction", name: "message", arguments: { action: "react" } },
+        {
+          type: "toolCall",
+          id: "send",
+          name: "message",
+          arguments: { action: "send", target: "other-chat", message: "The requested update." },
+        },
       ],
     });
     const earlierAnswer = buildEmbeddedRunnerAssistant({
@@ -120,18 +154,20 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
               textSignature: JSON.stringify({ v: 1, id: "silent-answer", phase: "final_answer" }),
             },
           ]
-        : [{ type: "text", text: SILENT_REPLY_TOKEN }],
+        : emptyFinal
+          ? []
+          : [{ type: "text", text: SILENT_REPLY_TOKEN }],
     });
     attempt.messagesSnapshot = [
       { role: "user", content: "Save the note and confirm when it is saved.", timestamp: 0 },
       toolAssistant,
-      makeTextToolResult("reaction", "message", "Reaction added", false, 1),
-      earlierAnswer,
+      makeTextToolResult("send", "message", "Message sent to other-chat", false, 1),
+      ...(emptyFinal ? [] : [earlierAnswer]),
       assistant,
     ];
-    attempt.toolMetas = [{ toolName: "message", meta: "react", replaySafe: false }];
+    attempt.toolMetas = [{ toolName: "message", meta: "send", replaySafe: false }];
     attempt.itemLifecycle = { startedCount: 1, completedCount: 1, activeCount: 0 };
-    attempt.assistantTexts = [earlierText, SILENT_REPLY_TOKEN];
+    attempt.assistantTexts = emptyFinal ? [] : [earlierText, SILENT_REPLY_TOKEN];
     attempt.lastAssistant = assistant;
     attempt.currentAttemptAssistant = assistant;
     attempt.currentAttemptCompletedAssistant = assistant;
@@ -187,10 +223,12 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
       });
       input.terminalBase.runParams.resolveReplyDelivery = undefined;
     }
-    const finalText = "The note is saved.";
+    const finalText =
+      emptyFinal && expectation !== "result-required" ? SILENT_REPLY_TOKEN : "The note is saved.";
     backendMocks.runSettledFinalization.mockResolvedValueOnce({
-      outcome: "answered",
+      outcome: finalText === SILENT_REPLY_TOKEN ? "empty" : "answered",
       result: {
+        preparedTerminalReply: prepareAgentRunTerminalReply({ rawText: finalText }),
         assistant: buildEmbeddedRunnerAssistant({
           content: [{ type: "text", text: finalText }],
         }),
@@ -223,10 +261,7 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
     }
     const pendingDuringRecovery =
       delivery === "pending-during-recovery" || delivery === "unknown-during-recovery";
-    if (
-      expectation === "required" &&
-      (delivery === "missing" || delivery === "visible-during-recovery" || pendingDuringRecovery)
-    ) {
+    if (expectation === "result-required") {
       expect(backendMocks.runSettledFinalization).toHaveBeenCalledOnce();
       const [preparedAttempt] = backendMocks.runSettledFinalization.mock.calls[0] ?? [];
       expect(preparedAttempt).toMatchObject({
@@ -235,6 +270,8 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
         skipPreparedUserTurnMessage: true,
         suppressNextUserMessagePersistence: true,
       });
+      expect(preparedAttempt.prompt).toContain("produce the required result now");
+      expect(preparedAttempt.prompt).toContain("NO_REPLY is not allowed");
       expect(result.finalizationOutcome).toBe("answered");
       expect(result.prepared.payloadsWithToolMedia).toEqual(
         pendingDuringRecovery ? [] : [expect.objectContaining({ text: finalText })],
@@ -250,6 +287,17 @@ describe("prepareTerminalWithSettledTurnFinalization canonical silence", () => {
         expect(observations).toBe(2);
         expect(result.prepared.sourceReplyDeliveryState).toBe("missing");
       }
+    } else if (emptyFinal) {
+      expect(backendMocks.runSettledFinalization).toHaveBeenCalledOnce();
+      const [preparedAttempt] = backendMocks.runSettledFinalization.mock.calls[0] ?? [];
+      expect(preparedAttempt.prompt).toContain(
+        "If your completed actions already answered the request, answer exactly NO_REPLY.",
+      );
+      expect(result.finalizationOutcome).toBe("answered");
+      expect(result.prepared.preparedTerminalReply.terminalReply).toEqual({
+        disposition: "silent",
+      });
+      expect(result.prepared.payloadsWithToolMedia).toEqual([]);
     } else {
       expect(backendMocks.runSettledFinalization).not.toHaveBeenCalled();
       expect(result.finalizationOutcome).toBe("not-attempted");
