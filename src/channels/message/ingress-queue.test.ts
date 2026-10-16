@@ -902,7 +902,7 @@ describe("channel ingress dead letters", () => {
         accountId: "default",
         stateDir,
       });
-      const resubmit = expectDefined(queue.resubmit, "resubmit");
+      const resubmit = expectDefined(queue.resubmit?.bind(queue), "resubmit");
 
       await queue.enqueue(
         "event-1",
