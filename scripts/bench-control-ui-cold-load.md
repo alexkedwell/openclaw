@@ -53,7 +53,7 @@ Use `--untraced` for timing comparisons without boot tracing or CPU sampling,
 then collect separate traced runs for the storyboard and attribution.
 
 `--interaction-latency` measures trusted native composer typing, transcript
-PageUp/PageDown, session-menu opening, and pinned-session switches during a
+End/PageUp, session-menu opening, and pinned-session switches during a
 90-second reply stream at 30 cumulative deltas per second plus Team background
 events. It cannot be combined with `--live-events` or `--streaming-reply`.
 `run-N.interactions.json` records per-type input, processing, presentation, and
@@ -61,8 +61,9 @@ total latency distributions, raw Event Timing entries, native input delays, and
 overlapping LoAF scripts. Event Timing omits durations below 16 ms and rounds to
 8 ms; paging measures keyboard-to-paint rather than smooth-scroll completion.
 LoAF overlap identifies candidate blockers, not exclusive causal attribution.
-History placement settles before live traffic starts; transcript focus happens
-before each paging checkpoint, outside the measured native key interaction.
+The composer settles before live traffic starts. Each round returns to the reply
+with End and checks that it is in view before typing, then pages up to read it.
+Transcript focus happens before each paging checkpoint, outside the measured key.
 Compare at least seven interleaved baseline/candidate pairs on one quiet machine,
 with the same bundle settings, Chromium, latency, and rig probes. Use `--untraced`
 for those comparisons and retain all interaction counts and tail results.

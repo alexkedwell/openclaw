@@ -192,12 +192,6 @@ export async function runInteractionLatencyScenario(
     await page.evaluate(() => Reflect.get(window, "__interactionLatency").end());
   };
   await composer.fill("");
-  await thread.focus();
-  // Establish the reader's history position before live traffic and native input.
-  await thread.evaluate((element) => {
-    element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
-  });
-  await frame();
   await composer.focus();
   await waitForIdle();
   await page.evaluate((scenario) => {
@@ -212,6 +206,22 @@ export async function runInteractionLatencyScenario(
   for (let round = 0; round < 7; round++) {
     await new Promise((resolve) => {
       setTimeout(resolve, Math.max(0, started + round * 8000 - Date.now()));
+    });
+    await thread.focus();
+    await step("scroll", () => page.keyboard.press("End"));
+    await page.waitForFunction(() => {
+      const transcript = document.querySelector(".chat-pane-cache__pane--active .chat-thread");
+      const reply = transcript?.querySelector(".chat-bubble.streaming");
+      if (!transcript || !reply) {
+        return false;
+      }
+      const viewport = transcript.getBoundingClientRect();
+      const content = reply.getBoundingClientRect();
+      return (
+        transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 2 &&
+        content.bottom > viewport.top &&
+        content.top < viewport.bottom
+      );
     });
     await composer.focus();
     await step("typing", async () => {
@@ -259,7 +269,6 @@ export async function runInteractionLatencyScenario(
             row.getBoundingClientRect().top > before.top))
       );
     }, beforeRow);
-    await step("scroll", () => page.keyboard.press("PageDown"));
     await step("menu", async () => {
       await active.locator(".chat-header-session-menu__trigger").click();
       await active
@@ -336,7 +345,7 @@ export async function runInteractionLatencyScenario(
     probe,
     summary: summarizeInteractionLatency(probe),
     measurement:
-      "Trusted native keyboard typing, PageUp/PageDown scrolling, session-menu clicks and pinned-session switches during a 30 Hz cumulative answer plus the Team live-event mix (excluding competing chat deltas). Event Timing is censored below 16 ms and rounded to 8 ms; reported event distributions include only observed interactions, grouped by interactionId using the longest event. Native capture-listener input delay includes fast events. PageUp/PageDown Event Timing measures keyboard-to-paint, not completion of smooth scrolling. Overlapping LoAFs identify candidate blockers, not exclusive causal attribution.",
+      "Trusted native keyboard typing with the streamed reply in view, End/PageUp scrolling, session-menu clicks and pinned-session switches during a 30 Hz cumulative answer plus the Team live-event mix (excluding competing chat deltas). Event Timing is censored below 16 ms and rounded to 8 ms; reported event distributions include only observed interactions, grouped by interactionId using the longest event. Native capture-listener input delay includes fast events. Paging Event Timing measures keyboard-to-paint, not completion of smooth scrolling. Overlapping LoAFs identify candidate blockers, not exclusive causal attribution.",
     stream,
     live: await page.evaluate(() => Reflect.get(window, "__coldLoad").readLive()),
     rig: await page.evaluate(() => Reflect.get(window, "__readColdLoadRigProbes")?.()),
