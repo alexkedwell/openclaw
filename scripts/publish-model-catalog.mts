@@ -398,7 +398,7 @@ function buildPricingCandidates(
   return [...new Set(candidates)];
 }
 
-// CLI backends bill like providers, so they may declare their own pricing source.
+// CLI backends own pricing policies as they own catalog rows: their usage needs an estimate too.
 function readPricingOwners(manifest: ModelCatalogManifestInput["manifest"]): Set<string> {
   return new Set(
     [...(manifest.providers ?? []), ...(manifest.cliBackends ?? [])].map(
