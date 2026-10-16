@@ -3,9 +3,8 @@ import type { GitHubIdentityFacts } from "../../packages/gateway-protocol/src/in
 import {
   prepareGitHubAppInstallation,
   readGitHubAppInstallationMetadata,
-  type GitHubAppSelection,
 } from "./github-app-installation.js";
-import type { GitHubCredentialReader } from "./github-credential-reader.js";
+import type { GitHubAppSelection, GitHubCredentialReader } from "./github-credential-reader.js";
 import { resolveGitHubHost, resolveGitHubApiBaseUrl } from "./github-host-runtime.js";
 import { GitHubIdentityError, type GitHubIdentityPreparation } from "./github-read-identity.js";
 

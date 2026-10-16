@@ -2,10 +2,8 @@ import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import {
-  prepareGitHubAppInstallation,
-  type GitHubAppSelection,
-} from "./github-app-installation.js";
+import { prepareGitHubAppInstallation } from "./github-app-installation.js";
+import type { GitHubAppSelection } from "./github-credential-reader.js";
 import {
   resolveGitHubToolIdentityStatus,
   prepareGitHubPublicationIdentity,

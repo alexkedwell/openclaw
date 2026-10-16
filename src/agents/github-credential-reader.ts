@@ -1,4 +1,6 @@
-import type { GitHubAppSelection } from "./github-app-installation.js";
+import type { GitHubToolIdentityConfig } from "../config/types.tools.js";
+
+export type GitHubAppSelection = Extract<GitHubToolIdentityConfig, { kind: "app-installation" }>;
 
 /** Admission is separate from execution bearer lookup, while retaining the same caller owner. */
 export type GitHubRepositoryAdmissionRequest = {

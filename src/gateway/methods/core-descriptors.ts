@@ -568,7 +568,7 @@ export const CORE_GATEWAY_METHOD_SPECS = [
     "factory.githubPublication.redeem",
     "factory-github-proof",
     "operator.admin",
-    "2026.9",
+    "2026.10",
     { advertise: false },
   ],
   ["diagnostics.lanes", "diagnostics", "operator.read", "2026.8"],
