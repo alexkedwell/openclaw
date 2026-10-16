@@ -25,7 +25,7 @@ import type {
 import {
   clearPluginHostRuntimeState,
   dispatchPluginAgentEventSubscriptions,
-  type preparePluginRunContextCleanup,
+  preparePluginRunContextCleanup,
   publishPluginSessionSchedulerJobs,
 } from "./host-hook-runtime.js";
 import { notifyPluginHttpRoutesChanged } from "./http-route-owner.js";
@@ -125,6 +125,7 @@ export function disposePluginRegistryInstances(
   if (!wait) {
     // Revocation and admitted-work drains may overlap a successor config publication.
     const cfg = options?.cfg ?? getRuntimeConfigSnapshot() ?? undefined;
+    const runContextCleanup = options?.runContextCleanup ?? preparePluginRunContextCleanup();
     // Admit initialization before its first await so the caller drains through instance cleanup.
     const initialize = () =>
       Promise.resolve()
@@ -150,9 +151,7 @@ export function disposePluginRegistryInstances(
               : undefined,
           });
         });
-    const initialized = trackAsyncWork(() =>
-      options?.runContextCleanup ? options.runContextCleanup(initialize) : initialize(),
-    );
+    const initialized = trackAsyncWork(() => runContextCleanup(initialize));
     // Cache initialization, not one caller's self-retirement acknowledgment.
     wait = async (observation) =>
       (await (await initialized)?.(observation)) ?? { cleanupCount: 0, failures: [] };

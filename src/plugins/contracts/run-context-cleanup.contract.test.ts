@@ -7,7 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetAgentEventsForTest } from "../../infra/agent-events.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { withPluginCommandExecution } from "../command-execution-lock.js";
-import { clearPluginHostRuntimeState } from "../host-hook-runtime.js";
+import {
+  clearPluginHostRuntimeState,
+  getPluginRunContext,
+  setPluginRunContext,
+  withPluginRunContextCleanup,
+} from "../host-hook-runtime.js";
 import { listPluginSessionSchedulerJobs } from "../host-hook-runtime.test-fixtures.js";
 import { createEmptyPluginRegistry } from "../registry-empty.js";
 import {
@@ -22,6 +27,29 @@ describe("plugin cleanup scheduler ownership", () => {
     setActivePluginRegistry(createEmptyPluginRegistry());
     clearPluginHostRuntimeState();
     resetAgentEventsForTest();
+  });
+  it("clears only the selected run-context namespace and returns the callback result", () => {
+    for (const namespace of ["selected", "retained"]) {
+      setPluginRunContext({
+        pluginId: "cleanup-contract",
+        patch: { runId: "cleanup-run", namespace, value: namespace },
+      });
+    }
+    const result = withPluginRunContextCleanup(
+      { pluginId: "cleanup-contract", runId: "cleanup-run", namespace: "selected" },
+      (clear) => {
+        clear();
+        return "finished";
+      },
+    );
+    expect(result).toBe("finished");
+    const read = (namespace: string) =>
+      getPluginRunContext({
+        pluginId: "cleanup-contract",
+        get: { runId: "cleanup-run", namespace },
+      });
+    expect(read("selected")).toBeUndefined();
+    expect(read("retained")).toBe("retained");
   });
   it.each([
     { withSuccessor: false, heldWork: false, clear: false },

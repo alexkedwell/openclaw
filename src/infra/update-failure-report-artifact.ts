@@ -283,7 +283,9 @@ export async function discardSavedUpdateFailureReport(
 export async function discardSavedUpdateFailureReportBestEffort(
   prepared: PreparedUpdateFailureReport,
 ): Promise<void> {
-  await discardSavedUpdateFailureReport(prepared).catch(() => {});
+  await discardSavedUpdateFailureReport(prepared).catch(() => {
+    // Optional artifact cleanup must not replace the report submission result.
+  });
 }
 
 /** Captures attempt artifacts once; cleanup protects the current receipt after enumeration. */
@@ -307,7 +309,9 @@ export async function removeRetiredUpdateFailureReportArtifacts(
   artifactPaths: readonly string[],
 ): Promise<void> {
   for (const artifactPath of artifactPaths) {
-    await fs.rm(artifactPath, { force: true }).catch(() => {});
+    await fs.rm(artifactPath, { force: true }).catch(() => {
+      // A later sweep can remove these non-authoritative retired artifacts.
+    });
   }
 }
 
