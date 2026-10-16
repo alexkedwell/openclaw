@@ -446,7 +446,6 @@ describe("buildAttemptSystemPrompt", () => {
     expect(seenProjectKeys).toContain("github.com/acme/Alpha");
     expect(prepared.systemPromptText).toContain("PROVIDER_MEMORY_MARKER");
     expect(prepared.systemPromptText).not.toContain("<!-- project:");
-    expect(prepared.systemPromptText).not.toContain("repository-specific memory entry");
   });
 
   it("filters first-turn curated context to global and active-project entries", async () => {

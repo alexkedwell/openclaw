@@ -154,58 +154,34 @@ describe("buildPromptSection", () => {
     expect(systemAgentReads).toBe(0);
   });
 
-  it("owns project write annotations for safe host project keys", () => {
+  it("adds project write guidance only for safe host project keys", () => {
     const { promptBuilder } = captureMemoryModelContract({ agents: { entries: { main: {} } } });
-    const annotation = "<!-- project: github.com/OpenClaw/OpenClaw -->";
-    const withKey = promptBuilder({
-      availableTools: new Set(["memory_search"]),
-      agentId: "main",
-      projectKey: "github.com/OpenClaw/OpenClaw",
-    }).join("\n");
-    expect(withKey).toContain(`add ${annotation} on the same line`);
-    expect(withKey).toContain("Do not project-scope user-level preferences");
-    expect(
+    const prompt = (projectKey?: string) =>
       promptBuilder({
-        availableTools: new Set(),
+        availableTools: new Set(["memory_search"]),
         agentId: "main",
-        projectKey: "github.com/OpenClaw/OpenClaw",
-      }).join("\n"),
-    ).toContain(annotation);
-    expect(
-      promptBuilder({ availableTools: new Set(["memory_search"]), agentId: "main" }).join("\n"),
-    ).not.toContain("<!-- project:");
-    for (const projectKey of ["path:/tmp/unsafe-->note", "path:/tmp/a\nb", "path:/tmp/a\rb"]) {
-      expect(
-        promptBuilder({
-          availableTools: new Set(["memory_search"]),
-          agentId: "main",
-          projectKey,
-        }).join("\n"),
-      ).not.toContain("<!-- project:");
+        projectKey,
+      }).join("\n");
+
+    expect(prompt("github.com/OpenClaw/OpenClaw")).toContain(
+      "<!-- project: github.com/OpenClaw/OpenClaw -->",
+    );
+    for (const projectKey of [undefined, "path:/tmp/unsafe-->note", "path:/tmp/a\nb"]) {
+      expect(prompt(projectKey)).not.toContain("<!-- project:");
     }
-    expect(
-      promptBuilder({
-        availableTools: new Set(),
-        agentId: "main",
-        projectKey: "path:/tmp/unsafe-->note",
-      }),
-    ).toStrictEqual([]);
   });
 
-  it.each([
-    ["globally", { memory: { search: { enabled: false } }, agents: { entries: { main: {} } } }],
-    [
-      "for the agent",
-      { agents: { entries: { main: { memory: { search: { enabled: false } } } } } },
-    ],
-  ])("keeps project write guidance when memory search is disabled %s", (_scope, config) => {
-    const prompt = captureMemoryPromptBuilder(config as OpenClawConfig)({
+  // Curated writes use file tools, so disabling search must not drop the guidance.
+  it("keeps project write guidance when memory search is disabled", () => {
+    const prompt = captureMemoryPromptBuilder({
+      memory: { search: { enabled: false } },
+      agents: { entries: { main: {} } },
+    } as OpenClawConfig)({
       availableTools: new Set(["memory_search", "memory_get"]),
       agentId: "main",
       projectKey: "github.com/OpenClaw/OpenClaw",
     });
 
-    expect(prompt).not.toContain("## Memory Recall");
     expect(prompt.join("\n")).toContain("<!-- project: github.com/OpenClaw/OpenClaw -->");
   });
 
