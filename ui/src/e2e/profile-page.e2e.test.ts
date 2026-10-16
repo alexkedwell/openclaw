@@ -190,12 +190,11 @@ suite.define(() => {
             has: page.locator(".settings-row__title", { hasText: "Git co-author credit" }),
           });
           await expect(githubRow).toContainText("Unavailable");
-          await expect(githubRow).toContainText("GitHub-backed sign-in");
-          await expect(githubRow).toContainText("Refresh to retry");
+          await expect(githubRow).toContainText("No single verified GitHub sign-in account");
           await expect(githubRow.locator(".settings-account")).toHaveCount(0);
           await expect(
             coauthorRow.getByRole("switch", { name: "Git co-author credit" }),
-          ).toBeDisabled();
+          ).toBeEnabled();
           await expect(page.getByRole("textbox", { name: "GitHub username" })).toHaveCount(0);
           await expect(
             page
@@ -245,6 +244,32 @@ suite.define(() => {
       );
     },
   );
+
+  it("keeps co-author consent editable for merged enterprise hosts without a display primary", async () => {
+    await suite.withPage({ viewport: { width: 1280, height: 800 } }, async ({ page }) => {
+      const gateway = await openProfilePage(page, {
+        "users.self": {
+          profile: {
+            ...testProfile,
+            emails: ["github:ghe.example.test:101", "github:code.example.test:101"],
+            githubIdentity: null,
+          },
+        },
+        "users.prefs.get": { status: "ok", entries: {} },
+        "users.prefs.set": { status: "ok" },
+      });
+      const identity = page.locator("#settings-profile-identity");
+      const toggle = identity.getByRole("switch", { name: "Git co-author credit" });
+      // Capture before the changed assertion so the same scenario records the original defect.
+      await screenshot(page, "14-multi-host-consent-initial.png");
+      await expect(toggle).toBeEnabled();
+      await expect(toggle).toBeChecked();
+      await toggle.click();
+      const saved = await gateway.waitForRequest("users.prefs.set");
+      expect(saved.params).toEqual({ entries: { [GIT_COAUTHOR_PREFERENCE_KEY]: false } });
+      await expect(toggle).not.toBeChecked();
+    });
+  });
 
   it("credits a verified GitHub account by default with no stored preference", async () => {
     await suite.withPage({ viewport: { width: 1280, height: 800 } }, async ({ page }) => {
