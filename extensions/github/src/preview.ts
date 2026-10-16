@@ -17,7 +17,7 @@ import {
   requiredString,
   withOptionalGitHubAuth,
 } from "./github-api.js";
-import type { ControlUiGitHubPreview } from "./preview-contract.js";
+import type { ControlUiGitHubPreview, ControlUiGitHubPreviewIdentity } from "./preview-contract.js";
 import {
   assertSessionGitHubTarget,
   assertSessionRepositoryUrl,
@@ -48,18 +48,6 @@ const CACHE_LIMIT = 200;
 const log = createSubsystemLogger("github/preview");
 
 export type ControlUiGitHubPreviewTarget = GitHubItemTarget;
-
-/** Host-prepared read identity; the plugin never discovers or selects managed credentials. */
-export type ControlUiGitHubPreviewIdentity = {
-  token: string | undefined;
-  cacheScope: string;
-  /** Host service/env credentials may retry a stale HTTP 401 anonymously. */
-  optionalAuth?: true;
-  stale?: true;
-  signal?: AbortSignal;
-  revalidate: () => Promise<void>;
-  assertSelected: () => void;
-};
 
 type ConditionalPage = { etag?: string; value: unknown };
 type CachedPreview = {

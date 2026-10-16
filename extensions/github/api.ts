@@ -27,11 +27,11 @@ export {
   loadControlUiGitHubPreview,
   parseControlUiGitHubPreviewTarget,
 } from "./src/preview.js";
+export type { ControlUiGitHubPreviewTarget } from "./src/preview.js";
 export type {
+  ControlUiGitHubPreview,
   ControlUiGitHubPreviewIdentity,
-  ControlUiGitHubPreviewTarget,
-} from "./src/preview.js";
-export type { ControlUiGitHubPreview } from "./src/preview-contract.js";
+} from "./src/preview-contract.js";
 export { loadSessionGitHubDetail, loadGitHubDetail } from "./src/detail.js";
 export { parseGitHubTarget } from "./src/targets.js";
 

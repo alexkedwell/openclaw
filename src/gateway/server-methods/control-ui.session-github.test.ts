@@ -29,12 +29,14 @@ afterEach(() => {
 
 it.each([
   "allowed",
+  "multiple-repositories",
   "admission-denied",
   "foreign-repository",
   "foreign-host",
   "retired",
   "actor-mismatch",
   "cleanup-failure",
+  "actor-rebound-during-cleanup",
 ] as const)(
   "reads Enterprise previews only through the current session and selected App (%s)",
   async (scenario) => {
@@ -58,7 +60,12 @@ it.each([
                 appId: 101,
                 installationId: 202,
                 accountId: 303,
-                repositories: [{ id: 404, fullName: "example/project" }],
+                repositories: [
+                  { id: 404, fullName: "example/project" },
+                  ...(scenario === "multiple-repositories"
+                    ? [{ id: 405, fullName: "example/other" }]
+                    : []),
+                ],
                 permissions,
                 privateKey,
                 keyVersion: "synthetic-v1",
@@ -108,6 +115,9 @@ it.each([
           }
           expect(url.origin).toBe(apiBaseUrl);
           if (init?.method === "DELETE") {
+            if (scenario === "actor-rebound-during-cleanup") {
+              linkEmail(`github:${host}:50`, f.other.id);
+            }
             return new Response(null, { status: scenario === "cleanup-failure" ? 500 : 204 });
           }
           const bodies: Record<string, unknown> = {
@@ -138,6 +148,13 @@ it.each([
             "/repos/example/project/pulls/7/commits": [],
           };
           if (url.pathname.endsWith("/access_tokens")) {
+            if (typeof init?.body !== "string") {
+              throw new Error("App token request body must be JSON text");
+            }
+            expect(JSON.parse(init.body)).toEqual({
+              repository_ids: [404],
+              permissions,
+            });
             return Response.json({
               token: "synthetic-preview-app-token",
               expires_at: new Date(Date.now() + 3_600_000).toISOString(),
@@ -187,7 +204,7 @@ it.each([
           respond,
         });
         expect(respond).toHaveBeenCalledOnce();
-        if (scenario === "allowed") {
+        if (scenario === "allowed" || scenario === "multiple-repositories") {
           expect(respond).toHaveBeenCalledWith(
             true,
             expect.objectContaining({

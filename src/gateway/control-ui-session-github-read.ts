@@ -115,6 +115,7 @@ export async function withControlUiSessionGitHubRead<T>(
       context,
       client,
       agentId,
+      requestedRepository: `${repository.owner}/${repository.repo}`,
       assertActive: assertCurrent,
       factoryCredential: {
         claim: {
@@ -169,6 +170,7 @@ export async function withControlUiSessionGitHubRead<T>(
       await identity.revoke?.();
     }
     assertCurrent();
+    identity.assertSelected();
     consume(value);
     return value;
   });

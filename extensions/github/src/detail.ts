@@ -15,11 +15,11 @@ import {
   requiredString,
   withOptionalGitHubAuth,
 } from "./github-api.js";
+import type { ControlUiGitHubPreviewIdentity } from "./preview-contract.js";
 import {
   assertPublicGitHubRepository,
   isPublicGitHubRepository,
   parseControlUiGitHubPreviewResponse,
-  type ControlUiGitHubPreviewIdentity,
 } from "./preview.js";
 import {
   SessionGitHubAccessError,

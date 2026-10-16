@@ -4,7 +4,7 @@ import {
   readGitHubJsonResponse,
   isRecord,
 } from "./github-api.js";
-import type { ControlUiGitHubPreviewIdentity } from "./preview.js";
+import type { ControlUiGitHubPreviewIdentity } from "./preview-contract.js";
 import type { GitHubTarget } from "./targets.js";
 
 export class SessionGitHubAccessError extends ControlUiGitHubError {
