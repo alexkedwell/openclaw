@@ -26,6 +26,14 @@ const testSuites = new Set([
 ]);
 const reviewed = new Map([
   [
+    "src/infra/client-credential-store.ts",
+    {
+      tier: "T3",
+      evidence:
+        "Preparatory local client owner: production capture imports only its path resolver. Credential operations have no production callers until cutover, which must reclassify their worker/offline entry points.",
+    },
+  ],
+  [
     "src/daemon/runtime-pin-store.ts",
     { tier: "T3", evidence: "CLI service owner / Doctor migration; no Gateway runtime." },
   ],
@@ -290,6 +298,17 @@ const reviewed = new Map([
 
 // Match lexical operation paths, not moving line numbers or whole mixed modules.
 const reviewedOperations = new Map([
+  [
+    "src/infra/backup-sqlite-snapshot.ts",
+    [
+      {
+        tier: "T3",
+        operations: ["createBackupSqliteSnapshotPlan.captureSource.capture.transform"],
+        evidence:
+          "commands/backup.ts:55 calls backup-create.ts:314; createVerifiedSqliteSnapshot invokes this transform against its temporary backup image, never the live credential store. Doctor/update backup and developer reliability callers share that offline snapshot owner.",
+      },
+    ],
+  ],
   [
     "src/agents/auth-profiles/authorization-enrollment-runtime.ts",
     [

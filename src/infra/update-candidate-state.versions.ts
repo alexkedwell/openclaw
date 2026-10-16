@@ -4,6 +4,8 @@ import {
   resolveDaemonRuntimePinStorePath,
 } from "../daemon/runtime-pin-store.js";
 import type { OpenClawSchemaVersions } from "../state/openclaw-schema-versions.js";
+import { CLIENT_CREDENTIAL_SCHEMA_VERSION } from "./client-credential-schema.js";
+import { resolveClientCredentialStorePath } from "./client-credential-store.js";
 import type { UpdateStateSchemaVersion } from "./update-candidate-state.js";
 
 export function resolveUpdateStateContentVersion(entry: UpdateStateSchemaVersion): number | null {
@@ -15,6 +17,9 @@ export function updateStateSchemaVersionsMatch(
   after: readonly UpdateStateSchemaVersion[],
   params: { sharedPath: string; candidateSchemaVersions?: OpenClawSchemaVersions },
 ): boolean {
+  const clientPath = resolveClientCredentialStorePath({
+    OPENCLAW_STATE_DIR: path.dirname(path.dirname(params.sharedPath)),
+  });
   const daemonPath = resolveDaemonRuntimePinStorePath({
     OPENCLAW_STATE_DIR: path.dirname(path.dirname(params.sharedPath)),
   });
@@ -26,10 +31,12 @@ export function updateStateSchemaVersionsMatch(
   );
   const candidate = params.candidateSchemaVersions;
   if (!candidate) {
-    // An older baseline cannot name the new, still absent local store.
-    const legacyOmission = versions.get(daemonPath) === null && !baseline.has(daemonPath);
+    // An older baseline cannot name new, still absent local stores.
+    const legacyOmissions = [clientPath, daemonPath].filter(
+      (file) => versions.get(file) === null && !baseline.has(file),
+    ).length;
     return (
-      before.length + Number(legacyOmission) === after.length &&
+      before.length + legacyOmissions === after.length &&
       before.every((entry) => versions.get(entry.path) === resolveUpdateStateContentVersion(entry))
     );
   }
@@ -47,9 +54,11 @@ export function updateStateSchemaVersionsMatch(
       const supported =
         entry.path === params.sharedPath
           ? candidate.state
-          : entry.path === daemonPath
-            ? DAEMON_RUNTIME_PIN_SCHEMA_VERSION
-            : candidate.agent;
+          : entry.path === clientPath
+            ? CLIENT_CREDENTIAL_SCHEMA_VERSION
+            : entry.path === daemonPath
+              ? DAEMON_RUNTIME_PIN_SCHEMA_VERSION
+              : candidate.agent;
       return baseline.get(entry.path) == null && version === supported;
     })
   );

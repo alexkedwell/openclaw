@@ -13,6 +13,7 @@ import {
   getOpenClawDatabaseMaintenanceScope,
   maintenanceOwnerHasSourceCustody,
 } from "../state/openclaw-state-maintenance-context.js";
+import { resolveClientCredentialStorePath } from "./client-credential-store.js";
 import { resolveStatePortRoots } from "./database-engine/state-port.js";
 import { resolveUserPath } from "./home-dir.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
@@ -148,6 +149,7 @@ export async function collectStateDatabasePaths(
     }
   }
   // Published owners describe shared/agent schemas; local stores retain exact opaque contents.
+  queue(resolveClientCredentialStorePath({ OPENCLAW_STATE_DIR: stateRoot }));
   queue(resolveDaemonRuntimePinStorePath({ OPENCLAW_STATE_DIR: stateRoot }));
   const directories =
     options.includeUnconfiguredAgents !== false
@@ -213,6 +215,7 @@ function publishStateDatabaseVersions(
   return input.includeLocalStoreVersions === false
     ? versions.filter(
         ({ path: file }) =>
+          file !== resolveClientCredentialStorePath({ OPENCLAW_STATE_DIR: input.stateDir }) &&
           file !== resolveDaemonRuntimePinStorePath({ OPENCLAW_STATE_DIR: input.stateDir }),
       )
     : versions;
@@ -353,9 +356,11 @@ export async function readUpdateStateSchemaVersionsInProcess(
       phase:
         file === shared
           ? "shared database inspection"
-          : file === resolveDaemonRuntimePinStorePath({ OPENCLAW_STATE_DIR: input.stateDir })
-            ? "daemon schema inspection"
-            : "agent schema inspection",
+          : file === resolveClientCredentialStorePath({ OPENCLAW_STATE_DIR: input.stateDir })
+            ? "client credential schema inspection"
+            : file === resolveDaemonRuntimePinStorePath({ OPENCLAW_STATE_DIR: input.stateDir })
+              ? "daemon schema inspection"
+              : "agent schema inspection",
       path: file,
     });
     // Missing stores stay explicit so creation is checked and loss blocks rollback.
