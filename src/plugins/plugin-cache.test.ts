@@ -673,7 +673,6 @@ describe("plugin package facts", () => {
       const records = buildInstalledPluginIndexRecords({
         candidates: discovery.candidates,
         registry,
-        config: {},
         diagnostics: [],
         installRecords: {},
       });
@@ -699,7 +698,6 @@ describe("plugin package facts", () => {
         buildInstalledPluginIndexRecords({
           candidates: discovery.candidates,
           registry,
-          config: {},
           diagnostics: [],
           installRecords: {},
         });
