@@ -126,6 +126,40 @@ it.each([undefined, false, true])(
   },
 );
 
+it.each(["specialist-v2", "other"])(
+  "authorizes the bare model while retaining an explicit credential profile (%s)",
+  async (model) => {
+    const evaluate = vi.fn<DecisionProviderV2["evaluate"]>(async () => answer);
+    const host = native(evaluate);
+    setRuntimeConfigSnapshot({
+      agents: {
+        entries: { specialist: { decisionModel: `fixture/${model}@fixture:agent` } },
+      },
+      plugins: {
+        entries: {
+          owner: { llm: { allowedCompletionModels: ["fixture/specialist-v2"] } },
+        },
+      },
+    });
+    const pending = host.api.runtime.decisions.evaluateV2(richer, {
+      ...options(),
+      agentId: "specialist",
+    });
+    if (model === "other") {
+      await expect(pending).rejects.toThrow(/not allowlisted/);
+      expect(evaluate).not.toHaveBeenCalled();
+      return;
+    }
+    await expect(pending).resolves.toMatchObject({ status: "ok" });
+    expect(evaluate).toHaveBeenCalledOnce();
+    // This fixture captures the host handoff before credential preparation splits the profile.
+    expect(evaluate.mock.calls[0]?.[1]).toMatchObject({
+      agentId: "specialist",
+      model: { id: "specialist-v2@fixture:agent" },
+    });
+  },
+);
+
 it.each([
   { allowedCompletionModels: ["fixture/other"] },
   { allowedCompletionModels: [] },
