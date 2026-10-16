@@ -3,6 +3,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { readNonBlankString } from "@openclaw/normalization-core/string-coerce";
 import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";
+import { pruneMapToMaxSize } from "../../../src/infra/map-size.ts";
 import type { ControlUiLinkReaderPreview } from "../../../src/shared/control-ui-link-reader.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../lib/external-link.ts";
@@ -385,13 +386,14 @@ const previewContexts = new WeakMap<GatewayBrowserClient, Map<string, PreviewCon
 export function previewContextFor(
   client: GatewayBrowserClient,
   agentId: string | undefined,
+  sessionKey?: string,
 ): PreviewContext {
   let contexts = previewContexts.get(client);
   if (!contexts) {
     contexts = new Map();
     previewContexts.set(client, contexts);
   }
-  const key = agentId ?? "";
+  const key = sessionKey === undefined ? (agentId ?? "") : JSON.stringify([agentId, sessionKey]);
   let context = contexts.get(key);
   if (
     !context ||
@@ -404,6 +406,7 @@ export function previewContextFor(
       succeeded: false,
     };
     contexts.set(key, context);
+    pruneMapToMaxSize(contexts, 100);
   }
   return context;
 }

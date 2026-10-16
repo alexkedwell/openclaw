@@ -7,6 +7,14 @@ import {
   Show,
   untrack,
 } from "solid-js";
+import {
+  availableLinkReaders,
+  availableLinkPreviewReaders,
+} from "../../app/link-reader-routing.ts";
+import "../../components/link-reader-hovercard-registration.ts";
+import { projectGateway } from "../../lib/reactive/application.ts";
+import { useApplication } from "../../lib/reactive/context.ts";
+import { parseAgentSessionKey } from "../../lib/sessions/session-key.ts";
 import { LitContent } from "../../lit/solid-content.tsx";
 import { ChatComposerCapabilityDialogs } from "./chat-composer-capability-host.tsx";
 import type { ChatPaneRuntime } from "./chat-pane-render.ts";
@@ -15,6 +23,9 @@ import { createSolidRenderLifecycle } from "./solid-render-lifecycle.ts";
 
 function MountedChatPaneRuntime(props: { runtime: ChatPaneRuntime }) {
   const runtime = untrack(() => props.runtime);
+  const context = useApplication();
+  const gateway = projectGateway(context.gateway);
+  onCleanup(() => gateway.dispose());
   const [presented, setPresented] = createSignal(runtime.presented);
   const [visible, setVisible] = createSignal(document.visibilityState !== "hidden");
   const visibilityChanged = () => runtime.requestUpdate();
@@ -41,14 +52,31 @@ function MountedChatPaneRuntime(props: { runtime: ChatPaneRuntime }) {
     unsubscribe();
     document.removeEventListener("visibilitychange", visibilityChanged);
   });
+  const sessionKey = () => {
+    frame();
+    return runtime.sessionKey;
+  };
+  const agentId = () => {
+    frame();
+    return runtime.agentId ?? parseAgentSessionKey(runtime.sessionKey)?.agentId;
+  };
   return (
-    <>
+    <openclaw-link-reader-hovercard-provider
+      prop:client={
+        gateway.read().snapshot.phase === "connected" ? gateway.read().snapshot.client : null
+      }
+      prop:readers={availableLinkPreviewReaders(gateway.read().snapshot)}
+      prop:claimedReaders={availableLinkReaders(gateway.read().snapshot)}
+      prop:pagePreviewContext={context}
+      prop:agentId={agentId()}
+      prop:sessionKey={sessionKey()}
+    >
       <LitContent value={frame().layout} />
       <ChatProviderReviewDialog controller={runtime.providerReview} revision={frame()} />
       <Show when={frame().capabilityDialogs}>
         {(dialogs) => <ChatComposerCapabilityDialogs {...dialogs()} />}
       </Show>
-    </>
+    </openclaw-link-reader-hovercard-provider>
   );
 }
 
