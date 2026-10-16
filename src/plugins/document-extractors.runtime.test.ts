@@ -4,6 +4,7 @@ import { resolvePluginDocumentExtractors } from "./document-extractors.runtime.j
 import { loadPluginMetadataSnapshot } from "./plugin-metadata-snapshot.js";
 
 const mocks = vi.hoisted(() => ({
+  warn: vi.fn(),
   readBundledDiscoveryModeMemoized: vi.fn<() => "allowlist" | "compat">(),
   publicArtifactModule: {} as Record<string, unknown>,
   loadPublicArtifact: vi.fn<(params: { dirName: string }) => Record<string, unknown> | null>(),
@@ -33,6 +34,16 @@ const mocks = vi.hoisted(() => ({
   })),
 }));
 
+vi.mock("../logging/subsystem.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../logging/subsystem.js")>()),
+  createSubsystemLogger: () => ({
+    warn: mocks.warn,
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
+
 vi.mock("./bundled-discovery-state.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bundled-discovery-state.js")>()),
   readBundledDiscoveryModeMemoized: mocks.readBundledDiscoveryModeMemoized,
@@ -57,6 +68,7 @@ vi.mock("./manifest-registry.js", () => ({
 
 describe("resolvePluginDocumentExtractors", () => {
   beforeEach(() => {
+    mocks.warn.mockClear();
     mocks.readBundledDiscoveryModeMemoized.mockReturnValue("compat");
     mocks.publicArtifactModule = {
       createPdfDocumentExtractor: () => ({
@@ -152,6 +164,39 @@ describe("resolvePluginDocumentExtractors", () => {
         pluginId: "document-extract",
       },
     ]);
+    expect(mocks.warn).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(/document extractors.*document-extract.*native probe failed/),
+    );
+  });
+
+  it("reports a failed plugin while retaining another plugin's extractors", () => {
+    const snapshot = mocks.loadPluginMetadataSnapshot();
+    mocks.loadPluginMetadataSnapshot.mockReturnValueOnce({
+      plugins: [
+        ...snapshot.plugins,
+        {
+          id: "broken-extract",
+          origin: "bundled",
+          enabledByDefault: true,
+          channels: [],
+          cliBackends: [],
+          providers: [],
+          legacyPluginIds: [],
+          contracts: { documentExtractors: ["broken"] },
+        },
+      ],
+    });
+    mocks.loadPublicArtifact.mockImplementation(({ dirName }) => {
+      if (dirName === "broken-extract") {
+        throw new Error("broken-extract module failed");
+      }
+      return dirName === "document-extract" ? mocks.publicArtifactModule : null;
+    });
+
+    expect(resolvePluginDocumentExtractors().map((extractor) => extractor.id)).toEqual(["pdf"]);
+    expect(mocks.warn).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("broken-extract module failed"),
+    );
   });
 
   it("surfaces initialization failure when every matching factory throws", () => {
@@ -169,5 +214,6 @@ describe("resolvePluginDocumentExtractors", () => {
         }),
       }),
     );
+    expect(mocks.warn).not.toHaveBeenCalled();
   });
 });
