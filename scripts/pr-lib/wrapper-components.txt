@@ -1,9 +1,11 @@
 .github/workflows/pr-crabbox-gate-publisher.yml
 cli-invocation.mjs
+cli-parent-lifetime.mjs
 cli-root-options.mjs
 config/ci-test-timings.json
 node-compile-cache.mjs
 gateway-prewarm.mjs
+gateway-shutdown-budget.mjs
 worker-heap-flag.mjs
 node-runtime-env.mjs
 node-sqlite.mjs
@@ -67,6 +69,7 @@ packages/memory-host-sdk/src/host/config-utils.ts
 packages/memory-host-sdk/src/host/embedding-vector.ts
 packages/memory-host-sdk/src/host/error-utils.ts
 packages/memory-host-sdk/src/host/memory-schema-base.ts
+packages/memory-host-sdk/src/host/memory-schema-catalog.ts
 packages/memory-host-sdk/src/host/memory-schema-provenance.ts
 packages/memory-host-sdk/src/host/memory-schema-recall.ts
 packages/memory-host-sdk/src/host/memory-schema-storage-migration.ts
@@ -1149,7 +1152,6 @@ src/infra/sqlite-schema-catalog-types.ts
 src/infra/sqlite-schema-catalog.ts
 src/infra/sqlite-schema-contract-assembly.ts
 src/infra/sqlite-schema-contract.ts
-src/infra/sqlite-schema-dynamic.ts
 src/infra/sqlite-schema-ensure.ts
 src/infra/sqlite-schema-facts.ts
 src/infra/sqlite-schema-fingerprint.ts
@@ -1640,6 +1642,7 @@ src/plugins/web-search-install-catalog.ts
 src/process/child-process-tree.ts
 src/process/child-process.ts
 src/process/command-error.ts
+src/process/darwin-process-inspection.ts
 src/process/exec-output.ts
 src/process/exec-result.ts
 src/process/exec-runner.ts
@@ -1958,6 +1961,8 @@ src/state/postgres-schema.generated/sqlite-agent-catalogs.ts
 src/state/postgres-schema.generated/sqlite-catalogs.ts
 src/state/postgres-schema.generated/sqlite-daemon-catalogs.json
 src/state/postgres-schema.generated/sqlite-daemon-catalogs.ts
+src/state/postgres-schema.generated/sqlite-memory-catalogs.json
+src/state/postgres-schema.generated/sqlite-memory-catalogs.ts
 src/state/postgres-schema.generated/sqlite-state-catalogs.json
 src/state/postgres-schema.generated/sqlite-state-catalogs.ts
 src/state/openclaw-state-db.paths.ts
