@@ -126,7 +126,13 @@ try {
       memory: {
         search: {
           enabled: true,
-          provider: "auto",
+          provider: "openai",
+          // Deep status initializes embeddings even for this empty index. Synthetic auth
+          // avoids user credentials; the sandbox still denies the loopback endpoint.
+          remote: {
+            baseUrl: "http://127.0.0.1:9/v1",
+            apiKey: "packaging-verifier-synthetic-not-a-secret",
+          },
           sources: ["memory"],
           store: { vector: { enabled: true } },
         },
@@ -154,7 +160,7 @@ try {
     "Doctor SQLite did not select the bundled library",
   );
   // --index selects the writable CLI owner so an empty profile gets an index.
-  // It includes the deep native-vector probe; the empty workspace needs no embeddings.
+  // Keep the native-vector probe; unavailable remote embeddings do not block an empty index.
   const memory = JSON.parse(launch(["memory", "status", "--index", "--json"]));
   const mainMemory = memory.find((entry) => entry.agentId === "main")?.status;
   assert.equal(

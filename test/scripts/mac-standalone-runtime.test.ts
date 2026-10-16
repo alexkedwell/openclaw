@@ -308,9 +308,13 @@ function compileVerifierExecutable(root: string) {
     return verifierExecutable;
   }
   const file = path.join(root, "fixture-cli");
-  const result = spawnSync("/usr/bin/xcrun", ["clang", "-x", "c", "-", "-o", file], {
-    encoding: "utf8",
-    input: `#include <stdio.h>
+  const result = spawnSync(
+    "/usr/bin/xcrun",
+    ["clang", "-x", "objective-c", "-framework", "Foundation", "-", "-o", file],
+    {
+      encoding: "utf8",
+      input: `#import <Foundation/Foundation.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -404,6 +408,17 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc > 1 && !strcmp(argv[1], "memory")) {
+    @autoreleasepool {
+      NSData *data = [NSData dataWithContentsOfFile:@(getenv("OPENCLAW_CONFIG_PATH"))];
+      NSDictionary *config = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+      NSDictionary *remote = config[@"memory"][@"search"][@"remote"];
+      NSURL *endpoint = [NSURL URLWithString:remote[@"baseUrl"]];
+      if (![remote[@"apiKey"] length] || ![endpoint.host isEqualToString:@"127.0.0.1"] ||
+          [endpoint.port intValue] != 9) {
+        fputs("isolated embedding credentials and endpoint are required", stderr);
+        return 96;
+      }
+    }
     char extension[PATH_MAX];
     snprintf(extension, sizeof(extension), "%s/runtime/node_modules/sqlite-vec/vec0.dylib", root);
     printf("[{\\"agentId\\":\\"main\\",\\"status\\":{\\"backend\\":\\"builtin\\",\\"vector\\":{\\"enabled\\":true,\\"storeAvailable\\":%s,\\"extensionPath\\":\\"%s\\"}}}]\\n",
@@ -418,8 +433,9 @@ int main(int argc, char **argv) {
   return 0;
 }
 `,
-    timeout: 15_000,
-  });
+      timeout: 15_000,
+    },
+  );
   expect(result.status, result.stderr).toBe(0);
   verifierExecutable = readFileSync(file);
   return verifierExecutable;
