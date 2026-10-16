@@ -114,6 +114,8 @@ export type MemoryPromptSectionParams = {
   agentId?: string;
   agentSessionKey?: string;
   sandboxed?: boolean;
+  /** Host-resolved repository identity for this run; the plugin owns any memory-format guidance. */
+  projectKey?: string;
 };
 
 export type MemoryPromptSectionBuilder = (params: MemoryPromptSectionParams) => string[];
@@ -129,6 +131,7 @@ export type PreparedMemoryPromptSection = Readonly<{
     agentId?: string;
     agentSessionKey?: string;
     sandboxed: boolean;
+    projectKey?: string;
   }>;
   lines: readonly string[];
 }>;

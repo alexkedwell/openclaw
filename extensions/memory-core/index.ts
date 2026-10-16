@@ -24,6 +24,7 @@ import { registerShortTermPromotionDreaming } from "./src/dreaming.js";
 import { buildMemoryFlushPlan } from "./src/flush-plan.js";
 import {
   buildMemoryPromptSection,
+  buildProjectMemoryWriteInstruction,
   MEMORY_GET_TOOL_CONTRACT,
   MEMORY_SEARCH_TOOL_CONTRACT,
   resolveMemoryToolContext,
@@ -311,9 +312,12 @@ export default definePluginEntry({
       deterministicRecallToolName: "memory_search",
       supportsPrivateTranscriptRecall: true,
       promptBuilder: (params) => {
+        const projectInstruction = buildProjectMemoryWriteInstruction(params.projectKey);
+        // Curated writes need project guidance even when recall tools are filtered out.
         if (
           !params.availableTools.has("memory_search") &&
-          !params.availableTools.has("memory_get")
+          !params.availableTools.has("memory_get") &&
+          projectInstruction.length === 0
         ) {
           return [];
         }
@@ -324,7 +328,7 @@ export default definePluginEntry({
           agentId: params.agentId,
           agentSessionKey: params.agentSessionKey,
         });
-        return context ? buildMemoryPromptSection(params) : [];
+        return context ? [...buildMemoryPromptSection(params), ...projectInstruction] : [];
       },
       flushPlanResolver: buildMemoryFlushPlan,
       runtime: memoryRuntime,

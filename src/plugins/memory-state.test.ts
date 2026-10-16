@@ -311,6 +311,7 @@ describe("memory plugin state", () => {
     ["session", { agentSessionKey: "agent:first:other" }],
     ["citations", { citationsMode: "off" as const }],
     ["sandbox", { sandboxed: true }],
+    ["project", { projectKey: "github.com/acme/other" }],
     ["removed tool", { availableTools: new Set<string>() }],
     ["added tool", { availableTools: new Set(["wiki_search", "memory_search"]) }],
     ["replaced tool", { availableTools: new Set(["memory_search"]) }],
@@ -333,6 +334,27 @@ describe("memory plugin state", () => {
         prepared,
       ),
     ).toThrow("prepared memory prompt section does not match the current run");
+  });
+
+  it("passes the host project key to memory prompt builders and preparers", async () => {
+    const seen: Array<string | undefined> = [];
+    registerMemoryCapability("memory-core", {
+      promptBuilder: (params) => {
+        seen.push(params.projectKey);
+        return [];
+      },
+    });
+    registerMemoryPromptPreparation("memory-wiki", async (params) => {
+      seen.push(params.projectKey);
+      return [];
+    });
+    const prepared = await prepareMemoryPromptSection({
+      availableTools: new Set(),
+      projectKey: "github.com/acme/alpha",
+    });
+
+    expect(prepared.context.projectKey).toBe("github.com/acme/alpha");
+    expect(seen).toEqual(["github.com/acme/alpha", "github.com/acme/alpha"]);
   });
 
   it("removes prompt preparations from future runs without mutating an in-flight snapshot", async () => {

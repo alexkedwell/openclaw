@@ -134,6 +134,44 @@ describe("buildPromptSection", () => {
     expect(systemAgentReads).toBe(0);
   });
 
+  it("owns project write annotations for safe host project keys", () => {
+    const { promptBuilder } = captureMemoryModelContract({ agents: { entries: { main: {} } } });
+    const annotation = "<!-- project: github.com/OpenClaw/OpenClaw -->";
+    const withKey = promptBuilder({
+      availableTools: new Set(["memory_search"]),
+      agentId: "main",
+      projectKey: "github.com/OpenClaw/OpenClaw",
+    }).join("\n");
+    expect(withKey).toContain(`add ${annotation} on the same line`);
+    expect(withKey).toContain("Do not project-scope user-level preferences");
+    expect(
+      promptBuilder({
+        availableTools: new Set(),
+        agentId: "main",
+        projectKey: "github.com/OpenClaw/OpenClaw",
+      }).join("\n"),
+    ).toContain(annotation);
+    expect(
+      promptBuilder({ availableTools: new Set(["memory_search"]), agentId: "main" }).join("\n"),
+    ).not.toContain("<!-- project:");
+    for (const projectKey of ["path:/tmp/unsafe-->note", "path:/tmp/a\nb", "path:/tmp/a\rb"]) {
+      expect(
+        promptBuilder({
+          availableTools: new Set(["memory_search"]),
+          agentId: "main",
+          projectKey,
+        }).join("\n"),
+      ).not.toContain("<!-- project:");
+    }
+    expect(
+      promptBuilder({
+        availableTools: new Set(),
+        agentId: "main",
+        projectKey: "path:/tmp/unsafe-->note",
+      }),
+    ).toStrictEqual([]);
+  });
+
   it("describes the two-step flow when both memory tools are available", () => {
     const result = buildMemoryPromptSection({
       availableTools: new Set(["memory_search", "memory_get"]),
