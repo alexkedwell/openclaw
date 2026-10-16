@@ -99,6 +99,30 @@ async function readRecords(stateDir: string) {
 
 it("confines invalid-config recovery to npm catalog and canonical-ID owners through CLI persistence", async () => {
   const root = tempDirs.make("openclaw-recovery-install-e2e-");
+  const catalogRequestsPath = path.join(root, "catalog-requests.jsonl");
+  const offlineCatalogBootstrap = path.join(root, "offline-catalog.mjs");
+  // Exercise the shipped official fallback catalog without an external feed dependency.
+  // Only transport is replaced: catalog identity and install selection remain production code.
+  await fs.writeFile(
+    offlineCatalogBootstrap,
+    `
+    import { appendFileSync } from "node:fs";
+    const fetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.href === "https://clawhub.ai/v1/feeds/plugins") {
+        appendFileSync(${JSON.stringify(catalogRequestsPath)}, JSON.stringify(url.href) + "\\n");
+        throw new Error("Synthetic hosted catalog transport outage");
+      }
+      if (url.hostname !== "127.0.0.1") {
+        throw new Error("Unexpected non-loopback fixture request: " + url.href);
+      }
+      return fetch(input, init);
+    };
+    // fetch-guard preserves test transports instead of replacing them with its pinned dispatcher.
+    globalThis.fetch.mock = {};
+  `,
+  );
   const npmrc = path.join(root, "npmrc");
   const globalNpmrc = path.join(root, "global.npmrc");
   await Promise.all([fs.writeFile(npmrc, ""), fs.writeFile(globalNpmrc, "")]);
@@ -143,6 +167,7 @@ it("confines invalid-config recovery to npm catalog and canonical-ID owners thro
       { spec: `clawhub:${PACKAGE}@${VERSION}`, source: null },
       { spec: `npm:${PACKAGE}@${VERSION}`, source: "npm" },
       { spec: PLUGIN, source: "path" },
+      { spec: PLUGIN, source: "npm", unbundled: true },
       // The denied selectors have a usable artifact, independently of config recovery.
       { spec: `clawhub:${PACKAGE}@${VERSION}`, source: "clawhub", valid: true },
     ].entries()) {
@@ -181,7 +206,7 @@ it("confines invalid-config recovery to npm catalog and canonical-ID owners thro
         OPENCLAW_CLAWHUB_URL: clawhub.url,
         OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
         OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: "1",
-        OPENCLAW_DISABLE_BUNDLED_PLUGINS: "0",
+        OPENCLAW_DISABLE_BUNDLED_PLUGINS: scenario.unbundled ? "1" : "0",
         CLAWHUB_TOKEN: "synthetic-fixture-token",
         CLAWHUB_DISABLE_TELEMETRY: "1",
         CLAWDHUB_DISABLE_TELEMETRY: "1",
@@ -190,11 +215,14 @@ it("confines invalid-config recovery to npm catalog and canonical-ID owners thro
         NPM_CONFIG_CACHE: path.join(stateDir, "npm-cache"),
         npm_config_cache: path.join(stateDir, "npm-cache"),
       };
+      const cliEntry = scenario.unbundled
+        ? ["--import", offlineCatalogBootstrap, "openclaw.mjs"]
+        : ["openclaw.mjs"];
       await seedInstalledPluginIndex({ [PLUGIN]: originalRecord }, { stateDir, config, env });
       await closeOpenClawStateDatabaseAsync();
       const beforeRecords = await readRecords(stateDir);
       const validation = await runNodeScript(
-        ["openclaw.mjs", "config", "validate", "--json"],
+        [...cliEntry, "config", "validate", "--json"],
         env,
         30_000,
         { cwd: process.cwd() },
@@ -211,11 +239,12 @@ it("confines invalid-config recovery to npm catalog and canonical-ID owners thro
       await fs.mkdir(npmRoot, { recursive: true });
       const sentinel = path.join(npmRoot, "untouched.txt");
       await fs.writeFile(sentinel, "existing payload stays intact\n");
+      await fs.writeFile(catalogRequestsPath, "");
       npmRequests.length = 0;
       clawhub.requests.length = 0;
       const result = await runNodeScript(
         [
-          "openclaw.mjs",
+          ...cliEntry,
           "plugins",
           "install",
           scenario.spec,
@@ -230,15 +259,20 @@ it("confines invalid-config recovery to npm catalog and canonical-ID owners thro
       const output = `${result.stdout}\n${result.stderr}`;
       expect(result.error, output).toBeUndefined();
       const records = await readRecords(stateDir);
+      const catalogRequests = (await fs.readFile(catalogRequestsPath, "utf8"))
+        .split("\n")
+        .filter(Boolean);
       expect(await fs.readFile(sentinel, "utf8")).toBe("existing payload stays intact\n");
       if (process.env.OPENCLAW_E2E_VERBOSE === "1") {
         console.info(
           JSON.stringify({
             spec: scenario.spec,
             invalidConfig: !scenario.valid,
+            bundled: !scenario.unbundled,
             exit: result.status,
             npmRequests: npmRequests.length,
             clawhubRequests: clawhub.requests.length,
+            hostedCatalogRequests: catalogRequests.length,
             persistedSource: records?.[PLUGIN]?.source,
             configChanged: (await fs.readFile(configPath, "utf8")) !== originalConfig,
           }),
@@ -259,6 +293,9 @@ it("confines invalid-config recovery to npm catalog and canonical-ID owners thro
           "ENOENT",
         );
         continue;
+      }
+      if (scenario.unbundled) {
+        expect(catalogRequests).toContain('"https://clawhub.ai/v1/feeds/plugins"');
       }
       expect(result.status, output).toBe(0);
       const persistedConfig = JSON.parse(await fs.readFile(configPath, "utf8")) as OpenClawConfig;
@@ -282,7 +319,7 @@ it("confines invalid-config recovery to npm catalog and canonical-ID owners thro
         expect(clawhub.requests).toEqual([]);
       }
       const repairedValidation = await runNodeScript(
-        ["openclaw.mjs", "config", "validate", "--json"],
+        [...cliEntry, "config", "validate", "--json"],
         env,
         30_000,
         { cwd: process.cwd() },
