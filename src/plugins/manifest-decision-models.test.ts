@@ -60,7 +60,7 @@ it("discovers only decision models owned by the manifest without executing its r
     },
   ]);
   expect(result.manifest.providers ?? []).toEqual([]);
-  expect(result.manifest.modelCatalog?.providers.fixture?.models).toEqual([
+  expect(result.manifest.modelCatalog?.providers?.fixture?.models).toEqual([
     {
       id: "fast",
       name: "Fast decisions",
@@ -164,8 +164,10 @@ it("keeps explicit canonical identities authoritative over V1 input, including r
     }),
   );
   const result = loadPluginManifest(root);
-  if (!result.ok) throw new Error(result.error);
-  expect(result.manifest.modelCatalog?.providers.fixture?.models).toEqual([
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
+  expect(result.manifest.modelCatalog?.providers?.fixture?.models).toEqual([
     {
       id: "native",
       name: "Native",

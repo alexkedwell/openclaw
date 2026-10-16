@@ -1,6 +1,10 @@
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { MessageChannel } from "node:worker_threads";
+import {
+  parseRemoteModelCatalogBundle,
+  parseRemoteModelCatalogBundleV2,
+} from "@openclaw/model-catalog-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { writeConfigMachineState } from "../state/config-machine-state-write.js";
@@ -201,6 +205,12 @@ describe("remote model catalog refresh", () => {
 
   it("stores configured v3 capabilities without changing either released client slot", async () => {
     const databaseOptions = options();
+    const legacyBundle = {
+      schemaVersion: 1,
+      generatedAt: bundle.generatedAt,
+      sourceCommit: bundle.sourceCommit,
+      providers: { anthropic: { models: [{ id: "claude-test" }] } },
+    };
     const previous = {
       bundle_json: JSON.stringify(bundle),
       generated_at: bundle.generatedAt,
@@ -210,12 +220,9 @@ describe("remote model catalog refresh", () => {
       last_modified: null,
       checked_at: 1,
     };
+    const legacy = { ...previous, bundle_json: JSON.stringify(legacyBundle) };
     writeConfigMachineState("modelCatalog.remote.v2", previous, databaseOptions);
-    writeConfigMachineState(
-      "modelCatalog.remote",
-      { ...previous, generated_at: 1 },
-      databaseOptions,
-    );
+    writeConfigMachineState("modelCatalog.remote", legacy, databaseOptions);
     const downloaded = {
       ...bundle,
       schemaVersion: 3,
@@ -241,23 +248,35 @@ describe("remote model catalog refresh", () => {
     const config = {
       models: { catalogRefresh: { url: "https://mirror.example.test/v3/catalog.json" } },
     };
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json(downloaded));
     await expect(
       refreshRemoteModelCatalog({
         config,
         databaseOptions,
         force: true,
         bundledGeneratedAt: () => bundle.generatedAt - 1,
-        fetchImpl: async () => Response.json(downloaded),
+        fetchImpl,
       }),
     ).resolves.toMatchObject({ status: "updated", models: 1 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
     expect(JSON.parse(readRemoteModelCatalog(databaseOptions)?.bundle_json ?? "null")).toEqual(
       downloaded,
     );
-    expect(readConfigMachineState("modelCatalog.remote.v2", databaseOptions)).toEqual(previous);
-    expect(readConfigMachineState("modelCatalog.remote", databaseOptions)).toEqual({
-      ...previous,
-      generated_at: 1,
-    });
+    const retainedV2 = readConfigMachineState<typeof previous>(
+      "modelCatalog.remote.v2",
+      databaseOptions,
+    );
+    const retainedV1 = readConfigMachineState<typeof legacy>(
+      "modelCatalog.remote",
+      databaseOptions,
+    );
+    expect(retainedV2).toEqual(previous);
+    expect(retainedV1).toEqual(legacy);
+    // A downgraded, offline client can still parse its unchanged version-specific slot.
+    expect(parseRemoteModelCatalogBundleV2(JSON.parse(retainedV2!.bundle_json))).toEqual(bundle);
+    expect(parseRemoteModelCatalogBundle(JSON.parse(retainedV1!.bundle_json))).toEqual(
+      legacyBundle,
+    );
     await expect(
       refreshRemoteModelCatalog({
         config,

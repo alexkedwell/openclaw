@@ -1,5 +1,6 @@
 import { bindOperatorModelExecution } from "../agents/admitted-run-context.js";
 import { resolveDecisionModelSetting } from "../agents/decision-model-setting.js";
+import { splitTrailingAuthProfile } from "../agents/model-ref-profile.js";
 import { normalizeModelRef } from "../agents/model-ref-shared.js";
 import { getRuntimeConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -21,8 +22,7 @@ import {
 } from "../plugins/runtime/runtime-model-policy.js";
 import { modelKey } from "../shared/model-key.js";
 import { logDecisionEvaluation } from "./diagnostics.js";
-import type { DecisionProviderHost } from "./provider-host.js";
-import type { PreparedDecisionBilling } from "./provider-host.js";
+import type { DecisionProviderHost, PreparedDecisionBilling } from "./provider-host.js";
 import type { DecisionBatchV2, DecisionEvaluateOptionsV2, DecisionOutcomeV2 } from "./types-v2.js";
 import type { DecisionBatch, DecisionOutcome, DecisionRuntimeV1 } from "./types.js";
 import { validateDecisionBatchV2 } from "./validation-v2.js";
@@ -166,10 +166,15 @@ async function evaluateVersion(
   } catch {
     throw new DecisionContractError();
   }
-  const model = normalizeModelRef(selected.provider, selected.model, {
-    allowPluginNormalization: false,
-    manifestPlugins: getProcessGatewayPluginMetadataSnapshot() ?? [],
-  });
+  // Credential profiles select auth, not a different model policy identity.
+  const model = normalizeModelRef(
+    selected.provider,
+    splitTrailingAuthProfile(selected.model).model,
+    {
+      allowPluginNormalization: false,
+      manifestPlugins: getProcessGatewayPluginMetadataSnapshot() ?? [],
+    },
+  );
   // Bind the registry lifetime before operator preparation yields.
   const rootCaller =
     getPluginRegistryResourceOwner(registry) === getPluginRegistryState()?.activeRegistry;

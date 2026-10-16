@@ -7,6 +7,8 @@ import { resolveProviderTransportSsrFPolicy } from "./provider-network-policy.js
 import {
   applyPreparedRuntimeAuthToModel,
   attachModelProviderRequestRouteFacts,
+  attachModelProviderRequestTransport,
+  getModelProviderRequestTransport,
   buildProviderRequestDispatcherPolicy,
   getModelProviderRequestRouteFacts,
   inheritModelProviderRequestRouteFacts,
@@ -101,6 +103,43 @@ describe("provider request config", () => {
     expect(apiKeyModel.headers).toEqual({
       "X-Tenant": "tenant-a",
       "x-api-key": "profile-key",
+    });
+  });
+
+  it("keeps exchanged request auth aligned with visible headers and authored network policy", () => {
+    const model = attachModelProviderRequestTransport(
+      {
+        provider: "fixture",
+        api: "openai-responses" as const,
+        baseUrl: "https://fixture.invalid/v1",
+        headers: { "x-api-key": "old-key", "x-tenant": "tenant" },
+      },
+      {
+        headers: { "x-api-key": "old-key" },
+        auth: { mode: "authorization-bearer", token: "old-token" },
+        proxy: { mode: "env-proxy" },
+        tls: { ca: "fixture-ca" },
+        allowPrivateNetwork: false,
+      },
+    );
+    const prepared = applyPreparedRuntimeAuthToModel(model, {
+      request: {
+        headers: { "x-entitlement": "entitled" },
+        auth: { mode: "header", headerName: "x-session", value: "new-token" },
+      },
+    });
+    const request = getModelProviderRequestTransport(prepared);
+    expect(request).toMatchObject({
+      auth: { mode: "header", headerName: "x-session", value: "new-token" },
+      proxy: { mode: "env-proxy" },
+      tls: { ca: "fixture-ca" },
+      allowPrivateNetwork: false,
+    });
+    expect(request?.headers).toEqual(prepared.headers);
+    expect(request?.headers).toEqual({
+      "x-tenant": "tenant",
+      "x-entitlement": "entitled",
+      "x-session": "new-token",
     });
   });
 

@@ -253,6 +253,7 @@ src/agents/agent-runtime-id.ts
 src/agents/agent-scope-config.ts
 src/agents/agent-scope.ts
 src/agents/auth-profiles/authorization-contract.ts
+src/agents/auth-profiles/persisted-rows-receipt.ts
 src/agents/auth-profiles/sqlite-json.ts
 src/agents/auth-profiles/store-unreadable-error.ts
 src/agents/auth-profiles/store-update-commit.ts
@@ -2196,6 +2197,7 @@ packages/ai/src/internal/shared.ts
 packages/ai/src/media-payload.ts
 packages/ai/src/model-utils.ts
 packages/ai/src/provider-options.ts
+packages/ai/src/provider-types.ts
 packages/ai/src/providers/anthropic-model-contract.ts
 packages/ai/src/providers/github-copilot-request-facts.ts
 packages/ai/src/providers/openai-reasoning-effort.ts
