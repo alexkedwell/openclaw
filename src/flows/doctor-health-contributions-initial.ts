@@ -99,32 +99,14 @@ export function resolveInitialDoctorHealthContributions(params: {
       healthChecks: {
         description: "Selected database engines and experimental PostgreSQL limitations.",
         async detect(ctx) {
-          const { collectDatabaseEngineHealthFindings } =
+          const { collectObservedDatabaseEngineHealthFindings } =
             await import("../commands/doctor-database-engine.js");
-          const { inspectDoctorDatabaseEngines } =
-            await import("../commands/doctor-database-engine-inspection.js");
-          const { resolveStateDir } = await import("../config/paths.js");
-          const observed = await inspectDoctorDatabaseEngines({
-            config: ctx.cfg,
-            stateDir: resolveStateDir(ctx.env),
-            env: ctx.env ?? process.env,
-          });
-          return collectDatabaseEngineHealthFindings(ctx.cfg, observed);
+          return collectObservedDatabaseEngineHealthFindings(ctx.cfg, { env: ctx.env });
         },
       },
       async run(ctx) {
-        const { noteDatabaseEngines, collectDatabaseEngineHealthFindings } =
-          await import("../commands/doctor-database-engine.js");
-        const { inspectDoctorDatabaseEngines } =
-          await import("../commands/doctor-database-engine-inspection.js");
-        const { resolveStateDir } = await import("../config/paths.js");
-        const observed = await inspectDoctorDatabaseEngines({
-          config: ctx.cfg,
-          stateDir: resolveStateDir(ctx.env),
-          env: ctx.env ?? process.env,
-        });
-        noteDatabaseEngines(ctx.cfg, observed);
-        recordDoctorHealthWarnings(ctx, collectDatabaseEngineHealthFindings(ctx.cfg, observed));
+        const { noteDatabaseEngines } = await import("../commands/doctor-database-engine.js");
+        recordDoctorHealthWarnings(ctx, await noteDatabaseEngines(ctx.cfg, { env: ctx.env }));
       },
     }),
     createDoctorHealthContribution("doctor:auth-profile-migration", "Auth profile migration", {

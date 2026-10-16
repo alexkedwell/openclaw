@@ -3,15 +3,14 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
-import { inspectDoctorDatabaseEngines } from "./doctor-database-engine-inspection.js";
 import {
-  collectDatabaseEngineHealthFindings,
-  type ObservedDatabaseEngines,
-} from "./doctor-database-engine.js";
+  inspectDoctorDatabaseEngines,
+  type DoctorDatabaseEngineInspection,
+} from "./doctor-database-engine-inspection.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterAll);
 let root: string;
-let observed: ObservedDatabaseEngines;
+let inspection: DoctorDatabaseEngineInspection;
 // Missing PostgreSQL connection prevents registry discovery, but cannot hide state evidence.
 const config = { database: { engine: "postgres" as const } };
 
@@ -29,7 +28,7 @@ beforeAll(async () => {
       db.exec("CREATE TABLE fixture(value TEXT)");
     }
   }
-  observed = await inspectDoctorDatabaseEngines({
+  inspection = await inspectDoctorDatabaseEngines({
     config,
     stateDir: root,
     env: { OPENCLAW_STATE_DIR: root },
@@ -38,11 +37,14 @@ beforeAll(async () => {
 
 describe("Doctor physical engine inspection", () => {
   it("reports all physical state engines despite incompatible configuration without changing artifacts", () => {
-    expect(observed.state).toEqual(["sqlite", "postgres"]);
-    const findings = collectDatabaseEngineHealthFindings(config, observed);
-    expect(findings.some((finding) => finding.path === "database.families.state.engine")).toBe(
-      true,
-    );
+    expect(inspection.observed.state).toEqual(["sqlite", "postgres"]);
+    expect(inspection.stateRoots).toEqual([
+      { path: path.join(root, "state", "openclaw.sqlite"), physical: { engine: "sqlite" } },
+      {
+        path: path.join(root, "voice-calls", "state", "openclaw.sqlite"),
+        physical: { engine: "postgres", storeId: "fixture-store", namespace: "fixture_namespace" },
+      },
+    ]);
     expect(fs.readdirSync(path.join(root, "state"))).toEqual(["openclaw.sqlite"]);
     expect(fs.readdirSync(path.join(root, "voice-calls", "state"))).toEqual(["openclaw.sqlite"]);
   });

@@ -2,6 +2,7 @@
 import type { BigIntStats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { isMainThread } from "node:worker_threads";
 import { sameFileIdentity } from "@openclaw/fs-safe/advanced";
 import { isPathInside } from "@openclaw/fs-safe/path";
@@ -230,11 +231,9 @@ export async function discoverBackupDatabasePaths(params: {
   );
   // Retained engine stores remain downgrade-sensitive when their plugin is disabled.
   const retained = plugins.plugins.flatMap((plugin) =>
-    capable.has(plugin.id)
-      ? (plugin.backupResources ?? []).map((resource) =>
-          Object.assign({}, resource, { pluginId: plugin.id }),
-        )
-      : [],
+    (plugin.backupResources ?? [])
+      .filter((resource) => capable.has(resource.databaseFamily ?? plugin.id))
+      .map((resource) => Object.assign({}, resource, { pluginId: plugin.id })),
   );
   const resources = await createBackupResourcePlan({
     stateDir: params.stateDir,
@@ -318,6 +317,15 @@ export async function createBackupSqliteSnapshotPlan(params: {
   const capturedSnapshots = new Map<BackupSqliteSourceGroup, string>();
   const snapshots: SqliteBackupAsset[] = [];
   let capturedAgents: Array<{ role: "agent"; agentId: string; sourcePath: string }> = [];
+  function captureAgentRegistry(database: DatabaseSync, archiveSourcePath: string) {
+    capturedAgents = readOpenClawAgentDatabaseRegistryRows(database, archiveSourcePath).map(
+      (row) => ({
+        role: "agent" as const,
+        agentId: normalizeAgentId(row.agent_id),
+        sourcePath: resolveOpenClawRegisteredAgentDatabasePath(archiveSourcePath, row.path),
+      }),
+    );
+  }
   async function captureSource(
     archiveSourcePath: string,
     sourceGroup: BackupSqliteSourceGroup | undefined,
@@ -357,17 +365,7 @@ export async function createBackupSqliteSnapshotPlan(params: {
         using database = openNodeSqliteDatabase(path.join(directory, "database.sqlite"), {
           readOnly: true,
         });
-        capturedAgents = readOpenClawAgentDatabaseRegistryRows(
-          database,
-          canonicalSource.archiveSourcePath,
-        ).map((row) => ({
-          role: "agent" as const,
-          agentId: normalizeAgentId(row.agent_id),
-          sourcePath: resolveOpenClawRegisteredAgentDatabasePath(
-            canonicalSource.archiveSourcePath,
-            row.path,
-          ),
-        }));
+        captureAgentRegistry(database, canonicalSource.archiveSourcePath);
       }
       const anchorPath = `${sourcePath}.anchor`;
       await fs.copyFile(
@@ -388,29 +386,21 @@ export async function createBackupSqliteSnapshotPlan(params: {
           sourcePath: sourceDatabasePath,
           targetPath: sourcePath,
           requireNonEmptySource: Boolean(canonicalSource),
-          validate:
-            canonicalSource?.role === "global"
-              ? (database, pathname) => assertOpenClawStateDatabaseOwner(database, { pathname })
-              : canonicalSource?.role === "agent"
-                ? (database, pathname) =>
-                    assertOpenClawAgentDatabaseOwner(database, {
-                      agentId: canonicalSource.agentId,
-                      pathname,
-                    })
-                : undefined,
+          validate: canonicalSource
+            ? (database, pathname) => {
+                if (canonicalSource.role === "global") {
+                  assertOpenClawStateDatabaseOwner(database, { pathname });
+                } else if (canonicalSource.role === "agent") {
+                  assertOpenClawAgentDatabaseOwner(database, {
+                    agentId: canonicalSource.agentId,
+                    pathname,
+                  });
+                }
+              }
+            : undefined,
           transform: async (database) => {
             if (canonicalSource?.role === "global") {
-              capturedAgents = readOpenClawAgentDatabaseRegistryRows(
-                database,
-                canonicalSource.archiveSourcePath,
-              ).map((row) => ({
-                role: "agent" as const,
-                agentId: normalizeAgentId(row.agent_id),
-                sourcePath: resolveOpenClawRegisteredAgentDatabasePath(
-                  canonicalSource.archiveSourcePath,
-                  row.path,
-                ),
-              }));
+              captureAgentRegistry(database, canonicalSource.archiveSourcePath);
               if (
                 params.legacyAuditDatabaseWitness !== undefined &&
                 createLegacyAuditDatabaseWitness(database) !== params.legacyAuditDatabaseWitness
