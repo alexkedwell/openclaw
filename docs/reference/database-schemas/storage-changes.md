@@ -1677,14 +1677,13 @@ Each new operation uses current rows or facts invalidated by owning-writer recei
 These changes preserve
 schemas, retention, synchronous cold-load compatibility, and update behavior.
 
-The native Gateway host supplies snapshot preparation through its registered
-config owner. Those reads prepare deferred migration and plugin metadata with the
-existing shared-state actor. Each read captures one exact owner before awaiting
-preparation and rejects its result if that owner closes; failures never select a
-replacement or switch readers. Direct servers and standalone config readers keep
-their existing execution path unless their host explicitly supplies this operation.
+Gateway, direct-server, and standalone asynchronous config snapshots share the
+same validation, materialization, and plugin metadata preparation owners. Metadata
+reads use the existing asynchronous state reader without a host-supplied adapter.
+Unobserved snapshots preserve source artifacts through metadata completion;
+config writes retain their live source authority and runtime activation owner.
 Missing-file defaults still load plugin metadata only when those defaults need it.
-The operation changes no schema, persisted representation, or publication authority.
+This routing changes no schema, persisted representation, or publication authority.
 
 Meeting transcript identity, descriptor, notes, summary, utterance, and export-ownership reads use
 the shared-state worker. Typed commands call the existing synchronous query
