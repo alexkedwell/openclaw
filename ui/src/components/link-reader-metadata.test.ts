@@ -171,3 +171,48 @@ it("does not let an older pending preview overwrite committed reader details", a
   expect(badge()).toBe("Merged");
   expect(anchor.getAttribute("aria-description")).toBe("Merged");
 });
+
+it.each([false, true])(
+  "loads compact metrics without reverting fresh reader status (pending preview: %s)",
+  async (pendingPreview) => {
+    const pending = Promise.withResolvers<ControlUiLinkReaderDocument>();
+    let previewReads = 0;
+    const request = vi.fn((method: string) => {
+      if (method === "github.detail") {
+        return Promise.resolve(merged);
+      }
+      previewReads += 1;
+      return pendingPreview && previewReads === 1 ? pending.promise : Promise.resolve(open);
+    });
+    const client = createTestGatewayClient(request);
+    const { host, anchor } = makeProvider();
+    host.client = client;
+    if (pendingPreview) {
+      await hover(anchor);
+    }
+    const panel = document.createElement("openclaw-link-reader-panel");
+    panel.client = client;
+    panel.available = true;
+    panel.readers = [reader];
+    mountSolid(() => panel);
+    await panel.updateComplete;
+    panel.handleToggleRequest(
+      new CustomEvent(LINK_READER_PANEL_TOGGLE_EVENT, {
+        detail: { url, open: true },
+        cancelable: true,
+      }),
+    );
+    await waitForSolid(() =>
+      expect(panel.querySelector(".lr-state")?.textContent).toContain("Merged"),
+    );
+    pending.resolve(open);
+    anchor.dispatchEvent(
+      new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }),
+    );
+    await vi.advanceTimersByTimeAsync(120);
+    await hover(anchor);
+    expect(badge()).toBe("Merged");
+    expect(document.querySelector(".link-reader-hovercard__metadata")?.textContent).toBe("+42");
+    expect(previewReads).toBe(pendingPreview ? 2 : 1);
+  },
+);

@@ -201,12 +201,7 @@ export class HovercardOwner {
     this.syncPreviewContext();
     const key = linkReaderTargetKey(target);
     const previous = this.cache.get(key);
-    const entry = cacheEntryFromDocument(
-      target,
-      detail,
-      previous?.preview,
-      Date.now() + SUCCESS_CACHE_MS,
-    );
+    const entry = cacheEntryFromDocument(target, detail, previous, Date.now() + SUCCESS_CACHE_MS);
     this.cache.set(key, entry);
     if (this.activeTarget && linkReaderTargetKey(this.activeTarget) === key) {
       const pending = this.previewRequest;
@@ -700,7 +695,7 @@ export class HovercardOwner {
     const cached = cachedReaderPreview(this.cache, target);
     this.cache.delete(key);
     // Dismissal invalidates only that request, even before its rejection settles.
-    if (cached) {
+    if (cached && !cached.needsPreview) {
       this.cache.set(key, cached);
       return subscribeToSharedRequest(cached, {}, signal);
     }
@@ -720,7 +715,7 @@ export class HovercardOwner {
       expiresAt: Date.now() + SUCCESS_CACHE_MS,
       controller,
       subscribers: new Set(),
-      promise: requestReaderPreview(client, target, agentId, controller.signal, isCurrent)
+      promise: requestReaderPreview(client, target, agentId, controller.signal, isCurrent, cached)
         .then((preview) => {
           if (isCurrent() && this.cache.get(key) === entry) {
             entry.preview = preview;

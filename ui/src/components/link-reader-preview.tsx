@@ -9,7 +9,7 @@ import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../lib/external-link
 import { formatRelativeTimestamp } from "../lib/format.ts";
 import { takeGraphemes } from "../lib/graphemes.ts";
 import { t } from "../lib/reactive/i18n.ts";
-import { parseGitHubLinkTarget } from "./github-link-target.ts";
+import { formatGitHubItemReference, parseGitHubLinkTarget } from "./github-link-target.ts";
 import { createPreviewRenderer } from "./link-reader-preview-root.ts";
 import { linkReaderAuthorHref, linkReaderResponseMatchesTarget } from "./link-reader-response.ts";
 import { linkReaderTargetKey, type LinkReaderTarget } from "./link-reader-target.ts";
@@ -113,17 +113,18 @@ export function cachedReaderPreview(
 export function cacheEntryFromDocument(
   target: LinkReaderTarget,
   detail: ControlUiLinkReaderPreview,
-  previous: ControlUiLinkReaderPreview | undefined,
+  previous: CacheEntry | undefined,
   expiresAt: number,
 ): CacheEntry & { preview: ControlUiLinkReaderPreview } {
   const preview = parsePreviewResponse(target, {
     ...detail,
-    metadata: previous?.metadata,
-    coAuthors: detail.coAuthors ?? previous?.coAuthors,
-    coAuthorCount: detail.coAuthorCount ?? previous?.coAuthorCount,
+    metadata: previous?.preview?.metadata ?? detail.metadata,
+    coAuthors: detail.coAuthors ?? previous?.preview?.coAuthors,
+    coAuthorCount: detail.coAuthorCount ?? previous?.preview?.coAuthorCount,
   });
   return {
     preview,
+    needsPreview: !previous?.preview || previous.needsPreview === true,
     promise: Promise.resolve(preview),
     expiresAt,
     controller: new AbortController(),
@@ -138,28 +139,39 @@ export async function requestReaderPreview(
   agentId: string | undefined,
   signal: AbortSignal,
   isCurrent: () => boolean,
+  cached?: CacheEntry,
 ): Promise<ControlUiLinkReaderPreview> {
   const method = target.reader.linkReader.previewMethod;
   if (!client || !method || !isCurrent()) {
     throw new Error("Link preview requires an available reader");
   }
   const params = { ...(agentId ? { agentId } : {}), url: target.href };
-  const preview = parsePreviewResponse(target, await client.request(method, params, { signal }));
-  if (!preview.stale || !isCurrent()) {
-    return preview;
-  }
-  // One awaited refresh joins the server's stale-while-revalidate work; no polling.
-  try {
-    return parsePreviewResponse(
-      target,
-      await client.request(method, { ...params, refresh: true }, { signal }),
-    );
-  } catch (error) {
-    if (signal.aborted) {
-      throw error;
+  let preview = parsePreviewResponse(target, await client.request(method, params, { signal }));
+  if (preview.stale && isCurrent()) {
+    // One awaited refresh joins the server's stale-while-revalidate work; no polling.
+    try {
+      preview = parsePreviewResponse(
+        target,
+        await client.request(method, { ...params, refresh: true }, { signal }),
+      );
+    } catch (error) {
+      if (signal.aborted) {
+        throw error;
+      }
     }
-    return preview;
   }
+  // A reader-first entry owns newer header facts, not the plugin's compact projection.
+  const header = cached?.needsPreview ? cached.preview : undefined;
+  return header
+    ? {
+        ...preview,
+        ...header,
+        metadata: preview.metadata,
+        stale: preview.stale,
+        coAuthors: preview.coAuthors ?? header.coAuthors,
+        coAuthorCount: preview.coAuthorCount ?? header.coAuthorCount,
+      }
+    : preview;
 }
 
 function Avatar(props: { imageUrl?: string; keepFallback?: boolean }) {
@@ -295,7 +307,7 @@ const renderErrorContent = createPreviewRenderer<{ target: LinkReaderTarget; mes
       const current = item();
       return current
         ? t(current.kind === "pull" ? "linkReader.previewPullRequest" : "linkReader.previewIssue", {
-            number: String(current.number),
+            reference: formatGitHubItemReference(current),
           })
         : target().reader.label;
     };
@@ -431,6 +443,7 @@ export function renderPreview(
 }
 
 export type CacheEntry = {
+  needsPreview?: boolean;
   preview?: ControlUiLinkReaderPreview;
   expiresAt: number;
   promise: Promise<ControlUiLinkReaderPreview>;
