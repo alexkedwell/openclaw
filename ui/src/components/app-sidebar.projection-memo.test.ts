@@ -401,6 +401,11 @@ describe("sidebar projection memo", () => {
         ?.querySelector('[data-session-attention="question"]')
         ?.getAttribute("aria-label"),
     ).toContain("Continue checking?");
+    const parent = sidebar.parentElement!;
+    sidebar.remove();
+    parent.append(sidebar.hostElement);
+    await settleLitElement(sidebar);
+    expect(row(target.key)?.querySelector('[data-session-attention="question"]')).not.toBeNull();
     await expectRowRefresh(sidebar, () =>
       gateway.publishEvent("question.resolved", { id: "question-memo", status: "cancelled" }),
     );
