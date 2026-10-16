@@ -384,7 +384,12 @@ describe("session observer digest budget", () => {
 
   it("stops live model attempts at the budget when requests are superseded", async () => {
     let utilityModelRef = "openai/gpt-a";
-    const completeModel = vi.fn(() => createDeferred<ReturnType<typeof modelMessage>>().promise);
+    const attempts: ReturnType<typeof createDeferred<ReturnType<typeof modelMessage>>>[] = [];
+    const completeModel = vi.fn(() => {
+      const attempt = createDeferred<ReturnType<typeof modelMessage>>();
+      attempts.push(attempt);
+      return attempt.promise;
+    });
     const harness = createHarness({
       completeModel,
       resolveUtilityModelRef: vi.fn(() => utilityModelRef),
@@ -398,6 +403,7 @@ describe("session observer digest budget", () => {
       emitEvent(harness, "tool", { phase: "start", name: "read", args: { attempt } });
       utilityModelRef = "openai/gpt-a";
       emitEvent(harness, "tool", { phase: "start", name: "read", args: { attempt } });
+      attempts.at(-1)?.resolve(modelMessage({ headline: "Superseded", health: "on-track" }));
       await flushObserver();
       if (attempt === 39) {
         break;
