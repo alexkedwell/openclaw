@@ -1,9 +1,16 @@
 import { isProxy } from "node:util/types";
 
-const MAX_BYTES = 1_048_576;
-const MAX_NODES = 20_000;
+export const decisionJsonLimits = { maxBytes: 1_048_576, maxNodes: 20_000, maxDepth: 32 };
+
+type JsonValidationOptions = {
+  maxBytes?: number;
+  maxNodes?: number;
+  maxDepth?: number;
+  rejectProxies?: boolean;
+};
 
 export function record(value: unknown): value is Record<string, unknown> {
+  // Decision evidence excludes class instances as well as arrays.
   return (
     Boolean(value) &&
     typeof value === "object" &&
@@ -14,19 +21,23 @@ export function record(value: unknown): value is Record<string, unknown> {
 
 function finiteJsonUnchecked(
   value: unknown,
-  maxBytes: number,
-  rejectProxies: boolean,
+  {
+    maxBytes = decisionJsonLimits.maxBytes,
+    maxNodes = decisionJsonLimits.maxNodes,
+    maxDepth = decisionJsonLimits.maxDepth,
+    rejectProxies = false,
+  }: JsonValidationOptions,
 ): "valid" | "oversized" | "invalid" {
   let nodes = 0;
   let bytes = 0;
   let tooDeep = false;
   const ancestors = new Set<object>();
   const visit = (entry: unknown, depth: number): boolean => {
-    if (depth > 32) {
+    if (depth > maxDepth) {
       tooDeep = true;
       return true;
     }
-    if (++nodes > MAX_NODES) {
+    if (++nodes > maxNodes) {
       return true;
     }
     if (entry === null || typeof entry === "boolean") {
@@ -50,8 +61,8 @@ function finiteJsonUnchecked(
       return false;
     }
     const keys = Reflect.ownKeys(entry);
-    if (keys.length > MAX_NODES || (array && entry.length > MAX_NODES)) {
-      nodes = MAX_NODES + 1;
+    if (keys.length > maxNodes || (array && entry.length > maxNodes)) {
+      nodes = maxNodes + 1;
       return true;
     }
     if (keys.some((key) => typeof key !== "string")) {
@@ -81,7 +92,7 @@ function finiteJsonUnchecked(
       if (!visit(item, depth + 1)) {
         return false;
       }
-      if (nodes > MAX_NODES || bytes > maxBytes) {
+      if (nodes > maxNodes || bytes > maxBytes) {
         break;
       }
     }
@@ -91,7 +102,7 @@ function finiteJsonUnchecked(
   if (!visit(value, 0)) {
     return "invalid";
   }
-  if (tooDeep || nodes > MAX_NODES || bytes > maxBytes) {
+  if (tooDeep || nodes > maxNodes || bytes > maxBytes) {
     return "oversized";
   }
   // Bound encoded escaping/structure as well as string payloads.
@@ -100,11 +111,10 @@ function finiteJsonUnchecked(
 
 export function finiteJson(
   value: unknown,
-  maxBytes = MAX_BYTES,
-  rejectProxies = false,
+  options: JsonValidationOptions = {},
 ): "valid" | "oversized" | "invalid" {
   try {
-    return finiteJsonUnchecked(value, maxBytes, rejectProxies);
+    return finiteJsonUnchecked(value, options);
   } catch {
     return "invalid";
   }

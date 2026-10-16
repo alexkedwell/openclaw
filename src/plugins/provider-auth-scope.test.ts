@@ -38,4 +38,25 @@ describe("static provider physical credential owner", () => {
       }),
     ).toBe("agent");
   });
+  it("fails closed when distinct declared owners disagree", () => {
+    const metadata = snapshot("plugin");
+    metadata.manifestRegistry.plugins.push({
+      ...metadata.manifestRegistry.plugins[0]!,
+      id: "other-owner",
+      modelCatalog: { providers: { fixture: { authScope: "agent", models: [] } } },
+    });
+    expect(() =>
+      resolveProviderAuthScope({ provider: "fixture", pluginMetadataSnapshot: metadata }),
+    ).toThrow("conflicting static credential owners");
+  });
+  it("uses the first declaration of a duplicate plugin id", () => {
+    const metadata = snapshot("plugin");
+    metadata.manifestRegistry.plugins.push({
+      ...metadata.manifestRegistry.plugins[0]!,
+      modelCatalog: { providers: { fixture: { authScope: "agent", models: [] } } },
+    });
+    expect(
+      resolveProviderAuthScope({ provider: "fixture", pluginMetadataSnapshot: metadata }),
+    ).toBe("plugin");
+  });
 });

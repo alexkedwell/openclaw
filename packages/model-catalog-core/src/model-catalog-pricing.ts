@@ -11,7 +11,6 @@ import { normalizeModelCatalogProviderId } from "./model-catalog-refs.js";
 import type { ModelCatalogCost, ModelCatalogTieredCost } from "./model-catalog-types.js";
 
 export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
-export const OPENROUTER_DECISION_MODELS_URL = `${OPENROUTER_MODELS_URL}?output_modalities=decisions`;
 export const MODELS_DEV_CATALOG_URL = "https://models.opencode.ai/api.json";
 export const LITELLM_PRICING_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -54,14 +53,7 @@ export const MODEL_PRICING_SOURCES = [
     url: MODELS_DEV_CATALOG_URL,
     authoritative: false,
   },
-  // Not authoritative for other vendors; native tariffs still own this billing namespace.
-  {
-    id: "openRouter",
-    label: "OpenRouter",
-    url: OPENROUTER_MODELS_URL,
-    authoritative: false,
-    billingProvider: "openrouter",
-  },
+  { id: "openRouter", label: "OpenRouter", url: OPENROUTER_MODELS_URL, authoritative: false },
   { id: "liteLLM", label: "LiteLLM", url: LITELLM_PRICING_URL, authoritative: false },
 ] as const;
 export type ModelPricingSourceId = (typeof MODEL_PRICING_SOURCES)[number]["id"];
@@ -230,34 +222,8 @@ const OPENROUTER_PRICE_FIELDS = new Set([
 ]);
 
 /** Read native OpenRouter per-token prices and static prompt-length overrides. */
-export function normalizeOpenRouterModelPricing(
-  value: unknown,
-  options?: { tokenOnly?: boolean },
-): CompleteModelCost | undefined {
+export function normalizeOpenRouterModelPricing(value: unknown): CompleteModelCost | undefined {
   const row = asOptionalRecord(value);
-  if (options?.tokenOnly) {
-    const tokenFields = new Set([
-      "prompt",
-      "completion",
-      "input_cache_read",
-      "input_cache_write",
-      "overrides",
-      "min_prompt_tokens",
-    ]);
-    for (const prices of [row, ...(Array.isArray(row?.overrides) ? row.overrides : [])]) {
-      const record = asOptionalRecord(prices);
-      if (
-        !record ||
-        Object.entries(record).some(
-          ([key, charge]) =>
-            !tokenFields.has(key) &&
-            (!OPENROUTER_PRICE_FIELDS.has(key) || parseStrictFiniteNumber(charge) !== 0),
-        )
-      ) {
-        return undefined;
-      }
-    }
-  }
   const overrides: { size: number; prices: Record<string, unknown> }[] = [];
   for (const raw of Array.isArray(row?.overrides) ? row.overrides : []) {
     const override = asOptionalRecord(raw);

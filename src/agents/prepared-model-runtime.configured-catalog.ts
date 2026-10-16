@@ -4,9 +4,11 @@ import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot
 import { dedupeByKey, indexFirstByKey } from "../shared/dedupe-by-key.js";
 import type { InlineModelEntry } from "./embedded-agent-runner/model.inline-provider.js";
 import { modelCatalogRowToEntry } from "./model-catalog-entry.js";
-import { loadManifestModelCatalogRows } from "./model-catalog-manifest.js";
 import { overlayCatalogMetadata } from "./model-catalog-metadata.js";
-import type { ModelCatalogEntry, ModelCatalogSnapshot } from "./model-catalog.types.js";
+import { assignProviderModelOrder } from "./model-catalog-order.js";
+import { createPreparedModelCatalogProviderNormalizer } from "./model-catalog-provider-normalizer.js";
+import { loadManifestModelCatalog } from "./model-catalog.js";
+import type { ModelCatalogEntry } from "./model-catalog.types.js";
 import { modelTransportRoutesMatch } from "./model-compat-catalog.js";
 import { buildConfiguredModelCatalog } from "./model-selection-shared.js";
 import { createModelCatalogIdentityKeyResolver } from "./openai-model-routes.js";
@@ -15,7 +17,7 @@ import type { PreparedConfiguredRuntimeModel } from "./prepared-model-runtime.ty
 import type { ModelRegistry } from "./sessions/model-registry.js";
 
 type ConfiguredCatalogAgentFacts = {
-  input: { config: OpenClawConfig };
+  input: { config: OpenClawConfig; env?: NodeJS.ProcessEnv };
   configuredModelRefs: readonly ModelCatalogRef[];
 };
 
@@ -24,24 +26,15 @@ type ConfiguredCatalogWorkspaceFacts = {
   inlineProviderModels: readonly InlineModelEntry[];
 };
 
-function createConfiguredModelCatalogSnapshot(params: {
+export function prepareConfiguredRuntimeFacts(params: {
   agentFacts: ConfiguredCatalogAgentFacts;
   workspaceFacts: ConfiguredCatalogWorkspaceFacts;
   templateModelRegistry: ModelRegistry;
   configuredRuntimeModels: readonly PreparedConfiguredRuntimeModel[];
-}): ModelCatalogSnapshot {
+}): PreparedModelRuntimeCatalogFacts {
+  const templateModelRegistry = params.templateModelRegistry;
   const replace = params.agentFacts.input.config.models?.mode === "replace";
   const keyOf = createModelCatalogIdentityKeyResolver();
-  // Task descriptors must survive static preparation without being materialized as chat Models.
-  const taskEntries = loadManifestModelCatalogRows(
-    params.agentFacts.input.config,
-    params.workspaceFacts.pluginMetadataSnapshot,
-  ).filter((entry) => entry.inference?.chat === false || entry.inference?.decision);
-  const taskByKey = indexFirstByKey(taskEntries, keyOf);
-  const preserveTaskMetadata = (entry: ModelCatalogEntry) => {
-    const declared = taskByKey.get(keyOf(entry));
-    return declared ? overlayCatalogMetadata(declared, entry) : entry;
-  };
   const runtimeEntries = (replace ? [] : params.configuredRuntimeModels).map(({ model }) =>
     modelCatalogRowToEntry(model),
   );
@@ -89,29 +82,17 @@ function createConfiguredModelCatalogSnapshot(params: {
             const model = params.templateModelRegistry.find(provider, modelId);
             return model ? [modelCatalogRowToEntry(model)] : [];
           })),
-      ...taskEntries,
     ],
     keyOf,
-  ).map(preserveTaskMetadata);
-  const staticEntries = dedupeByKey([...runtimeEntries, ...taskEntries], keyOf).map(
-    preserveTaskMetadata,
   );
-  return {
+  const modelCatalog = {
     entries: configuredEntries,
     routeVariants: configuredEntries,
-    ...(staticEntries.length > 0 ? { staticEntries } : {}),
+    ...(runtimeEntries.length > 0 ? { staticEntries: runtimeEntries } : {}),
   };
-}
-
-export function prepareConfiguredRuntimeFacts(params: {
-  agentFacts: ConfiguredCatalogAgentFacts;
-  workspaceFacts: ConfiguredCatalogWorkspaceFacts;
-  templateModelRegistry: ModelRegistry;
-  configuredRuntimeModels: readonly PreparedConfiguredRuntimeModel[];
-}): PreparedModelRuntimeCatalogFacts {
   return {
-    templateModelRegistry: params.templateModelRegistry,
-    modelCatalog: createConfiguredModelCatalogSnapshot(params),
+    templateModelRegistry,
+    modelCatalog,
     configuredRuntimeModels: params.configuredRuntimeModels,
     inlineProviderModels: params.workspaceFacts.inlineProviderModels,
   };
@@ -125,12 +106,35 @@ export function prepareCapturedRuntimeFacts(
   if (params.agentFacts.input.config.models?.mode === "replace") {
     return facts;
   }
+  const normalizeProvider = createPreparedModelCatalogProviderNormalizer(
+    params.workspaceFacts.pluginMetadataSnapshot,
+    params.agentFacts.input.config,
+    params.agentFacts.input.env,
+  );
+  const manifestCatalog = loadManifestModelCatalog({
+    config: params.agentFacts.input.config,
+    metadataSnapshot: params.workspaceFacts.pluginMetadataSnapshot,
+  });
   const entries = dedupeByKey(
     [
       ...facts.modelCatalog.entries,
-      ...params.templateModelRegistry.getAll().map(modelCatalogRowToEntry),
+      // Typed-only rows have no conversational registry Model. Carry their canonical
+      // manifest facts into the same prepared generation instead of inventing chat defaults.
+      ...manifestCatalog.filter((entry) => entry.inference?.chat === false),
+      // Static hooks also answer runtime provider aliases; publish canonical rows once.
+      ...params.templateModelRegistry.getAll().map((model) => {
+        const entry = modelCatalogRowToEntry(model);
+        entry.provider = normalizeProvider(entry.provider);
+        return entry;
+      }),
     ],
     createModelCatalogIdentityKeyResolver(),
   );
-  return { ...facts, modelCatalog: { ...facts.modelCatalog, entries, routeVariants: entries } };
+  const orderedEntries = assignProviderModelOrder(entries, manifestCatalog, {
+    appendUnknown: false,
+  });
+  return {
+    ...facts,
+    modelCatalog: { ...facts.modelCatalog, entries: orderedEntries, routeVariants: orderedEntries },
+  };
 }

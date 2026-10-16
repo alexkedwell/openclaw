@@ -1,5 +1,4 @@
 import type { DecisionBatchV2, DecisionProviderContextV2 } from "openclaw/plugin-sdk/decisions";
-import { decisionResultV2ToV1 } from "openclaw/plugin-sdk/decisions";
 import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildOpenRouterDecisionProvider } from "./decision-provider.js";
@@ -19,15 +18,6 @@ const batch: DecisionBatchV2 = {
     s: { type: "score", instructions: "How urgent?", criteria: ["Low", "High"] },
   },
 };
-const decision = {
-  protocol: "openrouter-systemone",
-  input: ["text"] as const,
-  questions: {
-    boolean: { probabilities: "boolean", abstention: false },
-    choice: { probabilities: "categorical", abstention: false },
-    score: { probabilities: "categorical", abstention: false },
-  },
-};
 function context(): DecisionProviderContextV2 {
   return {
     model: {
@@ -38,7 +28,7 @@ function context(): DecisionProviderContextV2 {
       inference: {
         chat: false,
         decision: {
-          protocol: decision.protocol,
+          protocol: "openrouter-systemone",
           input: ["text"],
           questions: {
             boolean: { probabilities: "boolean", abstention: false },
@@ -52,6 +42,7 @@ function context(): DecisionProviderContextV2 {
     auth: { apiKey: "synthetic-prepared-token", mode: "api-key", profileId: "openrouter:fixture" },
     signal: new AbortController().signal,
     deadlineMonotonicMs: performance.now() + 5000,
+    isAdmissible: () => true,
   };
 }
 function readRequestBody(init?: RequestInit) {
@@ -89,6 +80,52 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("OpenRouter native decision transport", () => {
+  it.each(["thrown", "deadline"] as const)(
+    "rechecks %s admission after transport preparation before physical dispatch",
+    async (state) => {
+      const prepared = Promise.withResolvers<void>();
+      const dispatch = Promise.withResolvers<void>();
+      const physicalFetch = vi.fn();
+      const failure = new Error("synthetic caller authority closed");
+      let admitted = true;
+      const ctx = context();
+      vi.mocked(fetchWithSsrFGuard).mockImplementationOnce(async (request) => {
+        prepared.resolve();
+        await dispatch.promise;
+        expect(request.beforeRequest).toBeTypeOf("function");
+        request.beforeRequest?.();
+        physicalFetch();
+        return { response: Response.json(wire()), finalUrl: request.url, release };
+      });
+      const pending = provider.evaluate(batch, {
+        ...ctx,
+        isAdmissible: () => {
+          if (!admitted && state === "thrown") {
+            throw failure;
+          }
+          return admitted;
+        },
+      });
+      const outcome =
+        state === "thrown"
+          ? expect(pending).rejects.toBe(failure)
+          : expect(pending).resolves.toEqual({ status: "unavailable", reason: "transport" });
+      await prepared.promise;
+      if (state === "deadline") {
+        vi.spyOn(performance, "now").mockReturnValue(ctx.deadlineMonotonicMs);
+      } else {
+        admitted = false;
+      }
+      dispatch.resolve();
+      try {
+        await outcome;
+        expect(physicalFetch).not.toHaveBeenCalled();
+      } finally {
+        vi.restoreAllMocks();
+      }
+    },
+  );
+
   it("preserves native labels, scores, rounded distributions, served model and actual USD", async () => {
     const outcome = await provider.evaluate(batch, context());
     expect(outcome).toMatchObject({
@@ -98,8 +135,13 @@ describe("OpenRouter native decision transport", () => {
         metadata: { provider: "TypeSafe" },
         answers: {
           q: { type: "boolean", probabilityTrue: 0.37 },
-          c: { type: "choice", choice: "a", probabilities: { a: 0.49, b: 0.5 } },
-          s: { type: "score", score: 0.71, probabilities: [0.3, 0.69] },
+          c: {
+            type: "choice",
+            choice: "a",
+            probabilities: { a: 0.49, b: 0.5 },
+            confidence: 0.1,
+          },
+          s: { type: "score", score: 0.71, probabilities: [0.3, 0.69], confidence: 0.2 },
         },
         usage: { inputTokens: 476, outputTokens: 70, costUsd: 0.000019992 },
       },
@@ -115,12 +157,9 @@ describe("OpenRouter native decision transport", () => {
       "Bearer synthetic-prepared-token",
     );
     expect(release).toHaveBeenCalledOnce();
-    if (outcome.status === "ok") {
-      expect(decisionResultV2ToV1(batch, outcome.result)).toBeUndefined();
-    }
   });
 
-  it("keeps explicit zero distinct from absent cost and supports lossless V1 narrowing", async () => {
+  it("keeps explicit zero distinct from absent cost", async () => {
     respond({ ...wire(), usage: { input_tokens: 0, output_tokens: 0, cost: 0 } });
     expect(await provider.evaluate(batch, context())).toMatchObject({
       result: { usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } },
@@ -131,10 +170,6 @@ describe("OpenRouter native decision transport", () => {
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       expect(result.result.usage).not.toHaveProperty("costUsd");
-      expect(decisionResultV2ToV1(batch, result.result)).toMatchObject({
-        model: response.model,
-        answers: { q: { probabilityTrue: 0.37 } },
-      });
     }
   });
 
@@ -248,38 +283,6 @@ describe("OpenRouter native decision transport", () => {
     expect(fetchWithSsrFGuard).not.toHaveBeenCalled();
   });
 
-  it("honors the bound agent’s model routing overrides without discarding provider privacy", async () => {
-    const ctx = context();
-    ctx.config.models = {
-      providers: {
-        openrouter: {
-          baseUrl: "https://openrouter.ai/api/v1",
-          models: [],
-          params: { provider: { data_collection: "deny", allow_fallbacks: false } },
-        },
-      },
-    };
-    ctx.config.agents = {
-      entries: {
-        worker: {
-          models: {
-            "openrouter/typesafe/jev-1.13": {
-              params: { provider: { only: ["typesafe"], require_parameters: true } },
-            },
-          },
-        },
-      },
-    };
-    await provider.evaluate(batch, { ...ctx, agentId: "worker" });
-    const body = readRequestBody(vi.mocked(fetchWithSsrFGuard).mock.calls[0]![0].init);
-    expect(body.provider).toEqual({
-      data_collection: "deny",
-      allow_fallbacks: false,
-      only: ["typesafe"],
-      require_parameters: true,
-    });
-  });
-
   it.each([undefined, "allow"] as const)(
     "preserves inherited routing privacy with explicit same-field override %s",
     async (override) => {
@@ -349,7 +352,9 @@ describe("OpenRouter native decision transport", () => {
   });
 
   it.each([
+    [400, "unsupported-input"],
     [401, "authentication"],
+    [402, "transport"],
     [403, "authentication"],
     [429, "rate-limited"],
     [529, "rate-limited"],

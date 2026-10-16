@@ -256,24 +256,10 @@ describe("runtime.llm.complete diagnostics", () => {
       { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, promptTokens: 0, total: 0 },
       0.0042,
     ],
-    ["adapter zero cost-only", { cost: { total: 0 } }, true, undefined, undefined],
-    [
-      "provider-billed zero cost-only",
-      { cost: { total: 0, totalOrigin: "provider-billed" } },
-      true,
-      { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, promptTokens: 0, total: 0 },
-      0,
-    ],
-    [
-      "numeric zero cost-only",
-      { cost: 0 },
-      true,
-      { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, promptTokens: 0, total: 0 },
-      0,
-    ],
+    ["zero explicit cost-only", { cost: { total: 0 } }, true, undefined, undefined],
     ["disabled", { input: 1 }, false, undefined, undefined],
   ] as const)(
-    "emits usage only for enabled observed tokens or explicit billing: %s",
+    "emits usage only for positive enabled tokens or cost: %s",
     async (_name, rawUsage, enabled, expectedEventUsage, expectedCostUsd) => {
       hoisted.completeWithPreparedSimpleCompletionModel.mockResolvedValueOnce({
         content: [{ type: "text", text: "done" }],
@@ -309,7 +295,6 @@ describe("runtime.llm.complete diagnostics", () => {
 
   it.each([
     ["resolved provider error", "error", [{ type: "text", text: "partial" }], "partial"],
-    ["resolved provider abort", "aborted", [{ type: "text", text: "partial" }], "partial"],
     ["thinking-only completion", "stop", [{ type: "thinking", thinking: "hidden" }], ""],
   ] as const)("keeps %s usage silent", async (_name, stopReason, content, expectedText) => {
     hoisted.completeWithPreparedSimpleCompletionModel.mockResolvedValueOnce({

@@ -11,7 +11,7 @@ import {
 /** Malformed input throws; unsupported size or unrepresentable data returns undefined. */
 export function decisionBatchV1ToV2(batch: DecisionBatch): DecisionBatchV2 | undefined {
   // Reject executable/proxy input before the legacy validator or any property access.
-  if (finiteJson(batch, undefined, true) === "invalid") {
+  if (finiteJson(batch, { rejectProxies: true }) === "invalid") {
     throw new DecisionContractError();
   }
   if (!validateDecisionBatch(batch)) {
@@ -54,7 +54,7 @@ export function decisionResultV1ToV2(
   const v2Batch = decisionBatchV1ToV2(batch);
   if (
     !v2Batch ||
-    finiteJson(result, undefined, true) !== "valid" ||
+    finiteJson(result, { rejectProxies: true }) !== "valid" ||
     !validateDecisionResult(batch, result)
   ) {
     return undefined;

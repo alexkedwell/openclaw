@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { withPluginMetadataSnapshotScope } from "../plugins/current-plugin-metadata-snapshot.js";
+import {
+  getCurrentPluginMetadataSnapshot,
+  withPluginMetadataSnapshotScope,
+} from "../plugins/current-plugin-metadata-snapshot.js";
 import { PluginInstance } from "../plugins/plugin-instance.js";
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
+import { createProviderAuthAvailability } from "../plugins/provider-auth-availability-core.js";
+import { resolveLoadedProviderRuntimePlugin } from "../plugins/provider-hook-runtime.js";
 import {
   resolveProviderSyntheticAuthWithPlugin,
   prepareProviderSyntheticAuthWithPlugin,
@@ -10,7 +15,6 @@ import {
 } from "../plugins/provider-runtime.js";
 import { restorePreparedSyntheticAuthFacts } from "../plugins/provider-synthetic-auth.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
-import { withPluginRuntimePluginScope } from "../plugins/runtime/gateway-request-scope.js";
 import { withPluginRuntimeGenerationRegistryScope } from "../plugins/runtime/generation-state.js";
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import type { ProviderPlugin } from "../plugins/types.js";
@@ -24,14 +28,20 @@ import {
   getRuntimeAuthProfileStoreSnapshotsRevision,
 } from "./auth-profiles/runtime-snapshots.js";
 import { CUSTOM_LOCAL_AUTH_MARKER } from "./model-auth-markers.js";
-import { hasAvailableAuthForProvider } from "./model-auth-model.js";
+import {
+  hasAvailableAuthForProvider,
+  resolveModelAuthMode,
+  resolveModelAuthModeAsync,
+} from "./model-auth-model.js";
 import { resolveApiKeyForProviderCore } from "./model-auth-provider.js";
 import {
   hasRuntimeAvailableProviderAuth,
   prepareRuntimeAvailableProviderAuth,
+  prepareSyntheticLocalProviderAuth,
 } from "./model-auth-runtime.js";
 import { createModelCatalogDecisions } from "./model-catalog-decisions.js";
 import type { ModelCatalogEntry } from "./model-catalog.types.js";
+import { prepareAgentRuntimeAuth } from "./runtime-plan/prepare-auth.js";
 
 // Replace only the native loading bridge, not selection, instance, auth or secrets owners.
 vi.mock("../plugins/provider-hook-runtime.js", async () => {
@@ -170,54 +180,59 @@ function fixture(
 }
 
 describe("plugin physical credential ownership through common auth", () => {
-  it("does not treat a matching plugin-id scope as prepared credential authority", () => {
+  it("plans plugin-owned auth before agent stores, configured bindings and cooldowns", () => {
     const f = fixture();
-    f.activate();
-    expect(
-      withPluginRuntimePluginScope(
-        { pluginId: id },
-        () => getPreparedPluginSecretInput(id, "pluginSecretRef"),
-        f.registry,
-      ),
-    ).not.toHaveProperty("value");
-    expect(
-      f.instance.run(() => getPreparedPluginSecretInput(id, "pluginSecretRef")),
-    ).toHaveProperty("value", "resolved-plugin-key");
+    const readProfiles = vi.fn(() => {
+      throw new Error("agent store must remain untouched");
+    });
+    const prepared = prepareAgentRuntimeAuth({
+      provider: id,
+      modelId: "fixture-model",
+      config: { ...f.cfg, auth: { order: { [id]: [id + ":implicit"] } } },
+      metadataSnapshot: f.metadata,
+      authProfileStore: {
+        version: 1,
+        get profiles() {
+          return readProfiles();
+        },
+      },
+    });
+    expect(prepared.attempts).toEqual([
+      {
+        kind: "direct",
+        plan: prepared.plan,
+        allowAuthProfileFallback: false,
+        requiresPriorProfileAttempt: false,
+      },
+    ]);
+    expect(prepared.plan).toMatchObject({
+      providerForAuth: id,
+      modelId: "fixture-model",
+      credentialSource: { kind: "direct", evidence: "synthetic", authorization: "declared" },
+    });
+    expect(prepared.plan.forwardedAuthProfileId).toBeUndefined();
+    expect(prepared.plan.forwardedAuthProfileCandidateIds).toBeUndefined();
+    expect(readProfiles).not.toHaveBeenCalled();
+    expect(f.hook).not.toHaveBeenCalled();
   });
-  it("rejects a delayed frame after its exact admitted invocation has settled", async () => {
-    const f = fixture();
-    f.activate();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let later!: Promise<ReturnType<typeof getPreparedPluginSecretInput>>;
-    f.instance.run(() => {
-      later = gate.then(() => getPreparedPluginSecretInput(id, "pluginSecretRef"));
-    });
-    release();
-    expect(await later).not.toHaveProperty("value");
-  });
-  it("does not let a quiesced instance borrow a same-id replacement's current credential", async () => {
-    const old = fixture();
-    old.activate();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const delayed = old.instance.run(async () => {
-      await gate;
-      return getPreparedPluginSecretInput(id, "pluginSecretRef");
-    });
-    old.instance.quiesce();
-    const replacement = fixture();
-    replacement.activate();
-    release();
-    expect(await delayed).not.toHaveProperty("value");
-    expect(
-      replacement.instance.run(() => getPreparedPluginSecretInput(id, "pluginSecretRef")),
-    ).toHaveProperty("value", "resolved-plugin-key");
-  });
+
+  it.each(["requiredAuthProfileId", "sessionAuthProfileId"] as const)(
+    "rejects an explicit %s while planning plugin-owned auth",
+    (pin) => {
+      const f = fixture();
+      expect(() =>
+        prepareAgentRuntimeAuth({
+          provider: id,
+          modelId: "fixture-model",
+          config: f.cfg,
+          metadataSnapshot: f.metadata,
+          [pin]: id + ":implicit",
+          sessionAuthProfileSource: "auto",
+        }),
+      ).toThrow("profile pins");
+      expect(f.hook).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses prepared metadata ownership instead of an unrelated ambient declaration", async () => {
     const f = fixture();
@@ -232,25 +247,38 @@ describe("plugin physical credential ownership through common auth", () => {
       ],
     });
     const entry: ModelCatalogEntry = { id: "decision", name: "Decision", provider: id };
-    await f.run(() =>
-      withPluginMetadataSnapshotScope(
-        foreign,
-        async () => {
-          const projection = createModelCatalogDecisions({
-            cfg: f.cfg,
-            agentId: "main",
-            snapshot: { entries: [entry], routeVariants: [entry] },
-            metadataSnapshot: f.metadata,
-            preparedAuthStore: store,
-            pluginRegistry: f.registry,
-            isCurrent: () => true,
-          });
-          expect(await projection.evaluateEntry(entry)).toMatchObject({ availability: true });
-        },
-        { config: f.cfg, trustConfigIdentity: true },
-      ),
+    const modelPolicy = await import("./model-auth-policy.js");
+    const policy = vi.spyOn(modelPolicy, "isAuthModeAllowedForModel").mockImplementation(
+      () =>
+        getCurrentPluginMetadataSnapshot({
+          config: f.cfg,
+          allowScopedSnapshot: true,
+          allowWorkspaceScopedSnapshot: true,
+        }) === f.metadata,
     );
-    expect(f.hook).toHaveBeenCalled();
+    try {
+      await f.run(() =>
+        withPluginMetadataSnapshotScope(
+          foreign,
+          async () => {
+            const projection = createModelCatalogDecisions({
+              cfg: f.cfg,
+              agentId: "main",
+              snapshot: { entries: [entry], routeVariants: [entry] },
+              metadataSnapshot: f.metadata,
+              preparedAuthStore: store,
+              pluginRegistry: f.registry,
+              isCurrent: () => true,
+            });
+            expect(projection.evaluateEntry(entry)).toMatchObject({ availability: true });
+          },
+          { config: f.cfg, trustConfigIdentity: true },
+        ),
+      );
+      expect(f.hook).toHaveBeenCalled();
+    } finally {
+      policy.mockRestore();
+    }
   });
 
   it.each([false, true])(
@@ -290,7 +318,6 @@ describe("plugin physical credential ownership through common auth", () => {
         id: "decision",
         name: "Decision",
         provider: id,
-        inference: { chat: false },
       };
       await f.run(() =>
         withPluginRuntimeGenerationRegistryScope(
@@ -307,7 +334,7 @@ describe("plugin physical credential ownership through common auth", () => {
                 : { pluginRegistry: prepared === "live" ? f.registry : empty }),
               isCurrent: () => true,
             });
-            const evaluation = await projection.evaluateEntry(entry);
+            const evaluation = projection.evaluateEntry(entry);
             expect(evaluation.availability).toBe(expected);
             if (prepared !== "live") {
               expect(f.hook).not.toHaveBeenCalled();
@@ -325,14 +352,6 @@ describe("plugin physical credential ownership through common auth", () => {
       id: "decision",
       name: "Decision",
       provider: id,
-      inference: {
-        chat: false,
-        decision: {
-          protocol: "fixture",
-          input: ["text"],
-          questions: { boolean: { probabilities: "boolean", abstention: false } },
-        },
-      },
     };
     await f.run(async () => {
       const projection = createModelCatalogDecisions({
@@ -344,15 +363,44 @@ describe("plugin physical credential ownership through common auth", () => {
         pluginRegistry: f.registry,
         isCurrent: () => true,
       });
-      expect(await projection.evaluateEntry(entry)).toMatchObject({
+      expect(projection.evaluateEntry(entry)).toMatchObject({
         availability: true,
         selectedAuthMode: "api-key",
       });
       clearSecretsRuntimeSnapshotState();
       expect(projection.isCurrent()).toBe(false);
-      expect(await projection.evaluateEntry(entry)).toMatchObject({
+      expect(projection.evaluateEntry(entry)).toMatchObject({
         availability: false,
         unavailableReason: "missing-auth",
+      });
+    });
+  });
+
+  it("keeps native presence scoped to its declared runtime", async () => {
+    const f = fixture({
+      hook: () => ({
+        apiKey: CUSTOM_LOCAL_AUTH_MARKER,
+        mode: "oauth",
+        source: "plugin:native",
+        nativeAuth: { runtime: "native-fixture", mode: "oauth" },
+      }),
+    });
+    const entry: ModelCatalogEntry = { id: "model", name: "Model", provider: id };
+    await f.run(async () => {
+      const projection = createModelCatalogDecisions({
+        cfg: f.cfg,
+        agentId: "main",
+        snapshot: { entries: [entry], routeVariants: [entry] },
+        metadataSnapshot: f.metadata,
+        preparedAuthStore: store,
+        pluginRegistry: f.registry,
+        isCurrent: () => true,
+      });
+      expect(projection.evaluateEntry(entry, undefined, "other-runtime").availability).toBe(false);
+      expect(projection.evaluateEntry(entry, undefined, "native-fixture")).toMatchObject({
+        availability: true,
+        runtimeAuth: { id: "native-fixture", source: "native" },
+        selectedCredential: { source: "harness" },
       });
     });
   });
@@ -364,7 +412,6 @@ describe("plugin physical credential ownership through common auth", () => {
       id: "decision",
       name: "Decision",
       provider: id,
-      inference: { chat: false },
     };
     await f.run(async () => {
       const projection = createModelCatalogDecisions({
@@ -378,7 +425,7 @@ describe("plugin physical credential ownership through common auth", () => {
         profileProvider: id,
         isCurrent: () => true,
       });
-      expect(await projection.evaluateEntry(entry)).toMatchObject({ availability: false });
+      expect(projection.evaluateEntry(entry)).toMatchObject({ availability: false });
     });
     expect(f.hook).not.toHaveBeenCalled();
   });
@@ -395,6 +442,90 @@ describe("plugin physical credential ownership through common auth", () => {
     expect(unwrapSecretSentinelsForProviderEgress(auth.apiKey!, "synthetic test boundary")).toBe(
       "resolved-plugin-key",
     );
+  });
+
+  it("checks SDK credential availability against the live owner without reading agent storage", async () => {
+    const f = fixture();
+    f.activate();
+    const readAgentStore = vi.fn(() => {
+      throw new Error("agent storage must not be read");
+    });
+    const availability = createProviderAuthAvailability(
+      {
+        ensureAuthProfileStore: readAgentStore,
+        ensureAuthProfileStoreAsync: readAgentStore,
+        loadAuthProfileStoreWithoutExternalProfilesAsync: readAgentStore,
+        loadAuthProfileStoreForRuntimeAsync: readAgentStore,
+        findPersistedAuthProfileCredential: readAgentStore,
+        findPersistedAuthProfileCredentialAsync: readAgentStore,
+        loadAuthProfileStoreForSecretsRuntime: readAgentStore,
+        loadAuthProfileStoreWithoutExternalProfiles: readAgentStore,
+      },
+      resolveLoadedProviderRuntimePlugin,
+    );
+    await f.run(async () => {
+      const params = { provider: id, cfg: f.cfg };
+      expect(await availability.isProviderApiKeyConfiguredAsync(params)).toBe(true);
+      expect(
+        await availability.isProviderApiKeyConfiguredAsync({ ...params, profileTypes: ["oauth"] }),
+      ).toBe(false);
+      expect(
+        await availability.isProviderApiKeyConfiguredAsync({
+          ...params,
+          acceptsApiKey: (key) => key === "resolved-plugin-key",
+        }),
+      ).toBe(true);
+      clearSecretsRuntimeSnapshotState();
+      expect(await availability.isProviderApiKeyConfiguredAsync(params)).toBe(false);
+    });
+    expect(readAgentStore).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "keeps plugin ownership ahead of agent no-auth config when the runtime is missing: %s",
+    async (missing) => {
+      const f = fixture({ missing });
+      const providerConfig = f.cfg.models!.providers![id]!;
+      providerConfig.auth = "none";
+      providerConfig.api = "openai-completions";
+      f.activate();
+      await f.run(async () => {
+        const auth = prepareSyntheticLocalProviderAuth(f.params);
+        if (missing) {
+          await expect(auth).rejects.toThrow();
+        } else {
+          await expect(auth).resolves.toMatchObject({
+            apiKey: "resolved-plugin-key",
+            source: "plugin:fixture",
+          });
+        }
+      });
+      expect(f.prepare).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not read a live credential after preparation is cancelled", async () => {
+    const f = fixture();
+    f.activate();
+    await f.run(() =>
+      expect(
+        prepareRuntimeAvailableProviderAuth({ ...f.params, signal: AbortSignal.abort() }),
+      ).rejects.toThrow(),
+    );
+    expect(f.hook).not.toHaveBeenCalled();
+  });
+
+  it("resolves sync and async auth modes from the live owner before agent profiles", async () => {
+    const f = fixture({
+      hook: () => ({ apiKey: "live-token", mode: "token", source: "plugin:fixture" }),
+    });
+    await f.run(async () => {
+      expect(resolveModelAuthMode(id, f.cfg, store)).toBe("token");
+      expect(await resolveModelAuthModeAsync(id, f.cfg, store)).toBe("token");
+      await f.instance.dispose();
+      expect(resolveModelAuthMode(id, f.cfg, store)).toBe("unknown");
+      expect(await resolveModelAuthModeAsync(id, f.cfg, store)).toBe("unknown");
+    });
   });
 
   it("uses the live protected owner, not implicit profiles, models keys, prepare hooks or restored bearer facts", async () => {

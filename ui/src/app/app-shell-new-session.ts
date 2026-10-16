@@ -1,7 +1,7 @@
 import { readSessionMethodAccess } from "../lib/session-method-access.ts";
 import type { ApplicationContext } from "./context.ts";
 
-export interface ShellNewSessionHost extends HTMLElement {
+export interface ShellNewSessionHost extends Pick<HTMLElement, "querySelector" | "isConnected"> {
   readonly context: ApplicationContext | undefined;
   readonly onboardingMode: boolean;
   pendingNativeNewSession: boolean;
@@ -30,8 +30,11 @@ export function openShellNewSession(
     return false;
   }
   if (
-    !readSessionMethodAccess(context.gateway.snapshot, { method: "sessions.create", params: {} })
-      .allowed
+    !readSessionMethodAccess(context.gateway.snapshot, {
+      method: "sessions.create",
+      params: {},
+      sessionScope: true,
+    }).allowed
   ) {
     return false;
   }

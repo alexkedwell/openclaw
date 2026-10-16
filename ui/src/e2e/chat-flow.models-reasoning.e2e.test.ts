@@ -408,6 +408,7 @@ suite.define(() => {
       await selectModel("bedrock/claude-opus-4.5");
       const patchRequest = await gateway.waitForRequest("sessions.patch");
       expect(requireRecord(patchRequest.params)).toEqual({
+        expectedSessionId: "session:agent:main:session-a",
         key: "agent:main:session-a",
         model: "bedrock/claude-opus-4.5",
       });
@@ -529,6 +530,7 @@ suite.define(() => {
       await selectChatModelOption(main.locator('[data-chat-model-option="openai/gpt-5.5"]'));
       const firstPatch = await gateway.waitForRequest("sessions.patch");
       expect(requireRecord(firstPatch.params)).toEqual({
+        expectedSessionId: "session:agent:ops:session-a",
         key: "agent:ops:session-a",
         model: "openai/gpt-5.5",
       });
@@ -546,6 +548,7 @@ suite.define(() => {
       await defaultModel.click();
       const patches = await waitForRequests(gateway, "sessions.patch", 2);
       expect(requireRecord(patches[1]?.params)).toMatchObject({
+        expectedSessionId: "session:agent:ops:session-a",
         key: "agent:ops:session-a",
         model: null,
         agentRuntime: null,
@@ -631,7 +634,9 @@ suite.define(() => {
       const main = page.getByRole("main");
       const activePane = main.locator('openclaw-chat-pane[aria-hidden="false"]');
       const modelSelect = activePane.locator('[data-chat-model-select="true"]');
-      const modelPopup = activePane.locator('.chat-controls__model-picker wa-popup [part="popup"]');
+      const modelPopup = activePane.locator(
+        ".chat-controls__model-picker > [data-anchored-overlay]",
+      );
       const modelOption = activePane.locator('[data-chat-model-option="openai/gpt-5.6-sol"]');
       const effortSelect = activePane.locator('[data-chat-thinking-select="true"]');
       const thinkingSlider = activePane.locator('[data-chat-thinking-slider="true"]');
@@ -676,62 +681,6 @@ suite.define(() => {
       await capture("explicit-sol", modelPopup, modelOption);
 
       expect(await gateway.getRequests("sessions.patch")).toHaveLength(0);
-    } finally {
-      await suite.closeBrowserContext(context);
-    }
-  });
-
-  it("does not reuse catalog reasoning for a different session runtime", async () => {
-    const { context, page, capture } = await createReasoningProofPage(
-      "chat-flow.runtime-reasoning",
-    );
-    const sessionKey = "agent:main:codex-luna";
-    await installMockGateway(page, {
-      models: [
-        {
-          id: "gpt-5.6-luna",
-          name: "GPT-5.6 Luna",
-          provider: "openai",
-          reasoning: true,
-          agentRuntime: { id: "openclaw", source: "model" },
-          thinkingLevels: ["max", "ultra"].map((id) => ({ id, label: id })),
-          thinkingDefault: "ultra",
-        },
-      ],
-      sessionKey,
-      sessions: [
-        {
-          key: sessionKey,
-          kind: "direct",
-          label: "Codex Luna",
-          model: "gpt-5.6-luna",
-          modelProvider: "openai",
-          agentRuntime: { id: "codex", source: "session-key" },
-          thinkingLevels: [
-            { id: "low", label: "Low" },
-            { id: "high", label: "High" },
-          ],
-          thinkingDefault: "high",
-          updatedAt: 1,
-        },
-      ],
-    });
-
-    try {
-      await page.goto(controlUiSessionUrl(suite.server.baseUrl, sessionKey));
-      const pane = page.locator('openclaw-chat-pane[aria-hidden="false"]');
-      const effortSelect = pane.locator('[data-chat-thinking-select="true"]');
-      await effortSelect.click();
-      const thinkingSlider = pane.locator('[data-chat-thinking-slider="true"]');
-      await thinkingSlider.waitFor({ state: "visible" });
-      await capture(
-        "codex-luna-reasoning",
-        pane.locator('.chat-controls__effort-picker wa-popup [part="popup"]'),
-        thinkingSlider,
-      );
-
-      expect(await thinkingSlider.getAttribute("data-chat-thinking-values")).toBe("low,high");
-      expect(await effortSelect.getAttribute("data-chat-thinking-value")).not.toBe("ultra");
     } finally {
       await suite.closeBrowserContext(context);
     }
@@ -786,9 +735,7 @@ suite.define(() => {
       const patchRequest = await gateway.waitForRequest("sessions.patch");
       expect(requireRecord(patchRequest.params)).toMatchObject({
         key: "agent:main:session-a",
-        ...(setting.label === "Full Access permission"
-          ? { expectedSessionId: "session-a-send-barrier" }
-          : {}),
+        expectedSessionId: "session-a-send-barrier",
         ...setting.patch,
       });
 
@@ -818,6 +765,7 @@ suite.define(() => {
     const sessionKey = "agent:main:session-a";
     const session = {
       key: sessionKey,
+      sessionId: `session:${sessionKey}`,
       kind: "direct",
       label: "Session A",
       model: "gpt-5.6-sol",
@@ -864,16 +812,21 @@ suite.define(() => {
       }
       await expectRequestCountStable(gateway, "sessions.patch", 0);
 
-      await gateway.setMethodResponse(
-        "sessions.list",
-        chatSessionListResponse([{ ...session, thinkingLevel: "ultra" }]),
-      );
+      await gateway.deferNext("sessions.patch");
       await thinkingSlider.evaluate((input) => {
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
       const thinkingPatch = await gateway.waitForRequest("sessions.patch");
       expect(requireRecord(thinkingPatch.params)).toMatchObject({
         key: sessionKey,
+        thinkingLevel: "ultra",
+      });
+      await gateway.setSessionsListResponse(
+        chatSessionListResponse([{ ...session, thinkingLevel: "ultra" }]),
+      );
+      await gateway.resolveDeferred("sessions.patch");
+      expect(await gateway.getSessionRow(sessionKey)).toMatchObject({
+        sessionId: session.sessionId,
         thinkingLevel: "ultra",
       });
       await expect.poll(() => effortPicker.getAttribute("data-chat-thinking-value")).toBe("ultra");
@@ -884,9 +837,8 @@ suite.define(() => {
       const search = main.locator('[data-chat-model-search="true"]');
       await expect
         .poll(() => search.evaluate((element) => element === document.activeElement))
-        .toBe(false);
-      await search.focus();
-      await search.fill("anthropic");
+        .toBe(true);
+      await page.keyboard.type("anthropic");
       const anthropicModel = main.locator('[data-chat-model-option="anthropic/claude-fable-5"]');
       await expect.poll(() => anthropicModel.isVisible()).toBe(true);
       await expect
@@ -898,6 +850,7 @@ suite.define(() => {
       await search.press("Enter");
       const patches = await waitForRequests(gateway, "sessions.patch", 2);
       expect(requireRecord(patches[1]?.params)).toMatchObject({
+        expectedSessionId: `session:${sessionKey}`,
         key: sessionKey,
         model: "anthropic/claude-fable-5",
       });

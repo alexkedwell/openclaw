@@ -1,9 +1,9 @@
 import type { ModelDecisionCapabilities } from "@openclaw/model-catalog-core/model-catalog-types";
 import type { DecisionBatchResultV2, DecisionBatchV2 } from "./types-v2.js";
-import { decisionEntry, finiteJson, record } from "./validation-common.js";
+import { decisionEntry, decisionJsonLimits, finiteJson, record } from "./validation-common.js";
 import { DecisionContractError } from "./validation.js";
 
-const MAX_JSON_BYTES = 1_048_576;
+const MAX_JSON_BYTES = decisionJsonLimits.maxBytes;
 const MAX_IMAGE_BYTES = 4 * 1_048_576;
 const MAX_ENVELOPE_BYTES = 4 * Math.ceil(MAX_IMAGE_BYTES / 3) + MAX_JSON_BYTES + 256;
 
@@ -58,7 +58,14 @@ function imageSize(dataUri: string): number {
 
 /** Malformed caller data throws; finite supported-shape data over resource bounds returns false. */
 export function validateDecisionBatchV2(batch: unknown): batch is DecisionBatchV2 {
-  const shape = finiteJson(batch, MAX_ENVELOPE_BYTES, true);
+  // Text/JSON framing adds one level and two nodes. The unwrapped evidence
+  // below still uses the original limits, so admitted V1 batches stay convertible.
+  const shape = finiteJson(batch, {
+    maxBytes: MAX_ENVELOPE_BYTES,
+    maxDepth: decisionJsonLimits.maxDepth + 1,
+    maxNodes: decisionJsonLimits.maxNodes + 2,
+    rejectProxies: true,
+  });
   if (shape === "invalid") {
     throw new DecisionContractError();
   }
@@ -169,7 +176,7 @@ export function validateDecisionBatchV2(batch: unknown): batch is DecisionBatchV
   return (
     !oversized &&
     questions.length <= 256 &&
-    finiteJson(jsonEnvelope, MAX_JSON_BYTES, true) === "valid"
+    finiteJson(jsonEnvelope, { rejectProxies: true }) === "valid"
   );
 }
 
@@ -188,7 +195,7 @@ export function validateDecisionResultV2(
     return false;
   }
   if (
-    finiteJson(value, MAX_JSON_BYTES, true) !== "valid" ||
+    finiteJson(value, { rejectProxies: true }) !== "valid" ||
     !record(value) ||
     !fields(value, ["model", "answers", "usage", "metadata"]) ||
     typeof value.model !== "string" ||
@@ -238,7 +245,11 @@ export function validateDecisionResultV2(
       }
       continue;
     }
-    if (answer.type !== q.type || !metadata(answer.metadata)) {
+    if (
+      answer.type !== q.type ||
+      !metadata(answer.metadata) ||
+      (capabilities?.confidence === "none" && answer.confidence !== undefined)
+    ) {
       return false;
     }
     const declared = capabilities?.questions?.[q.type];

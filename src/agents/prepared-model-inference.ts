@@ -1,17 +1,27 @@
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { runWithAsyncWorkResources } from "../shared/async-work-resources.js";
 import { AsyncWorkScope } from "../shared/async-work-scope.js";
-import type { AgentHarnessPluginSelection } from "./harness/runtime-plugin-load-plan.js";
-import { acquirePreparedSimpleCompletionRuntime } from "./simple-completion-runtime.js";
-type PreparedSimpleCompletionResolverContext = Awaited<
-  ReturnType<typeof acquirePreparedSimpleCompletionRuntime>
->;
+import { resolveAgentDir, resolveAgentWorkspaceDir, resolveDefaultAgentId } from "./agent-scope.js";
+import {
+  createAgentRuntimeMetadataPluginIdScope,
+  type AgentHarnessPluginSelection,
+} from "./harness/runtime-plugin-load-plan.js";
+import {
+  acquireAgentRunPreparedModelRuntime,
+  type PreparedModelRuntimeSnapshot,
+} from "./prepared-model-runtime.js";
+type PreparedModelInferenceContext = {
+  preparedModelRuntime: PreparedModelRuntimeSnapshot;
+  workspaceDir: string;
+};
 
 /** Execute a typed task inside the same prepared generation and physical cleanup owner as chat. */
 export async function withPreparedModelInference<Result>(
-  params: Parameters<typeof acquirePreparedSimpleCompletionRuntime>[0],
+  params: { cfg: OpenClawConfig; agentId?: string; signal: AbortSignal },
   selection: AgentHarnessPluginSelection,
-  execute: (context: PreparedSimpleCompletionResolverContext) => Promise<Result>,
+  execute: (context: PreparedModelInferenceContext) => Promise<Result>,
 ): Promise<Result> {
   const failures = new Set<unknown>();
   const work = new AsyncWorkScope(failures);
@@ -31,13 +41,39 @@ export async function withPreparedModelInference<Result>(
   });
   return await work.run(() =>
     runWithAsyncWorkResources(async (onAcquired, captureWorkContext) => {
-      const context = await acquirePreparedSimpleCompletionRuntime(
-        params,
-        [selection],
-        (release) => {
-          onAcquired({ release });
+      const agentId = params.agentId ?? resolveDefaultAgentId(params.cfg);
+      const workspaceDir = resolveAgentWorkspaceDir(params.cfg, agentId);
+      const metadataSnapshot = resolvePluginMetadataSnapshot({
+        config: params.cfg,
+        env: process.env,
+        workspaceDir,
+        pluginIdScope: createAgentRuntimeMetadataPluginIdScope({
+          config: params.cfg,
+          workspaceDir,
+          selections: [{ ...selection, agentId }],
+        }),
+        allowWorkspaceScopedCurrent: true,
+      });
+      const lease = await acquireAgentRunPreparedModelRuntime(
+        {
+          config: params.cfg,
+          agentId,
+          agentDir: resolveAgentDir(params.cfg, agentId),
+          workspaceDir,
+          loadRuntimePlugins: true,
+          runtimePluginSelections: [{ ...selection, agentId }],
+        },
+        {
+          catalogMode: "static",
+          abortSignal: params.signal,
+          pluginMetadataSnapshot: metadataSnapshot,
         },
       );
+      onAcquired({ release: () => lease[Symbol.asyncDispose]() });
+      const context: PreparedModelInferenceContext = {
+        preparedModelRuntime: lease.snapshot,
+        workspaceDir: lease.snapshot.workspaceDir ?? workspaceDir,
+      };
       params.signal?.throwIfAborted();
       return withPluginRuntimeGenerationScope(context.preparedModelRuntime, async () => {
         captureWorkContext();

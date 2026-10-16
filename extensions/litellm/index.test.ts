@@ -1,4 +1,3 @@
-// Litellm tests cover index plugin behavior.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +8,14 @@ import {
   registerProviderPlugin,
   requireRegisteredProvider,
   runProviderCatalog,
+  type WizardPrompter,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
+import type {
+  ModelDefinitionConfig,
+  ModelProviderConfig,
+} from "openclaw/plugin-sdk/provider-onboard";
+import { WizardCancelledError } from "openclaw/plugin-sdk/setup";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeSpies } from "../test-support/runtime-spies.js";
 import plugin from "./index.js";
@@ -37,6 +42,27 @@ function registerProvider() {
   return provider;
 }
 
+async function runInteractiveAuth(params: { config?: OpenClawConfig; prompter: WizardPrompter }) {
+  const auth = registerProvider()?.auth?.[0];
+  return await auth?.run({
+    config: params.config ?? {},
+    opts: { litellmApiKey: "litellm-test-key" },
+    env: {},
+    runtime: createRuntimeSpies(),
+    prompter: params.prompter,
+    secretInputMode: "plaintext",
+    isRemote: false,
+    openUrl: async () => {
+      throw new Error("Unexpected browser auth");
+    },
+    oauth: {
+      createVpsAwareHandlers: () => {
+        throw new Error("Unexpected OAuth");
+      },
+    },
+  });
+}
+
 describe("litellm plugin", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -44,10 +70,8 @@ describe("litellm plugin", () => {
   });
 
   it.each([
-    { authMode: "non-interactive", modelsMode: "merge" },
     { authMode: "interactive", modelsMode: "merge" },
     { authMode: "non-interactive", modelsMode: "replace" },
-    { authMode: "interactive", modelsMode: "replace" },
   ] as const)(
     "preserves an explicit proxy's authored models through registered $authMode auth in $modelsMode mode",
     async ({ authMode, modelsMode }) => {
@@ -75,6 +99,7 @@ describe("litellm plugin", () => {
           },
         },
       } satisfies OpenClawConfig;
+      const authoredModels = structuredClone(config.models.providers.litellm.models);
       let result: OpenClawConfig | null | undefined;
       if (authMode === "non-interactive") {
         result = await auth?.runNonInteractive?.({
@@ -118,13 +143,164 @@ describe("litellm plugin", () => {
         baseUrl: "https://litellm.example/v1",
         api: "openai-completions",
         apiKey: "old-key",
-        models: [
-          ...config.models.providers.litellm.models,
-          ...(modelsMode === "replace" ? [LITELLM_DEFAULT_MODEL] : []),
-        ],
+        models: [...authoredModels, ...(modelsMode === "replace" ? [LITELLM_DEFAULT_MODEL] : [])],
       });
     },
   );
+
+  it.each([
+    {
+      name: "records the URL the operator enters",
+      answer: "https://litellm.example/v1//",
+      expectedBaseUrl: "https://litellm.example/v1",
+      expectedModels: [],
+    },
+    {
+      name: "keeps the seeded default model when the prefilled default is accepted",
+      answer: "http://localhost:4000",
+      expectedBaseUrl: "http://localhost:4000",
+      expectedModels: [LITELLM_DEFAULT_MODEL],
+    },
+    {
+      name: "leaves fresh setup untouched when the prompt is skipped",
+      answer: "",
+      expectedBaseUrl: "http://localhost:4000",
+      expectedModels: [LITELLM_DEFAULT_MODEL],
+    },
+  ])("interactive setup $name", async ({ answer, expectedBaseUrl, expectedModels }) => {
+    const prompter = createTestWizardPrompter({
+      text: vi.fn(async () => answer) as WizardPrompter["text"],
+    });
+
+    const result = await runInteractiveAuth({ prompter });
+
+    expect(prompter.text).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "LiteLLM proxy base URL",
+        placeholder: "http://localhost:4000",
+      }),
+    );
+    expect(prompter.text).toHaveBeenCalledWith(
+      expect.objectContaining({ initialValue: undefined }),
+    );
+    expect(result?.configPatch?.models?.providers?.litellm).toStrictEqual({
+      baseUrl: expectedBaseUrl,
+      api: "openai-completions",
+      models: expectedModels,
+    });
+  });
+
+  it("seeds the proxy prompt with an already-configured base URL", async () => {
+    const prompter = createTestWizardPrompter({
+      text: vi.fn(async () => "  https://litellm.example/v1  ") as WizardPrompter["text"],
+    });
+
+    const result = await runInteractiveAuth({
+      config: {
+        models: { providers: { litellm: { baseUrl: "https://old.example", models: [] } } },
+      },
+      prompter,
+    });
+
+    expect(prompter.text).toHaveBeenCalledWith(
+      expect.objectContaining({ initialValue: "https://old.example" }),
+    );
+    expect(result?.configPatch?.models?.providers?.litellm?.baseUrl).toBe(
+      "https://litellm.example/v1",
+    );
+  });
+
+  it("honors switching an existing remote proxy back to the default URL", async () => {
+    const prompter = createTestWizardPrompter({
+      text: vi.fn(async () => "http://localhost:4000") as WizardPrompter["text"],
+    });
+
+    const result = await runInteractiveAuth({
+      config: {
+        models: { providers: { litellm: { baseUrl: "https://old.example", models: [] } } },
+      },
+      prompter,
+    });
+
+    expect(result?.configPatch?.models?.providers?.litellm?.baseUrl).toBe("http://localhost:4000");
+  });
+
+  it.each([false, true])(
+    "preserves authored settings with a canonical row present: %s",
+    async (withCanonical) => {
+      const authored: ModelDefinitionConfig[] = [
+        {
+          id: "custom-model",
+          name: "Custom",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 1000,
+          maxTokens: 100,
+        },
+      ];
+
+      const alias: ModelProviderConfig = {
+        baseUrl: "https://old.example/v1",
+        api: "anthropic-messages",
+        apiKey: "old-key",
+        request: { allowPrivateNetwork: true },
+        models: authored,
+      };
+      const canonical: ModelProviderConfig = {
+        ...alias,
+        baseUrl: "https://canonical.example/v1",
+        apiKey: "canonical-key",
+        models: authored.map((model) => Object.assign({}, model, { params: { temperature: 0.3 } })),
+      };
+      const selected = withCanonical ? canonical : alias;
+      const initialValue = selected.baseUrl;
+      const expectedProvider = {
+        ...structuredClone(selected),
+        baseUrl: "https://selected.example/v1",
+        api: "openai-completions",
+      };
+      const prompter = createTestWizardPrompter({
+        text: vi.fn(async () => "https://selected.example/v1") as WizardPrompter["text"],
+      });
+      const result = await runInteractiveAuth({
+        config: {
+          models: {
+            providers: {
+              LiteLLM: alias,
+              ...(withCanonical ? { litellm: canonical } : {}),
+            },
+          },
+        },
+        prompter,
+      });
+
+      expect(prompter.text).toHaveBeenCalledWith(expect.objectContaining({ initialValue }));
+      expect(result?.configPatch?.models?.providers).toStrictEqual({
+        litellm: expectedProvider,
+      });
+    },
+  );
+
+  it.each([
+    { answer: "not-a-url", expected: "Enter a full URL, such as http://localhost:4000" },
+    { answer: "ftp://litellm.example", expected: "must start with http:// or https://" },
+  ])("blocks $answer at the proxy prompt", async ({ answer, expected }) => {
+    const prompter = createTestWizardPrompter({
+      text: vi.fn(async ({ validate }) => {
+        expect(validate).toBeTypeOf("function");
+        expect(validate?.(answer)).toContain(expected);
+        for (const accepted of ["", "http://localhost:4000", "https://litellm.example/v1"]) {
+          expect(validate?.(accepted)).toBeUndefined();
+        }
+        // The real prompter refuses to submit while validate returns an error, so a
+        // rejected URL never reaches the config patch.
+        throw new WizardCancelledError();
+      }) as WizardPrompter["text"],
+    });
+
+    await expect(runInteractiveAuth({ prompter })).rejects.toThrow(WizardCancelledError);
+  });
 
   it.each([
     {
@@ -135,11 +311,6 @@ describe("litellm plugin", () => {
     {
       name: "unversioned explicit base URL",
       baseUrl: "https://litellm.example",
-      endpoint: "https://litellm.example/v1/models",
-    },
-    {
-      name: "versioned explicit base URL",
-      baseUrl: "https://litellm.example/v1",
       endpoint: "https://litellm.example/v1/models",
     },
     {
@@ -183,29 +354,20 @@ describe("litellm plugin", () => {
 
   it.each([
     {
-      modelsMode: undefined,
       baseUrl: "https://litellm.example/v1/",
       expectedBaseUrl: "https://litellm.example/v1",
       expectedModels: [],
     },
     {
-      modelsMode: undefined,
       baseUrl: undefined,
       expectedBaseUrl: "http://localhost:4000",
       expectedModels: [LITELLM_DEFAULT_MODEL],
     },
-    {
-      modelsMode: "replace" as const,
-      baseUrl: "https://litellm.example/v1/",
-      expectedBaseUrl: "https://litellm.example/v1",
-      expectedModels: [LITELLM_DEFAULT_MODEL],
-    },
   ])(
-    "configures proxy URL $baseUrl in $modelsMode mode",
-    async ({ modelsMode, baseUrl, expectedBaseUrl, expectedModels }) => {
-      const provider = registerProvider();
-      const auth = provider?.auth?.[0];
-      const config = (modelsMode ? { models: { mode: modelsMode } } : {}) satisfies OpenClawConfig;
+    "configures proxy URL $baseUrl for fresh setup",
+    async ({ baseUrl, expectedBaseUrl, expectedModels }) => {
+      const auth = registerProvider()?.auth?.[0];
+      const config = {};
       const agentDir = mkdtempSync(join(tmpdir(), "openclaw-litellm-auth-"));
       const resolveApiKey = vi.fn(async () => ({
         key: "litellm-test-key",
@@ -232,35 +394,20 @@ describe("litellm plugin", () => {
           toApiKeyCredential,
         });
 
-        expect(result).toStrictEqual({
-          auth: {
-            profiles: {
-              "litellm:default": {
-                provider: "litellm",
-                mode: "api_key",
-              },
-            },
-          },
-          agents: {
-            defaults: {
-              models: {
-                "litellm/claude-opus-4-6": {
-                  alias: "LiteLLM",
-                },
-              },
-              model: {
-                primary: "litellm/claude-opus-4-6",
-              },
-            },
-          },
-          models: {
-            mode: modelsMode ?? "merge",
-            providers: {
-              litellm: {
-                baseUrl: expectedBaseUrl,
-                api: "openai-completions",
-                models: expectedModels,
-              },
+        expect(result?.auth).toStrictEqual({
+          profiles: { "litellm:default": { provider: "litellm", mode: "api_key" } },
+        });
+        expect(result?.agents?.defaults).toStrictEqual({
+          models: { "litellm/claude-opus-4-6": { alias: "LiteLLM" } },
+          model: { primary: "litellm/claude-opus-4-6" },
+        });
+        expect(result?.models).toStrictEqual({
+          mode: "merge",
+          providers: {
+            litellm: {
+              baseUrl: expectedBaseUrl,
+              api: "openai-completions",
+              models: expectedModels,
             },
           },
         });

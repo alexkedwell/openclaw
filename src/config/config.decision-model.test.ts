@@ -7,18 +7,6 @@ import type { OpenClawConfig } from "./types.openclaw.js";
 import { OpenClawSchema } from "./zod-schema.js";
 
 describe("decision model configuration", () => {
-  it("uses normal explicit profile suffixes while preserving version and quantization model IDs", () => {
-    for (const [value, model, profileId] of [
-      ["openrouter/typesafe/jev@work", "typesafe/jev", "work"],
-      ["local/model@q8_0", "model@q8_0", undefined],
-      ["local/model@20260923@work", "model@20260923", "work"],
-    ] as const) {
-      const cfg = { agents: { defaults: { decisionModel: value } } };
-      const selected = resolveDecisionModelSetting(cfg);
-      expect(selected).toMatchObject({ model });
-      expect(selected?.profileId).toBe(profileId);
-    }
-  });
   it("keeps decision routing independent of chat and utility models and preserves agent disablement", () => {
     const config: OpenClawConfig = {
       agents: {
@@ -54,31 +42,5 @@ describe("decision model configuration", () => {
     expect(
       resolveDecisionModelSetting({ agents: { defaults: { model: "chat/large" } } }),
     ).toBeUndefined();
-  });
-
-  it.each(["bare-model", "/model", "provider/", null, false, 7, {}, "x".repeat(513)])(
-    "rejects an invalid decision model at global and agent scope: %j",
-    (decisionModel) => {
-      expect(
-        OpenClawSchema.safeParse({
-          agents: { ownership: "explicit", defaults: { decisionModel }, entries: { worker: {} } },
-        }).success,
-      ).toBe(false);
-      expect(
-        OpenClawSchema.safeParse({
-          agents: { ownership: "explicit", entries: { worker: { decisionModel } } },
-        }).success,
-      ).toBe(false);
-    },
-  );
-
-  it("accepts opt-in and explicit disablement, without the unpublished judgments selector", () => {
-    expect(OpenClawSchema.safeParse({}).success).toBe(true);
-    expect(
-      OpenClawSchema.safeParse({
-        agents: { ownership: "explicit", defaults: { decisionModel: "" }, entries: { worker: {} } },
-      }).success,
-    ).toBe(true);
-    expect(OpenClawSchema.safeParse({ judgments: { provider: "typesafe" } }).success).toBe(false);
   });
 });

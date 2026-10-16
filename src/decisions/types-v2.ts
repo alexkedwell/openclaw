@@ -1,10 +1,12 @@
+import type { ProviderPlugin } from "../plugins/provider-plugin.types.js";
+import type { DecisionProviderContextV2 } from "./provider-context.js";
 import type {
   DecisionEntry,
   DecisionOutcome,
   DecisionQuestion,
+  DecisionRuntimeV1,
   JsonValue,
   ProviderDecisionOutcome,
-  DecisionRuntimeV1,
 } from "./types.js";
 
 /** Explicit evidence supplied by the caller; the host collects no additional context. */
@@ -111,31 +113,26 @@ export type DecisionOutcomeV2 =
     }
   | Extract<DecisionOutcome, { status: "unavailable" }>;
 
-export type DecisionEvaluateOptionsV2 = {
-  readonly agentId?: string;
-  readonly purpose: string;
-  readonly rubricVersion: string;
-  readonly timeoutMs: number;
-  readonly signal: AbortSignal;
+/** Execution options add only provider-declared reasoning to the established caller contract. */
+export type DecisionEvaluateOptionsV2 = Parameters<DecisionRuntimeV1["evaluate"]>[1] & {
   readonly reasoning?: "auto" | "off" | "on";
 };
 
-/** Additive richer decision operation; the original evaluate method stays source-compatible. */
+/** Shares normal model catalog, route and credential ownership with conversational inference. */
+export interface DecisionProviderV2 {
+  readonly id: string;
+  readonly contractVersion: 2;
+  /** Omit when this plugin has already registered the same normal provider. */
+  readonly provider?: Omit<ProviderPlugin, "id">;
+  evaluate(
+    batch: DecisionBatchV2,
+    context: DecisionProviderContextV2,
+  ): Promise<ProviderDecisionOutcomeV2>;
+}
+
 export interface DecisionRuntimeV2 extends DecisionRuntimeV1 {
   evaluateV2(
     batch: DecisionBatchV2,
     options: DecisionEvaluateOptionsV2,
   ): Promise<DecisionOutcomeV2>;
-}
-
-/** First-class decision registration backed internally by the normal provider owner. */
-export interface DecisionProviderV2 {
-  readonly id: string;
-  readonly contractVersion: 2;
-  /** Existing normal provider definition; omit only when its same-plugin registration already exists. */
-  readonly provider?: Omit<import("../plugins/provider-plugin.types.js").ProviderPlugin, "id">;
-  evaluate(
-    batch: DecisionBatchV2,
-    context: import("./provider-context.js").DecisionProviderContextV2,
-  ): Promise<ProviderDecisionOutcomeV2>;
 }

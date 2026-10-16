@@ -90,6 +90,22 @@ describe("route inference capabilities", () => {
     expect(row?.inference?.decision?.questions).not.toHaveProperty("choice");
   });
 
+  it("retains provider-defined estimates, confidence and Boolean criteria requirements", () => {
+    const inference = {
+      chat: false,
+      decision: {
+        protocol: "fixture-legacy",
+        input: ["text"],
+        confidence: "provider-specific",
+        questions: {
+          boolean: { probabilities: "boolean", abstention: false, requiresCriteria: true },
+          choice: { probabilities: "provider-defined", abstention: false },
+        },
+      },
+    };
+    expect(catalog(inference)?.providers?.fixture?.models[0]?.inference).toEqual(inference);
+  });
+
   it("preserves independent probabilities, abstention and task-specific reasoning without inventing chat or prices", () => {
     const normalized = catalog({ chat: false, decision });
     const providerCatalog = normalized?.providers?.fixture;
@@ -158,6 +174,14 @@ describe("route inference capabilities", () => {
     { chat: false, decision: { ...decision, questions: [] } },
     { chat: false, decision: { ...decision, questions: { unknown: {} } } },
     { chat: false, decision: { ...decision, questions: { boolean: {} } } },
+    { chat: false, decision: { ...decision, confidence: "calibrated" } },
+    {
+      chat: false,
+      decision: {
+        ...decision,
+        questions: { boolean: { ...decision.questions.boolean, requiresCriteria: "true" } },
+      },
+    },
     {
       chat: false,
       decision: {

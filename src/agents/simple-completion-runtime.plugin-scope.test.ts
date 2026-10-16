@@ -14,6 +14,8 @@ import {
 } from "../plugins/test-helpers/cold-plugin-fixtures.js";
 import { createSyncSuiteTempRootTracker } from "../plugins/test-helpers/fs-fixtures.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import * as authProfileStoreRuntime from "./auth-profiles/store-runtime.js";
+import { resolveModelAsync } from "./embedded-agent-runner/model.js";
 import {
   acquireAgentRunPreparedModelRuntime,
   type PreparedModelRuntimeSnapshot,
@@ -22,6 +24,7 @@ import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runt
 import { getModelProviderLocalServiceReconciler } from "./provider-local-service-reconcile.js";
 import { getModelProviderLocalService } from "./provider-local-service.js";
 import { AuthStorage, ModelRegistry } from "./sessions/index.js";
+import { completeWithAuthProfileFailover } from "./simple-completion-profile-failover.js";
 import {
   completeWithPreparedSimpleCompletionModel,
   prepareSimpleCompletionModel,
@@ -106,6 +109,161 @@ afterEach(async () => {
 });
 
 describe("simple completion prepared plugin scope", () => {
+  it("completes with live plugin-owned auth despite unavailable agent storage and auth order", async () => {
+    const tempRoot = fs.realpathSync(tempRoots.makeTempDir());
+    const pluginRoot = path.join(tempRoot, "plugin");
+    fs.mkdirSync(pluginRoot);
+    const selected = createColdPluginFixture({
+      rootDir: pluginRoot,
+      pluginId: "completion-auth-owner",
+      providerId: "completion-auth-provider",
+      manifest: {
+        modelCatalog: {
+          providers: { "completion-auth-provider": { authScope: "plugin", models: [] } },
+        },
+      },
+    });
+    fs.writeFileSync(
+      selected.runtimeSource,
+      `module.exports = {
+  id: ${JSON.stringify(selected.pluginId)},
+  register(api) {
+    api.registerProvider({
+      id: ${JSON.stringify(selected.providerId)}, label: "Completion auth", auth: [], authScope: "plugin",
+      resolveSyntheticAuth() {
+        return {
+          apiKey: "live-plugin-key", mode: "api-key", source: "plugin:completion-auth",
+        };
+      },
+    });
+  },
+};
+`,
+    );
+    const authorizations: Array<string | undefined> = [];
+    const server = createServer((request, response) => {
+      request.resume();
+      authorizations.push(request.headers.authorization);
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(
+        `data: ${JSON.stringify({
+          id: "plugin-auth-response",
+          object: "chat.completion.chunk",
+          model: "selected-model",
+          choices: [
+            { index: 0, delta: { content: "plugin-owned completion" }, finish_reason: "stop" },
+          ],
+        })}\n\ndata: [DONE]\n\n`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
+    });
+    let preparedResource: AsyncDisposable | undefined;
+    const readAgentStore = vi.fn(async () => {
+      throw new Error("agent auth storage unavailable");
+    });
+    let restoreStoreRead: (() => void) | undefined;
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Missing completion fixture port");
+      }
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: { workspace: selected.rootDir, model: `${selected.providerId}/selected-model` },
+        },
+        auth: { order: { [selected.providerId]: ["missing-agent-profile"] } },
+        models: {
+          providers: {
+            [selected.providerId]: {
+              api: "openai-completions",
+              baseUrl: `http://127.0.0.1:${address.port}/v1`,
+              models: [
+                {
+                  id: "selected-model",
+                  name: "Selected",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  contextWindow: 8192,
+                  maxTokens: 1024,
+                },
+              ],
+            },
+          },
+        },
+        plugins: {
+          load: { paths: [selected.rootDir] },
+          slots: { memory: "none" },
+          entries: { [selected.pluginId]: { enabled: true } },
+        },
+      };
+      await withEnvAsync(
+        {
+          ...createColdPluginHermeticEnv(tempRoot, { bundledPluginsDir: tempRoots.makeTempDir() }),
+          OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+          OPENCLAW_STATE_DIR: path.join(tempRoot, "state"),
+        },
+        async () => {
+          const params = {
+            cfg,
+            agentId: "main",
+            agentDir: path.join(tempRoot, "agent"),
+            profileFailover: true,
+            modelRef: `${selected.providerId}/selected-model`,
+            modelResolver: (async (...args) => {
+              const result = await resolveModelAsync(...args);
+              // Leave model discovery real; poison only the subsequent credential-planning phase.
+              const spy = vi
+                .spyOn(authProfileStoreRuntime, "ensureAuthProfileStoreAsync")
+                .mockImplementation(readAgentStore);
+              restoreStoreRead = () => spy.mockRestore();
+              return result;
+            }) satisfies SimpleCompletionModelResolver,
+          };
+          const prepared = await acquireSimpleCompletionModelForAgent(params);
+          if ("error" in prepared) {
+            throw new Error(prepared.error);
+          }
+          preparedResource = prepared;
+          expect(prepared.auth.profileId).toBeUndefined();
+          expect(prepared.authProfiles).toBeUndefined();
+          const result = await completeWithAuthProfileFailover({
+            prepared,
+            cfg,
+            agentDir: params.agentDir,
+            assertCurrent: () => {},
+            warn: vi.fn(),
+            complete: (current) =>
+              completeWithPreparedSimpleCompletionModel({
+                ...current,
+                cfg,
+                context: { messages: [{ role: "user", content: "Complete", timestamp: 1 }] },
+              }),
+          });
+          expect(result).toMatchObject({
+            stopReason: "stop",
+            content: [{ type: "text", text: "plugin-owned completion" }],
+          });
+          expect(authorizations).toEqual(["Bearer live-plugin-key"]);
+          expect(readAgentStore).not.toHaveBeenCalled();
+        },
+      );
+    } finally {
+      restoreStoreRead?.();
+      await preparedResource?.[Symbol.asyncDispose]();
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   it.each([
     {
       name: "caller-selected provider and model",
@@ -355,7 +513,7 @@ module.exports = {
                 throwOnLoadError: true,
               });
             if (mode !== "acquired") {
-              activateAmbient();
+              await activateAmbient();
             }
             // Loading the public SDK must retain the host's registered metadata owners.
             const metadataReaders = readHostMetadataReaders();
@@ -402,7 +560,7 @@ module.exports = {
               await using repeated = repeatedPreparation;
               expect(repeated).not.toHaveProperty("error");
               expect(process.listenerCount(selected.ownerEvent)).toBe(1);
-              activateAmbient();
+              await activateAmbient();
             }
             // Callers use the logical API before dispatch, including CLI system-prompt selection.
             expect(prepared.model.api).toBe("openai-completions");

@@ -73,7 +73,7 @@ Select the role globally or for one agent:
 ```
 
 The default artifact directory is `<stateDir>/models/onnx`. Set the plugin's
-`modelDir` to use another directory; the download, verify, and probe commands also
+`modelDir` to use another directory; the `download`, `verify`, and `probe` commands also
 accept `--model-dir <path>`. Artifacts are grouped by model ID. Downloads use fixed
 repository revisions, sizes, and SHA256 hashes. Existing mismatched files are
 refused rather than overwritten. `openclaw onnx verify <model>` checks an installation.
@@ -118,13 +118,6 @@ third-party attestation. Few-shot example sections are not supported by this exp
 
 ## Question semantics
 
-The plugin registers a first-class contract-version-2 decision provider through
-`registerDecisionProvider`. Its canonical catalog declares decision support and
-`chat: false`; the existing version-1 consumer API remains supported by the host.
-Version-2 evidence is explicitly text or JSON. Images, lists, Sort, Tags, and
-explicit reasoning `off` or `on` are rejected before native dispatch. Omitted
-reasoning or `auto` uses the classifier unchanged.
-
 These models classify text against a rubric. JSON state and rubric entries are
 serialized as text; instructions and criterion descriptions condition classification.
 Use descriptive criteria rather than opaque IDs when possible.
@@ -140,20 +133,13 @@ are not interchangeable with Jev on every reasoning task. Validate the rubric on
 representative examples before relying on its decision quality.
 
 The plugin supports up to 32 questions and 64 labels per question, with a one-MiB
-limit on compiled inputs across the batch. GLiClass and GLiNER require each
-encoded question, including its rubric, to fit 512 tokens. DeBERTa applies that
-limit to each state-and-criterion pair. These are tokenizer admission limits,
-not a combined request-token allowance or a billing policy. The plugin rejects
-unsupported input instead of truncating it. GLiClass reserves its label, separator, and example
+limit on compiled inputs across the batch. Each encoded
+input, including its rubric, must fit 512 tokens. It rejects unsupported input
+instead of truncating it. GLiClass reserves its label, separator, and example
 markers. GLiNER2.5 also rejects the schema's reserved markers and parentheses in
 rubrics; ordinary state text can contain punctuation.
 
 ## Lifecycle and runtime
-
-The shared provider-auth owner records that ONNX needs no credential. That
-nonsecret local marker is not proof of artifact availability; the worker still
-verifies pinned files before loading. The CLI probe uses the same private
-classification adapter without changing an agent role or inventing a chat model.
 
 Up to `maxLoadedModels` selected models warm during plugin service startup. Later
 requests reuse native sessions; the resident cache evicts the least recently

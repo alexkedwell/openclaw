@@ -13,15 +13,15 @@ const imageNativeHashes = {
   arm64:
     "b7bd40540ecb46a88a4f2679c4c61a65cda7e437dda4c6dfa2466e8883971c138cd371029c5d2de226306810ea26056394a6143b0685fdb4506a318d038709e3",
 };
-// The repository already selects 12.4.0. Authenticate both stages of its
+// The repository already selects 12.10.1. Authenticate both stages of its
 // bootstrap without changing that pin or routing downloads through Node fetch.
-const currentVersion = "12.4.0";
+const currentVersion = "12.10.1";
 const currentWrapperHash =
-  "37536c26ed40ab4134b6511e09f6b27f3ebb45687468f2406ca3805279a4e5ca158c1931350ad9774d6ab2108d71b3dbaeb39943159294375e4d053e8e05685c";
+  "ba40a37eb1a370d60fea8c4cf1d364c13bcccef518e98ad2bcee954f539d38da37458e58261a3fa55e06523450ea0ffff9f497b135be41f2c15c1642bacace6c";
 const currentNativeHashes = {
-  x64: "490560464711e17caa7fcf9535bb58d2bb5c1277c3ab8f11847df41d6a36fd47ea2847e57b6ace3321993a63750db330e19cc6e66598a02f353bb66a1c565c3f",
+  x64: "641c95d034605b319a0d28d3e5d75104049dc33fabfea3cc621ee8e911a63d08ed4463456d297de316360dc00cf26a82399254503b405d0fb0a415dc7692a592",
   arm64:
-    "ea7a50530ab70ff5976d3811e1ebc0a44290f484f39d9e88cff769b5c8c1cc0efec122d369890af7c39ddb0b070a83e61056fdb46b4cf9cbc6f36fb0cb4a3db8",
+    "a0174ca7af52702f549e7886e2a640415af67c10d25e39b8ca4ffbdaf904572ae5c12db7c8cc5c45097b41da37b205cf032818e935a73d12a6e2b5f38e8c96ef",
 };
 const current = packageManager === `pnpm@${currentVersion}+sha512.${currentWrapperHash}`;
 const version = current ? currentVersion : imageVersion;
@@ -33,6 +33,9 @@ const cachedArchives = process.env.PNPM_CONFIG_STORE_DIR
   : undefined;
 const registry = "https://registry.npmjs.org";
 const registryConfigured = (process.env.COREPACK_NPM_REGISTRY || registry).replace(/\/$/u, "");
+// Curl's built-in retry policy already distinguishes transient HTTP responses.
+// Retry only transport exits here so permanent HTTP failures still fail once.
+const retryableCurlStatuses = new Set([5, 6, 7, 18, 35, 52, 55, 56, 92]);
 // These native archives are glibc builds. Windows seeds only the authenticated
 // wrapper; pnpm owns its native binary selection and signature verification.
 let supportedCurrentHost = !current;
@@ -94,23 +97,33 @@ if (
           ? `${registry}/pnpm/-/${name}`
           : `${registry}/@pnpm/exe.linux-${process.arch}/-/${name}`;
         console.error(`Downloading pinned pnpm archive ${name}`);
-        const fetched = spawnSync(
-          "curl",
-          [
-            "--fail",
-            "--location",
-            "--silent",
-            "--show-error",
-            "--connect-timeout",
-            "10",
-            "--max-time",
-            "120",
-            "--output",
-            destination,
-            url,
-          ],
-          { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" },
-        );
+        const curlArgs = [
+          "--fail",
+          "--location",
+          "--silent",
+          "--show-error",
+          "--connect-timeout",
+          "10",
+          "--max-time",
+          "120",
+          "--retry",
+          "2",
+          "--retry-delay",
+          "2",
+          "--output",
+          destination,
+          url,
+        ];
+        let fetched;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          fetched = spawnSync("curl", curlArgs, {
+            stdio: ["ignore", "ignore", "pipe"],
+            encoding: "utf8",
+          });
+          if (fetched.error || !retryableCurlStatuses.has(fetched.status)) {
+            break;
+          }
+        }
         if (fetched.error || fetched.status !== 0) {
           throw new Error(`Cannot download pinned pnpm archive ${name}: ${fetched.stderr}`, {
             cause: fetched.error,

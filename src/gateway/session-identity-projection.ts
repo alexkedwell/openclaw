@@ -26,25 +26,84 @@ import type { SessionOwnerFacetIdentity } from "../shared/session-types.js";
 import { sortAndLimitBy } from "../shared/sort-and-limit.js";
 import type { SynchronousWork } from "../shared/synchronous-work.js";
 import { resolveUserProfileReference } from "../state/user-profile-list.js";
+import { matchUserProfileReference } from "../state/user-profiles-internal.js";
+import type { UserProfileDisplay } from "../state/user-profiles.types.js";
 import { buildControlUiResourcePath } from "./control-ui-contract.js";
 import { normalizeControlUiBasePath } from "./control-ui-shared.js";
-import { resolveCurrentUserProfileDisplay } from "./current-user-profile-display.js";
+import {
+  resolveCurrentUserProfileDisplay,
+  type CurrentUserProfileDisplay,
+} from "./current-user-profile-display.js";
 import type { SessionEntryPair } from "./session-list-order.js";
-import type {
-  SessionActorProfileIdentity,
-  SessionIdentityProjection,
-} from "./session-utils-contracts.js";
+
+export type SessionActorProfileIdentity = Extract<CurrentUserProfileDisplay, { kind: "resolved" }>;
+export type SessionIdentityProjection = ReturnType<typeof createSessionIdentityProjection>;
+
+/** A complete display snapshot leaves unknown profiles unresolved without reading host state. */
+class PreparedSessionProfileIdentities extends Map<
+  string,
+  SessionActorProfileIdentity | undefined
+> {
+  constructor(displays: ReadonlyMap<string, UserProfileDisplay>) {
+    super();
+    for (const id of displays.keys()) {
+      const display = resolveCurrentUserProfileDisplay(id, (key) => displays.get(key));
+      this.set(id, display.kind === "resolved" ? display : undefined);
+    }
+  }
+
+  resolveReference(reference: string, allowedProfileIds?: ReadonlySet<string>) {
+    const allowed = (profile: SessionActorProfileIdentity | undefined) =>
+      profile && (!allowedProfileIds || allowedProfileIds.has(profile.profileId));
+    const exact = this.get(reference);
+    return matchUserProfileReference(
+      reference,
+      allowed(exact) ? exact?.profileId : undefined,
+      (prefix) =>
+        [...this].flatMap(([id, profile]) =>
+          profile && allowed(profile) && id.toLowerCase().startsWith(prefix)
+            ? [profile.profileId]
+            : [],
+        ),
+    );
+  }
+}
+
+export function createPreparedSessionProfileIdentities(
+  displays: ReadonlyMap<string, UserProfileDisplay>,
+) {
+  return new PreparedSessionProfileIdentities(displays);
+}
 
 /** The row owner invalidates these facts on profile/config publication; entry replacement is exact. */
-export function createSessionIdentityProjection(): SessionIdentityProjection {
+export function createSessionIdentityProjection() {
+  let revision = {};
   let owners = new WeakMap<SessionEntry, ReturnType<typeof projectSessionOwner>>();
   let participants = new WeakMap<SessionEntry, ReadonlyMap<string, SessionParticipant>>();
   let people = new WeakMap<SessionEntry, readonly SessionPerson[]>();
+  let involvement = new WeakMap<SessionEntry, Map<string, SessionProfileInvolvement>>();
   return {
+    get revision() {
+      return revision;
+    },
     invalidate() {
+      revision = {};
       owners = new WeakMap();
       participants = new WeakMap();
       people = new WeakMap();
+      involvement = new WeakMap();
+    },
+    involvement(
+      this: void,
+      entry: SessionEntry,
+      profiles: Parameters<typeof projectSessionProfileInvolvements>[1],
+    ): ReadonlyMap<string, SessionProfileInvolvement> {
+      let projected = involvement.get(entry);
+      if (!projected) {
+        projected = projectSessionProfileInvolvements(entry, profiles);
+        involvement.set(entry, projected);
+      }
+      return projected;
     },
     owner(this: void, ...args: Parameters<typeof projectSessionOwner>) {
       const [entry] = args;
@@ -109,7 +168,7 @@ export function projectSessionParticipant(
   if (identity.type !== "profile") {
     return { identity };
   }
-  if (!profiles.has(identity.id)) {
+  if (!profiles.has(identity.id) && !(profiles instanceof PreparedSessionProfileIdentities)) {
     const display = resolveCurrentUserProfileDisplay(identity.id);
     profiles.set(identity.id, display.kind === "resolved" ? display : undefined);
   }
@@ -122,18 +181,19 @@ export function projectSessionParticipant(
 }
 
 /** Resolve merged profiles without rewriting personal choices in other agent stores. */
-export function projectSessionProfileInvolvement(
+export function projectSessionProfileInvolvements(
   entry: SessionEntry,
-  profileId: string,
   profiles: Map<string, SessionActorProfileIdentity | undefined>,
-): SessionProfileInvolvement | undefined {
-  return mergeSessionProfileInvolvement(
-    Object.entries(entry.profileInvolvement?.profiles ?? {}).flatMap(([id, state]) =>
-      projectSessionParticipant({ type: "profile", id }, profiles).identity.id === profileId
-        ? [state]
-        : [],
-    ),
-  );
+): Map<string, SessionProfileInvolvement> {
+  const projected = new Map<string, SessionProfileInvolvement>();
+  for (const [id, state] of Object.entries(entry.profileInvolvement?.profiles ?? {})) {
+    const canonical = projectSessionParticipant({ type: "profile", id }, profiles).identity.id;
+    const merged = mergeSessionProfileInvolvement([projected.get(canonical), state]);
+    if (merged) {
+      projected.set(canonical, merged);
+    }
+  }
+  return projected;
 }
 
 export function projectSessionActor(
@@ -297,10 +357,10 @@ export function* resolveSessionListProfileReference(
       }
     }
   }
-  const durable = resolveUserProfileReference(
-    reference,
-    allowedProfileIds ? { allowedProfileIds } : {},
-  );
+  const durable =
+    identities instanceof PreparedSessionProfileIdentities
+      ? identities.resolveReference(reference, allowedProfileIds)
+      : resolveUserProfileReference(reference, allowedProfileIds ? { allowedProfileIds } : {});
   if (!durable.ok) {
     return durable;
   }
@@ -311,22 +371,16 @@ export function* resolveSessionListProfileReference(
 }
 
 export function projectSessionPeopleFacet(
-  people: Iterable<SessionPerson>,
+  people: ReadonlyMap<string, SessionPerson>,
   selectedProfileId?: string,
 ) {
-  const entries = [...people];
+  const entries = [...people.values()];
   const compare = (a: SessionPerson, b: SessionPerson) =>
     b.sessionCount - a.sessionCount ||
     (a.label ?? a.identity.id).localeCompare(b.label ?? b.identity.id) ||
     a.identity.id.localeCompare(b.identity.id);
   const visiblePeople = sortAndLimitBy(entries, SESSIONS_LIST_OWNER_LIMIT, compare);
-  const selected = selectedProfileId
-    ? sortAndLimitBy(
-        entries.filter((person) => person.identity.id === selectedProfileId),
-        1,
-        compare,
-      )[0]
-    : undefined;
+  const selected = selectedProfileId ? people.get(selectedProfileId) : undefined;
   if (selected && !visiblePeople.includes(selected)) {
     visiblePeople.splice(-1, 1, selected);
   }

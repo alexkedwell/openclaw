@@ -1,7 +1,4 @@
-import {
-  findNormalizedProviderValue,
-  normalizeProviderId,
-} from "@openclaw/model-catalog-core/provider-id";
+import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { ProviderAuthError } from "../agents/model-auth-runtime-shared.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { getActiveSecretsRuntimeSnapshotRevisionState } from "../secrets/runtime-state.js";
@@ -9,7 +6,7 @@ import { getCurrentPluginMetadataSnapshot } from "./current-plugin-metadata-snap
 import { getPluginValueInstance } from "./plugin-instance-scope.js";
 import type { PluginMetadataRegistryView } from "./plugin-metadata-snapshot.types.js";
 import type { ProviderSyntheticAuthResult } from "./provider-external-auth.types.js";
-import { buildDeclaredProviderOwnerIndex } from "./provider-owner-index.js";
+import { getProviderOwnerIndex } from "./provider-owner-index.js";
 import type { ProviderPlugin } from "./provider-plugin.types.js";
 import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 import { getPluginRuntimeGenerationRegistry } from "./runtime/generation-state.js";
@@ -49,33 +46,13 @@ export function resolveProviderAuthScope(params: ProviderAuthScopeLookup): "agen
   if (!manifests) {
     return "agent";
   }
-  const owners = snapshot
-    ? (snapshot.declaredProviderOwners ?? buildDeclaredProviderOwnerIndex(manifests.plugins))
-    : (context?.declaredProviderOwners ?? buildDeclaredProviderOwnerIndex(manifests.plugins));
-  const provider = normalizeProviderId(params.provider);
-  const declared = owners.get(provider);
-  const scopes = new Set<"agent" | "plugin">();
-  const seen = new Set<string>();
-  for (const plugin of manifests.plugins) {
-    if (seen.has(plugin.id)) {
-      continue;
-    }
-    seen.add(plugin.id);
-    const alias = findNormalizedProviderValue(plugin.modelCatalog?.aliases, provider);
-    const authAlias = findNormalizedProviderValue(plugin.providerAuthAliases, provider);
-    const target = alias?.provider ?? (typeof authAlias === "string" ? authAlias : undefined);
-    const catalog =
-      findNormalizedProviderValue(plugin.modelCatalog?.providers, provider) ??
-      (target ? findNormalizedProviderValue(plugin.modelCatalog?.providers, target) : undefined);
-    if ((declared && !declared.has(plugin.id)) || (!declared && !catalog)) {
-      continue;
-    }
-    scopes.add(catalog?.authScope ?? "agent");
-  }
-  if (scopes.size > 1) {
+  const scope = getProviderOwnerIndex(manifests).authScopes.get(
+    normalizeProviderId(params.provider),
+  );
+  if (scope === "conflict") {
     throw pluginProviderAuthUnavailable(params.provider, "conflicting static credential owners");
   }
-  return scopes.has("plugin") ? "plugin" : "agent";
+  return scope ?? "agent";
 }
 
 /** Plugin credentials are live instance-owned facts, never prepared/restored bearer cache entries. */

@@ -2,7 +2,7 @@ import type { OperatorScope } from "../../../src/gateway/operator-scopes.js";
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import {
   resolveBaseSessionMutationRequiredScope,
-  resolveBaseSessionReadRequiredScope,
+  resolveSessionMethodScope,
 } from "../../../src/shared/session-method-scopes-base.js";
 import type { ApplicationGatewaySnapshot } from "../app/gateway.ts";
 
@@ -17,10 +17,7 @@ export function isGatewayMethodAdvertised(
   method: string,
 ): boolean | null {
   const methods = host.hello?.features?.methods;
-  if (!Array.isArray(methods)) {
-    return null;
-  }
-  return methods.includes(method);
+  return Array.isArray(methods) ? methods.includes(method) : null;
 }
 
 export function isGatewayCapabilityAdvertised(
@@ -32,10 +29,7 @@ export function isGatewayCapabilityAdvertised(
   capability: string,
 ): boolean | null {
   const capabilities = host.hello?.features?.capabilities;
-  if (!Array.isArray(capabilities)) {
-    return null;
-  }
-  return capabilities.includes(capability);
+  return Array.isArray(capabilities) ? capabilities.includes(capability) : null;
 }
 
 /** Combines the active connection, advertised method catalog, and operator scopes. */
@@ -64,7 +58,10 @@ export function canCallGatewayMethod(
       requiredScope === "operator.admin"
         ? requiredScope
         : (resolveBaseSessionMutationRequiredScope(method) ??
-          resolveBaseSessionReadRequiredScope(method) ??
+          (requiredScope === "operator.read" &&
+          resolveSessionMethodScope(method) === "operator.sessions.read"
+            ? "operator.sessions.read"
+            : undefined) ??
           requiredScope),
     ],
     allowedScopes: auth.scopes,

@@ -1,12 +1,15 @@
 import { expectDefined } from "@openclaw/normalization-core";
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { setRuntimeConfigSnapshot } from "../../config/runtime-snapshot.js";
 import {
   appendTranscriptMessageSync,
   loadSessionEntryReadOnly,
   readSessionTranscriptWatermark,
+  replaceSessionEntry,
   replaceSessionEntrySync,
 } from "../../config/sessions/session-accessor.js";
+import { memorySessionActorOwners } from "../../config/sessions/session-actor-memory-owner.js";
+import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   disposeSessionReadContexts,
@@ -16,6 +19,7 @@ import {
 } from "../../gateway/server-methods/sessions-read-cache.test-support.js";
 import { withOperatorToolGatewayAuthority } from "../../gateway/server-plugin-in-process-dispatch.js";
 import * as transcriptTitles from "../../gateway/session-transcript-title-reader.js";
+import type { SessionsListResult } from "../../gateway/session-utils.types.js";
 import { withPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { isIncognitoSessionKey } from "../../routing/session-key.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
@@ -33,6 +37,8 @@ type FixtureRow = {
   transcript?: boolean;
 };
 
+afterEach(() => memorySessionActorOwners.reset());
+
 async function withInventory(
   definitions: FixtureRow[],
   run: (fixture: {
@@ -45,7 +51,7 @@ async function withInventory(
     const viewer = ensureProfileForEmail("inventory-title-reader@example.test");
     const cfg: OpenClawConfig = {
       ...VALID_CONFIG,
-      agents: { entries: { main: { default: true }, other: {} } },
+      agents: { entries: { main: {}, other: {} } },
       gateway: {
         roles: {
           default: "reader",
@@ -77,7 +83,7 @@ async function withInventory(
     for (const [index, definition] of definitions.entries()) {
       const row = rows[index]!;
       const scope = scopes[index]!;
-      replaceSessionEntrySync(scope, {
+      const entry: SessionEntry = {
         sessionId: scope.sessionId,
         updatedAt: row.updatedAt ?? 0,
         label: row.label,
@@ -86,7 +92,12 @@ async function withInventory(
         visibility: "shared",
         createdActor: { type: "human", source: "profile", id: owner.id },
         ...(isIncognitoSessionKey(scope.sessionKey) ? { incognito: true } : {}),
-      });
+      };
+      if (isIncognitoSessionKey(scope.sessionKey)) {
+        await replaceSessionEntry(scope, entry);
+      } else {
+        replaceSessionEntrySync(scope, entry);
+      }
       if (!definition.transcript) {
         continue;
       }
@@ -123,25 +134,23 @@ async function withInventory(
     const callGateway: AgentToolGatewayRequestCaller = async <T>(
       request: Parameters<AgentToolGatewayRequestCaller>[0],
     ): Promise<T> => {
-      if (request.method !== "sessions.list") {
-        return await callAgentToolGatewayRequest<T>(request);
+      if (request.method === "sessions.list") {
+        expect(request.params).toMatchObject({
+          includeDerivedTitles: false,
+          includeLastMessage: false,
+        });
       }
-      expect(request.params).toMatchObject({
-        includeDerivedTitles: false,
-        includeLastMessage: false,
-      });
-      const response = await callAgentToolGatewayRequest<{ sessions: GatewaySessionListRow[] }>(
-        request,
-      );
-      for (const row of response.sessions) {
-        // Preserve the producer's row binding while exercising optional wire-field edge cases.
-        Object.assign(row, overrides.get(row.key));
-        // Keep the title-admission fixture below the separately tested byte budget.
-        delete row.createdActor;
-        delete row.owner;
+      const result = await callAgentToolGatewayRequest<T>(request);
+      if (request.method === "sessions.list") {
+        // Exercise tool intake with wire-field edge cases after real Gateway authorization.
+        for (const row of (result as SessionsListResult).sessions) {
+          Object.assign(row, overrides.get(row.key));
+          // Keep title admission below the separately tested response byte budget.
+          delete row.createdActor;
+          delete row.owner;
+        }
       }
-      // SAFETY: the registered method produced this response; only its row metadata was overlaid.
-      return response as T;
+      return result;
     };
     const tool = createSessionsListTool({
       config: cfg,

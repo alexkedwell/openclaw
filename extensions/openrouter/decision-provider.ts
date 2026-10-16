@@ -19,8 +19,8 @@ import {
   resolveOpenRouterSsrfPolicy,
 } from "./provider-catalog.js";
 import {
-  resolveOpenRouterExtraParamsForTransport,
   resolveOpenRouterConfiguredExtraParams,
+  resolveOpenRouterExtraParamsForTransport,
 } from "./provider-routing.js";
 
 export function isOpenRouterDecisionModel(modelId: string): boolean {
@@ -35,7 +35,7 @@ function supportsBatch(batch: DecisionBatchV2): boolean {
   if (!validateDecisionBatchV2(batch)) {
     return false;
   }
-  // System One accepts strings, objects and arrays, not images or primitive JSON scalars.
+  // This adapter supports text and structured JSON, not image/list state or JSON scalars.
   if (
     batch.state.type !== "text" &&
     (batch.state.type !== "json" ||
@@ -202,6 +202,20 @@ export function buildOpenRouterDecisionProvider(): DecisionProviderV2 {
       }
       const providerConfig = context.config.models?.providers?.openrouter;
       let release: (() => Promise<void>) | undefined;
+      let admissionError: { error: unknown } | undefined;
+      const assertActive = () => {
+        context.signal.throwIfAborted();
+        let admitted: boolean;
+        try {
+          admitted = context.isAdmissible();
+        } catch (error) {
+          admissionError = { error };
+          throw error;
+        }
+        if (!admitted || performance.now() >= context.deadlineMonotonicMs) {
+          throw new Error("OpenRouter decision is no longer admitted.");
+        }
+      };
       try {
         // Auth and effective headers are prepared by the host. Only proxy/TLS/SSRF
         // policy is read here; never select a second credential or auth profile.
@@ -244,6 +258,9 @@ export function buildOpenRouterDecisionProvider(): DecisionProviderV2 {
           init: { method: "POST", headers: requestConfig.headers, body: JSON.stringify(body) },
           signal: context.signal,
           timeoutMs,
+          // DNS, proxy and capture preparation can yield after the host handed us
+          // this context. Recheck its live authority at each physical dispatch.
+          beforeRequest: assertActive,
           policy: resolveOpenRouterSsrfPolicy(requestConfig, configuredRequest),
           dispatcherPolicy: requestConfig.dispatcherPolicy,
           auditContext: "openrouter-decisions",
@@ -280,6 +297,9 @@ export function buildOpenRouterDecisionProvider(): DecisionProviderV2 {
           : { status: "unavailable", reason: "invalid-response" };
       } catch {
         context.signal.throwIfAborted();
+        if (admissionError) {
+          throw admissionError.error;
+        }
         return { status: "unavailable", reason: "transport" };
       } finally {
         await release?.();

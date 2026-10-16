@@ -1,27 +1,12 @@
 import { resolveAgentConfig } from "openclaw/plugin-sdk/agent-scope-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import type { ProviderPlugin } from "openclaw/plugin-sdk/plugin-entry";
 import { normalizeOpenRouterApiModelId } from "./models.js";
 
 type OpenRouterModelParamsContext = { config?: OpenClawConfig; agentId?: string; modelId: string };
-
-// Openrouter provider module implements model/runtime integration.
-type OpenRouterExtraParamsContext = {
-  config?: {
-    models?: {
-      providers?: Record<
-        string,
-        {
-          params?: Record<string, unknown>;
-        }
-      >;
-    };
-  };
-  extraParams: Record<string, unknown>;
-  provider: string;
-  model?: {
-    params?: Record<string, unknown>;
-  };
-};
+type OpenRouterTransportContext = Parameters<
+  NonNullable<ProviderPlugin["extraParamsForTransport"]>
+>[0];
 
 const BLOCKED_RECORD_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
@@ -64,7 +49,9 @@ function mergeOpenRouterProviderRouting(
 }
 
 export function resolveOpenRouterExtraParamsForTransport(
-  ctx: OpenRouterExtraParamsContext,
+  ctx: Pick<OpenRouterTransportContext, "config" | "provider" | "extraParams"> & {
+    model?: Pick<NonNullable<OpenRouterTransportContext["model"]>, "params">;
+  },
 ): { patch?: Record<string, unknown> } | undefined {
   const providerConfigParams = readRecord(ctx.config?.models?.providers?.[ctx.provider]?.params);
   const modelParams = readRecord(ctx.model?.params);

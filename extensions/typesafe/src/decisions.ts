@@ -1,55 +1,37 @@
 import type {
-  DecisionBatchV2,
-  DecisionBatchResultV2,
-  DecisionProviderV2,
+  DecisionBatch,
+  DecisionBatchResult,
+  DecisionProviderV1,
 } from "openclaw/plugin-sdk/decisions";
-import { evaluate as evaluateTypeSafe } from "./client.js";
-import { runtimeSettings, type RuntimeConfig } from "./config.js";
+import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
+import { hasCredentials, type RuntimeConfig } from "./config.js";
 import { decisionFailure } from "./errors.js";
 
-const LOCAL_AUTH_MARKER = "typesafe-local";
+const loadClient = createLazyRuntimeModule(() => import("./client.js"));
 
 /** Translate the host-selected decision contract through the TypeSafe transport. */
-export function createDecisionProvider(getConfig: () => RuntimeConfig): DecisionProviderV2 {
+export function createDecisionProvider(getConfig: () => RuntimeConfig): DecisionProviderV1 {
   return {
     id: "typesafe",
-    contractVersion: 2,
-    provider: {
-      label: "TypeSafe AI",
-      auth: [],
-      authScope: "plugin",
-      resolveSyntheticAuth: () => {
-        const config = getConfig();
-        if (config.baseUrl) {
-          return { apiKey: LOCAL_AUTH_MARKER, mode: "api-key", source: "typesafe-local" };
-        }
-        return config.apiKey
-          ? { apiKey: config.apiKey, mode: "api-key", source: "typesafe-prepared-secret" }
-          : undefined;
-      },
+    contractVersion: 1,
+    isReady: () => {
+      const config = getConfig();
+      return hasCredentials(config);
     },
-    async evaluate(batch: DecisionBatchV2, context) {
+    async evaluate(batch: DecisionBatch, context) {
       context.signal.throwIfAborted();
-      if (
-        (batch.state.type !== "text" && batch.state.type !== "json") ||
-        Object.values(batch.questions).some((q) => q.type === "sort" || q.type === "tags") ||
-        (context.reasoning !== undefined && context.reasoning !== "auto")
-      ) {
-        return { status: "unavailable", reason: "unsupported-input" };
-      }
-      const settings = runtimeSettings(context.config.plugins?.entries?.typesafe?.config);
-      const config = {
-        ...settings,
-        apiKey: settings.baseUrl ? undefined : context.auth.apiKey,
-      };
-      if (!config.baseUrl && (!config.apiKey || config.apiKey === LOCAL_AUTH_MARKER)) {
+      // Registration and readiness do not need the transport or compiled validators.
+      // Sample configuration and the remaining deadline after the cold import settles.
+      const { evaluate: evaluateTypeSafe } = await loadClient();
+      context.signal.throwIfAborted();
+      const config = getConfig();
+      if (!hasCredentials(config)) {
         return { status: "unavailable", reason: "credentials-unavailable" };
       }
       const remaining = context.deadlineMonotonicMs - performance.now();
       if (remaining <= 0) {
         return { status: "unavailable", reason: "transport" };
       }
-      const state = batch.state.type === "text" ? batch.state.text : batch.state.value;
       const questions = Object.fromEntries(
         Object.entries(batch.questions).map(([id, q]) => [
           id,
@@ -58,21 +40,26 @@ export function createDecisionProvider(getConfig: () => RuntimeConfig): Decision
       );
       try {
         const { evaluation } = await evaluateTypeSafe(
-          {
-            // System One accepts text/object/array/null; encode explicit JSON scalars as text.
-            state:
-              typeof state === "number" || typeof state === "boolean"
-                ? JSON.stringify(state)
-                : state,
-            questions,
-            model: context.model.id,
-          },
+          { state: batch.state, questions, model: context.model },
           { ...config, timeoutMs: Math.min(config.timeoutMs, remaining) },
           context.signal,
           context.deadlineMonotonicMs,
+          () => {
+            if (context.isAdmissible && !context.isAdmissible()) {
+              return false;
+            }
+            // DNS and capture admission may await; only the current owner may authorize egress.
+            const current = getConfig();
+            return (
+              current.baseUrl === config.baseUrl &&
+              current.providerConfig === config.providerConfig &&
+              current.apiKey === config.apiKey &&
+              !current.credentialsUnavailable
+            );
+          },
         );
         context.signal.throwIfAborted();
-        const answers: Record<string, DecisionBatchResultV2["answers"][string]> = {};
+        const answers: Record<string, DecisionBatchResult["answers"][string]> = {};
         for (const [id, answer] of Object.entries(evaluation.answers)) {
           if (answer.type === "noul") {
             answers[id] = { type: "boolean", probabilityTrue: answer.noul };

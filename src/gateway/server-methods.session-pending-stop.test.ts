@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
 import { getAgentEventLifecycleGeneration } from "../infra/agent-events.js";
+import { loadOrCreateProcessDeviceIdentityAsync } from "../infra/device-identity-async.js";
 import { runExclusiveSessionLifecycleMutation } from "../sessions/session-lifecycle-admission.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
@@ -12,21 +14,27 @@ import { handleGatewayRequest } from "./server-methods.js";
 import { handleChatAbortRequest } from "./server-methods/chat-abort-handler.js";
 import { admitChatSend } from "./server-methods/chat-send-admission.js";
 import { normalizeChatSendRequest } from "./server-methods/chat-send-request.js";
-import { prepareChatSendSession } from "./server-methods/chat-send-session.js";
+import {
+  prepareChatSendSession,
+  qualifyChatSendSession,
+} from "./server-methods/chat-send-session.js";
 import { pendingChatSendDedupeKey } from "./server-shared.js";
 import { roleClient, rolePolicyConfig } from "./session-sharing.test-utils.js";
 
 const key = "agent:main:pending-stop";
 
+const profileState = { scenario: "minimal", prepareProfileCatalog: true } as const;
+
 describe("pending Stop producer binding", () => {
   it.each(["current", "replacement"] as const)(
     "uses the agent reservation's original row across %s admission",
     async (target) => {
-      await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      await withOpenClawTestState(profileState, async () => {
         const client = roleClient("view", "pending-agent-owner");
         client.connId = "pending-owner";
         client.connect.scopes = ["operator.sessions.write"];
         const cfg = rolePolicyConfig();
+        setRuntimeConfigSnapshot(cfg);
         const context = createDirectChatContext({ getRuntimeConfig: () => cfg });
         const entry = {
           sessionId: "original",
@@ -106,11 +114,13 @@ describe("pending Stop producer binding", () => {
   );
 
   it("keeps a real chat admission abortable while its original session lifecycle is held", async () => {
-    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    await withOpenClawTestState(profileState, async () => {
+      await loadOrCreateProcessDeviceIdentityAsync();
       const client = roleClient("view", "pending-chat-owner");
       client.connId = "pending-owner";
       client.connect.scopes = ["operator.sessions.write"];
       const cfg = rolePolicyConfig();
+      setRuntimeConfigSnapshot(cfg);
       const context = createDirectChatContext({ getRuntimeConfig: () => cfg });
       await upsertSessionEntryCore(
         { agentId: "main", sessionKey: key },
@@ -125,20 +135,20 @@ describe("pending Stop producer binding", () => {
         },
       );
       const runId = "pending-chat-admission";
-      const request = normalizeChatSendRequest({
+      const request = await normalizeChatSendRequest({
         params: { sessionKey: key, message: "queued", idempotencyKey: runId },
         client,
       });
       if (!request.ok) {
         throw new Error(request.error);
       }
-      const session = prepareChatSendSession({ request: request.value, client, context });
+      const session = await prepareChatSendSession({ request: request.value, client, context });
       if (!session.ok) {
         throw new Error("chat session preparation failed");
       }
       const entered = createDeferredCore();
       const release = createDeferredCore();
-      const hold = runExclusiveSessionLifecycleMutation({
+      const hold = runExclusiveSessionLifecycleMutation("drain", {
         scope: session.value.storePath,
         identities: [key, "original"],
         run: async () => {
@@ -147,9 +157,10 @@ describe("pending Stop producer binding", () => {
         },
       });
       await entered.promise;
+      const preparedSession = await qualifyChatSendSession(session.value);
       const admission = admitChatSend({
         request: request.value,
-        session: session.value,
+        session: preparedSession,
         client,
         context,
         respond: vi.fn(),

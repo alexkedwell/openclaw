@@ -1,9 +1,9 @@
+import dns from "node:dns/promises";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { normalizeModelCatalogProviderRows } from "../../packages/model-catalog-core/src/model-catalog-normalize.js";
-import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { setRuntimeConfigSnapshot, clearRuntimeConfigSnapshot } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { DecisionRuntimeV2 } from "../decisions/types-v2.js";
@@ -24,6 +24,7 @@ import {
   createColdPluginHermeticEnv,
 } from "../plugins/test-helpers/cold-plugin-fixtures.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { modelFromStaticCatalogRow } from "./embedded-agent-runner/model.static-catalog-row.js";
 import { modelCatalogRowToEntry } from "./model-catalog-entry.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runtime.test-support.js";
@@ -38,7 +39,6 @@ function readOpenRouterManifest() {
   return structuredClone(result.manifest);
 }
 
-const roots = useAutoCleanupTempDirTracker(afterEach);
 const traceKey = Symbol.for("openclaw.test.openrouter-decision-path");
 afterEach(async () => {
   await resetPreparedModelRuntimeSnapshotsForTest();
@@ -47,12 +47,22 @@ afterEach(async () => {
   resetPluginLoaderTestStateForTest();
   Reflect.deleteProperty(globalThis, traceKey);
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
-it.each(["canonical", "declared-proxy"] as const)(
-  "runs the actual OpenRouter plugin through prepared auth and native HTTP (%s)",
-  async (route) => {
-    const root = roots.make("openrouter-decision-host-");
+it.each([
+  { route: "canonical", auth: "api-key" },
+  { route: "canonical", auth: "oauth-key" },
+  { route: "declared-proxy", auth: "api-key" },
+] as const)(
+  "runs the actual OpenRouter plugin through prepared auth and native HTTP ($route, $auth)",
+  async ({ route, auth }) => {
+    const state = await createOpenClawTestState({ applyEnv: false });
+    onTestFinished(async () => {
+      await resetPreparedModelRuntimeSnapshotsForTest();
+      await state.cleanup();
+    });
+    const root = state.root;
     const consumerRoot = path.join(root, "consumer");
     const emptyBundled = path.join(root, "bundled");
     fs.mkdirSync(consumerRoot);
@@ -75,6 +85,36 @@ it.each(["canonical", "declared-proxy"] as const)(
     let cost: number | undefined = 0.000019992;
     let upstreamProvider: string | undefined = "TypeSafe";
     let status = 200;
+    let onLookup: (() => void) | undefined;
+    if (route === "canonical") {
+      // The registered plugin still uses the real guarded fetch. Keep DNS
+      // hermetic and exercise admission changes during its asynchronous preparation.
+      vi.spyOn(dns, "lookup").mockImplementation(async () => {
+        await Promise.resolve();
+        onLookup?.();
+        return [{ address: "93.184.216.34", family: 4 }];
+      });
+    }
+    const responseBody = () => ({
+      model: "typesafe/jev-1.13-20260917",
+      provider: upstreamProvider,
+      answers: {
+        q: { type: "noul", noul: 0.37 },
+        c: {
+          type: "choice",
+          choice: "billing",
+          probabilities: { billing: 0.8, technical: 0.2 },
+          confidence: 0.6,
+        },
+        s: {
+          type: "score",
+          score: 0.25,
+          probabilities: { "0": 0.75, "1": 0.25 },
+          confidence: 0.5,
+        },
+      },
+      usage: { input_tokens: 476, output_tokens: 70, cost },
+    });
     await withServer(
       (request, response) => {
         if (request.url?.endsWith("/models")) {
@@ -97,16 +137,7 @@ it.each(["canonical", "declared-proxy"] as const)(
             body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
           });
           response.writeHead(status, { "content-type": "application/json" });
-          response.end(
-            status === 200
-              ? JSON.stringify({
-                  model: "typesafe/jev-1.13-20260917",
-                  provider: upstreamProvider,
-                  answers: { q: { type: "noul", noul: 0.37 } },
-                  usage: { input_tokens: 476, output_tokens: 70, cost },
-                })
-              : "synthetic-private-error",
-          );
+          response.end(status === 200 ? JSON.stringify(responseBody()) : "synthetic-private-error");
         });
       },
       async (origin) => {
@@ -158,14 +189,7 @@ it.each(["canonical", "declared-proxy"] as const)(
                 body: JSON.parse(init.body),
               });
               return Response.json(
-                status === 200
-                  ? {
-                      model: "typesafe/jev-1.13-20260917",
-                      provider: upstreamProvider,
-                      answers: { q: { type: "noul", noul: 0.37 } },
-                      usage: { input_tokens: 476, output_tokens: 70, cost },
-                    }
-                  : { error: "synthetic-private-error" },
+                status === 200 ? responseBody() : { error: "synthetic-private-error" },
                 { status },
               );
             }),
@@ -176,7 +200,9 @@ it.each(["canonical", "declared-proxy"] as const)(
           agents: {
             defaults: {
               model: "unrelated/not-configured",
-              decisionModel: "openrouter/typesafe/jev-1.13",
+              decisionModel:
+                "openrouter/typesafe/jev-1.13" +
+                (auth === "oauth-key" ? "@openrouter:oauth-fixture" : ""),
               workspace: path.join(root, "workspace"),
               models: {
                 "openrouter/typesafe/jev-1.13": {
@@ -189,8 +215,17 @@ it.each(["canonical", "declared-proxy"] as const)(
             providers: {
               openrouter: {
                 baseUrl,
-                apiKey: "synthetic-openrouter-credential",
+                apiKey:
+                  auth === "oauth-key"
+                    ? "synthetic-not-selected"
+                    : "synthetic-openrouter-credential",
                 models: [],
+                headers: {
+                  "X-Fixture-Tenant": "synthetic-replaced-tenant",
+                  ...(route === "declared-proxy"
+                    ? { Authorization: "Bearer synthetic-replaced-auth" }
+                    : {}),
+                },
                 params: {
                   provider: { data_collection: "deny", only: ["typesafe"], allow_fallbacks: false },
                 },
@@ -215,19 +250,57 @@ it.each(["canonical", "declared-proxy"] as const)(
               paths: [pluginRoot, consumerRoot],
             },
             slots: { memory: "none" },
-            entries: { openrouter: { enabled: true }, [consumerId]: { enabled: true } },
+            entries: {
+              openrouter: { enabled: true },
+              [consumerId]: {
+                enabled: true,
+                llm: {
+                  allowedCompletionModels: ["openrouter/typesafe/jev-1.13"],
+                  allowAgentIdOverride: false,
+                  allowModelOverride: false,
+                  allowAuthProfileOverride: false,
+                },
+              },
+            },
           },
         };
+        const sourceConfig = structuredClone(cfg);
+        const sourceProvider = sourceConfig.models!.providers!.openrouter!;
+        sourceProvider.request!.headers = {
+          "x-fixture-tenant": { source: "env", provider: "default", id: "FIXTURE_TENANT" },
+        };
+        if (sourceProvider.request!.auth?.mode === "header") {
+          sourceProvider.request!.auth.value = {
+            source: "env",
+            provider: "default",
+            id: "FIXTURE_AUTH",
+          };
+        }
         await withEnvAsync(
           {
             ...createColdPluginHermeticEnv(root, { bundledPluginsDir: emptyBundled }),
+            ...state.envVars,
             OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
-            OPENCLAW_STATE_DIR: path.join(root, "state"),
             OPENROUTER_API_KEY: undefined,
           },
           async () => {
-            setRuntimeConfigSnapshot(cfg);
-            const registry = loadAndActivateRootPluginRegistry({
+            if (auth === "oauth-key") {
+              // OpenRouter PKCE issues an API key. Persist the same credential
+              // shape as its login owner, then select it through the normal profile owner.
+              await state.writeAuthProfiles({
+                version: 1,
+                profiles: {
+                  "openrouter:oauth-fixture": {
+                    type: "api_key",
+                    provider: "openrouter",
+                    key: "synthetic-oauth-issued-key",
+                    metadata: { authFlow: "oauth-pkce" },
+                  },
+                },
+              });
+            }
+            setRuntimeConfigSnapshot(cfg, sourceConfig);
+            const registry = await loadAndActivateRootPluginRegistry({
               config: cfg,
               workspaceDir: path.join(root, "workspace"),
             });
@@ -253,6 +326,7 @@ it.each(["canonical", "declared-proxy"] as const)(
               throw new Error("Missing registered decision SDK");
             }
             const options = () => ({
+              agentId: "main",
               purpose: "openrouter-native-fixture",
               rubricVersion: "1",
               timeoutMs: 5000,
@@ -260,15 +334,42 @@ it.each(["canonical", "declared-proxy"] as const)(
             });
             const batch = {
               state: { type: "text" as const, text: "Synthetic evidence" },
-              questions: { q: { type: "boolean" as const, instructions: "Is it urgent?" } },
+              questions: {
+                q: { type: "boolean" as const, instructions: "Is it urgent?" },
+                c: {
+                  type: "choice" as const,
+                  instructions: "Which team?",
+                  criteria: { billing: "Invoices", technical: "Software" },
+                },
+                s: {
+                  type: "score" as const,
+                  instructions: "How urgent?",
+                  criteria: ["Low", "High"],
+                },
+              },
             };
+            const denied = structuredClone(cfg);
+            denied.plugins!.entries![consumerId]!.llm!.allowedCompletionModels = [
+              "openrouter/unrelated-fixture",
+            ];
+            setRuntimeConfigSnapshot(denied);
+            await expect(runtime.evaluateV2(batch, options())).rejects.toMatchObject({
+              code: "LLM_COMPLETION_NOT_AUTHORIZED",
+            });
+            expect(received).toHaveLength(0);
+            expect(events).toHaveLength(0);
+            setRuntimeConfigSnapshot(cfg, sourceConfig);
             const outcome = await runtime.evaluateV2(batch, options());
             expect(outcome, JSON.stringify({ outcome, received })).toMatchObject({
               status: "ok",
               result: {
                 model: "typesafe/jev-1.13-20260917",
                 metadata: { provider: "TypeSafe" },
-                answers: { q: { probabilityTrue: 0.37 } },
+                answers: {
+                  q: { type: "boolean", probabilityTrue: 0.37 },
+                  c: { type: "choice", choice: "billing" },
+                  s: { type: "score", score: 0.25, probabilities: [0.75, 0.25] },
+                },
                 usage: { inputTokens: 476, outputTokens: 70, costUsd: cost },
               },
               provenance: { providerId: "openrouter" },
@@ -276,13 +377,20 @@ it.each(["canonical", "declared-proxy"] as const)(
             expect(received[0]).toEqual({
               url: new URL(baseUrl).pathname + "/systemone",
               authorization:
-                route === "canonical" ? "Bearer synthetic-openrouter-credential" : undefined,
+                route === "canonical"
+                  ? auth === "oauth-key"
+                    ? "Bearer synthetic-oauth-issued-key"
+                    : "Bearer synthetic-openrouter-credential"
+                  : undefined,
               ...(route === "declared-proxy" ? { customAuth: "synthetic-prepared-custom" } : {}),
               tenant: "fixture-tenant",
               body: {
                 model: "typesafe/jev-1.13",
                 state: "Synthetic evidence",
-                questions: { q: { type: "noul", instructions: "Is it urgent?" } },
+                questions: {
+                  ...batch.questions,
+                  q: { type: "noul", instructions: "Is it urgent?" },
+                },
                 provider: {
                   data_collection: "deny",
                   only: ["typesafe"],
@@ -299,6 +407,10 @@ it.each(["canonical", "declared-proxy"] as const)(
               usage: { input: 476, output: 70 },
               costUsd: cost,
             });
+            if (auth === "oauth-key") {
+              await resetPreparedModelRuntimeSnapshotsForTest();
+              return;
+            }
             cost = 0;
             expect(await runtime.evaluateV2(batch, options())).toMatchObject({
               result: { usage: { costUsd: 0 } },
@@ -323,19 +435,13 @@ it.each(["canonical", "declared-proxy"] as const)(
               reason: "unsupported-input",
             });
             expect(received).toHaveLength(calls);
-            for (const code of [413, 401]) {
-              status = code;
-              expect(await runtime.evaluateV2(batch, options())).toMatchObject({
-                reason: code === 401 ? "authentication" : "unsupported-input",
-              });
-            }
             const foreign = structuredClone(cfg);
             foreign.models!.providers!.openrouter!.baseUrl = origin + "/undeclared";
             setRuntimeConfigSnapshot(foreign);
             expect(await runtime.evaluateV2(batch, options())).toMatchObject({
               reason: "unsupported-input",
             });
-            expect(received).toHaveLength(calls + 2);
+            expect(received).toHaveLength(calls);
             setRuntimeConfigSnapshot({
               ...cfg,
               agents: {
@@ -348,6 +454,34 @@ it.each(["canonical", "declared-proxy"] as const)(
             expect(await runtime.evaluateV2(batch, options())).toMatchObject({
               reason: "credentials-unavailable",
             });
+            expect(received).toHaveLength(calls);
+            setRuntimeConfigSnapshot(cfg, sourceConfig);
+            if (route === "canonical") {
+              let closedDuringLookup = false;
+              onLookup = () => {
+                onLookup = undefined;
+                closedDuringLookup = true;
+                setRuntimeConfigSnapshot({
+                  ...cfg,
+                  agents: { defaults: { ...cfg.agents?.defaults, decisionModel: "" } },
+                });
+              };
+              expect(await runtime.evaluateV2(batch, options())).toMatchObject({
+                status: "unavailable",
+                reason: "retiring",
+              });
+              expect(closedDuringLookup).toBe(true);
+              expect(received).toHaveLength(calls);
+              setRuntimeConfigSnapshot(cfg, sourceConfig);
+            }
+            // Authentication failure latches the host generation, so exercise it
+            // last: unsupported input and admission loss must not poison later requests.
+            for (const code of [413, 401]) {
+              status = code;
+              expect(await runtime.evaluateV2(batch, options())).toMatchObject({
+                reason: code === 401 ? "authentication" : "unsupported-input",
+              });
+            }
             expect(received).toHaveLength(calls + 2);
             await resetPreparedModelRuntimeSnapshotsForTest();
           },

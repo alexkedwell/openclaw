@@ -1,4 +1,5 @@
-import { asFiniteNumberInRange } from "@openclaw/normalization-core";
+import type { ModelDecisionCapabilities } from "@openclaw/model-catalog-core/model-catalog-types";
+import { asNonNegativeFiniteNumber } from "@openclaw/normalization-core";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { hasRecordedUsageCost, normalizeUsage, type UsageLike } from "../../agents/usage.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -11,24 +12,31 @@ import {
 } from "../../utils/usage-format.js";
 import type { LlmCompleteUsage } from "./types-core.js";
 
-function readFiniteNonNegativeNumber(value: unknown): number | undefined {
-  return asFiniteNumberInRange(value, { min: 0 });
-}
-
 function readExplicitCostUsd(raw: unknown): number | undefined {
-  const cost = asOptionalRecord(raw)?.cost;
+  const usage = asOptionalRecord(raw);
+  const direct = asNonNegativeFiniteNumber(usage?.costUsd);
+  if (direct !== undefined) {
+    return direct;
+  }
+  const cost = usage?.cost;
   if (typeof cost === "number") {
-    return readFiniteNonNegativeNumber(cost);
+    return asNonNegativeFiniteNumber(cost);
   }
   const record = asOptionalRecord(cost);
   if (!record) {
     return undefined;
   }
   return (
-    readFiniteNonNegativeNumber(record.totalUsd) ??
-    (hasRecordedUsageCost(record) ? readFiniteNonNegativeNumber(record.total) : undefined)
+    asNonNegativeFiniteNumber(record.totalUsd) ??
+    (hasRecordedUsageCost(record) ? asNonNegativeFiniteNumber(record.total) : undefined)
   );
 }
+
+export type PreparedDecisionBillingFacts = {
+  provider: string;
+  model: string;
+  billing?: ModelDecisionCapabilities["billing"];
+};
 
 /** One usage/cost owner; typed result domains need not impersonate a chat completion. */
 export function finalizePluginModelUsage(params: {
@@ -38,7 +46,7 @@ export function finalizePluginModelUsage(params: {
   rawUsage: unknown;
   estimate: "direct" | "aggregate" | "none";
   /** Prepared route facts, never an ID-only lookup after request normalization. */
-  declaredCost?: Parameters<typeof estimateUsageCost>[0]["declaredCost"];
+  preparedBilling?: PreparedDecisionBillingFacts;
   target: { provider: string; model: string; agentId?: string; sessionKey?: string };
   onUsage?: (usage: LlmCompleteUsage) => void;
 }): LlmCompleteUsage {
@@ -55,11 +63,23 @@ export function finalizePluginModelUsage(params: {
   // Isolated runtimes may report a whole run; only direct calls retain tier boundaries here.
   const estimateCost =
     params.estimate === "direct" ? estimateUsageCost : estimateAggregateUsageCost;
+  const prepared = params.preparedBilling;
+  const billing =
+    prepared?.provider === params.target.provider && prepared.model === params.target.model
+      ? prepared.billing
+      : undefined;
+  const declaredCost =
+    params.estimate === "none" &&
+    billing?.unit === "tokens" &&
+    asOptionalRecord(params.rawUsage)?.units === undefined &&
+    billing.usdPerMillion
+      ? { ...billing.usdPerMillion, cacheRead: 0, cacheWrite: 0 }
+      : undefined;
   const explicitCostUsd = readExplicitCostUsd(params.rawUsage);
   const costUsd =
     explicitCostUsd ??
-    (params.declaredCost
-      ? estimateUsageCost({ usage: normalized, declaredCost: params.declaredCost })
+    (declaredCost
+      ? estimateUsageCost({ usage: normalized, declaredCost })
       : params.estimate === "none"
         ? undefined
         : estimateCost({ usage: normalized, cost: costConfig }));

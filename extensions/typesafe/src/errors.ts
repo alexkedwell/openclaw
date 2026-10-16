@@ -26,9 +26,7 @@ export function evaluationError(error: unknown, aborted: boolean): EvaluationErr
 }
 
 /** Unexpected failures reject without retaining raw credentials or submitted state. */
-export function decisionFailure(
-  error: unknown,
-): Extract<ProviderDecisionOutcome, { status: "unavailable" }> {
+export function decisionFailure(error: unknown): ProviderDecisionOutcome {
   if (error instanceof EvaluationError) {
     return {
       status: "unavailable",

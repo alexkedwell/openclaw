@@ -10,7 +10,7 @@ read_when:
 # TypeSafe AI
 
 The official external `typesafe` plugin connects OpenClaw's optional decision
-model role to TypeSafe AI's hosted Jev models or an explicitly configured local
+model role to TypeSafe AI's hosted Jev models or an explicitly configured
 System One server such as [Kev](https://github.com/jaredpalmer/kev). Its models appear in the separate
 **Decision** picker, never in the conversational model picker.
 
@@ -80,9 +80,8 @@ any other entries in `plugins.allow`.
 `agents.defaults.decisionModel`; an empty override disables decisions for that
 agent. An unset or empty global role leaves decisions off by default.
 
-Hosted mode supplies the live prepared plugin SecretRef through the common
-provider-auth owner. The executor receives that prepared credential; it does not
-select credentials again, read ambient environment credentials, or cache a previous credential.
+Hosted mode reads the host's prepared SecretRef value for each request. It does
+not independently read environment credentials or cache a previous credential.
 A missing or unavailable credential makes decisions unavailable. Use the normal
 [secret refresh flow](/gateway/secrets) after changing a credential.
 
@@ -168,15 +167,16 @@ stop preparing it.
 
 The endpoint applies to every request from this plugin, including requests
 whose model label names Jev. Model selection does not choose between hosted and
-local endpoints. The catalog does not assign hosted pricing or unverified context
-limits to these routes, including Jev labels redirected to a local server. The `kev-latest` label requires `baseUrl` and is never sent to
+local endpoints. The `kev-latest` label requires `baseUrl` and is never sent to
 the hosted TypeSafe endpoint.
 
 `baseUrl` accepts HTTP or HTTPS on `localhost`, `127.0.0.1`, or `[::1]`, with an
 optional port and trailing slash. Supply the origin, without `/v1`, credentials,
-query, or fragment; the plugin appends `/v1/systemone`. LAN and remote hosts are
-not accepted. Ordinary ambient HTTP proxy variables are not used for these
-requests; explicitly enabled managed proxy policy still applies.
+query, or fragment; the plugin appends `/v1/systemone`. This existing plugin
+setting remains loopback-only. For a separate inference host or reverse proxy,
+use the standard model-provider configuration below. Ordinary ambient HTTP proxy
+variables are not used for configured endpoints; explicitly enabled managed proxy
+policy still applies. `localhost` stays pinned to loopback, independently of system DNS.
 
 Kev runs one checkpoint per server process. Its request model label does not
 load or switch weights. Choose the checkpoint when starting the server and
@@ -203,20 +203,90 @@ decision results. Kev's optional nonnegative `latency_ms` field is validated and
 removed; all answer types, labels, probabilities, and rubric bounds retain the
 same validation as hosted results.
 
+## Custom endpoint and provider request settings
+
+Use the same `models.providers.<id>` configuration as other providers to connect
+TypeSafe decisions to a self-hosted System One server or HTTPS reverse proxy:
+
+```json5
+{
+  plugins: {
+    allow: ["typesafe"],
+    entries: { typesafe: { enabled: true } },
+  },
+  models: {
+    providers: {
+      typesafe: {
+        baseUrl: "https://decision.example.com/v1",
+        // Optional: omit when this server does not require authentication.
+        apiKey: { source: "store", provider: "default", id: "SYSTEM_ONE_TOKEN" },
+        models: [],
+      },
+    },
+  },
+  agents: {
+    defaults: { decisionModel: "typesafe/kev-latest" },
+  },
+}
+```
+
+Merge the example with existing configuration. The provider `baseUrl` is the API
+root; OpenClaw appends `/systemone`. An origin-only URL implies `/v1`, so both
+`https://decision.example.com` and `https://decision.example.com/v1` target
+`/v1/systemone`. Do not include URL credentials, a query, or a fragment.
+
+The adapter uses the shared provider HTTP request and network-policy owners:
+
+- A configured custom/local origin is trusted for ordinary LAN and tailnet
+  addresses by default. No extra TypeSafe network switch is required.
+- `models.providers.typesafe.request.allowPrivateNetwork: false` opts out of
+  exact-origin private-network trust. `true` explicitly permits broader private
+  destinations under the same policy used by other model providers. Use it only
+  when that broader access is intended; it is not needed for an ordinary private
+  HTTPS reverse proxy.
+- `headers`, `authHeader`, and `request.auth` use the shared header/auth contract.
+  Explicit bearer/header auth overrides reject empty or unavailable credentials
+  rather than silently sending an unauthenticated request.
+  `request.proxy` and `request.tls` use the shared transport contract, including
+  private CA certificates and client TLS credentials. TLS certificate/hostname
+  verification stays enabled; insecure verification overrides are rejected.
+- The common provider contract accepts HTTP(S) API roots. Prefer HTTPS outside
+  loopback so evaluation content and credentials are encrypted. Redirects remain
+  rejected, and ambient proxies are not implicitly enabled for configured endpoints.
+- `timeoutSeconds` sets the provider request budget, still bounded by the native
+  decision deadline. It does not extend the consumer's deadline or add retries.
+
+See [custom provider network policy](/concepts/model-providers/custom-providers#local-proxies-lm-studio-vllm-litellm-etc)
+for the shared exact-origin and private-network rules.
+
+**Trust and credentials:** Evaluation state, questions, and rubrics are user
+content. They leave the Gateway host when the selected endpoint is remote. Only
+configure a server you trust with that content. Authentication proves OpenClaw's
+identity to the server; it does not establish that the server is trustworthy.
+Request content and model output cannot change the destination.
+
+An explicit `models.providers.typesafe` entry owns the complete route and uses
+only its configured, host-prepared `apiKey` or request credentials. It never reads
+or inherits `plugins.entries.typesafe.config.apiKey`, which remains hosted-only,
+and does not search ambient or profile credentials. Unavailable configured
+secrets fail closed, without unauthenticated or hosted fallback. Removing an
+unused legacy SecretRef also stops the host preparing it. Without a model-provider
+entry, existing hosted and plugin loopback configuration behaves as before.
+
+Use the server's routing model ID in `decisionModel`. The selected model portion
+is transmitted unchanged; routers such as Llama swap may reject `kev-latest` if
+no route has that name. `models: []` supplies the ordinary custom-provider config
+shape without registering conversational models. The native decision role can
+use custom IDs not among the plugin's declared picker presets. This endpoint
+support does not relax System One response validation or guarantee compatibility
+with additional response fields returned by every server implementation.
+
 ## Decision contract
 
 Consumers call the provider-neutral
 [decision runtime](/plugins/sdk-overview/capabilities#decision-models-contract-version-1).
-The host supplies canonical metadata for the model selected for the owning agent.
-The plugin registers a first-class contract-version-2 decision provider using
-`registerDecisionProvider`; the existing version-1 consumer API remains supported
-by the host. The canonical model catalog declares decision support and
-`chat: false`, not a second set of conversational models.
-
-Version-2 requests accept explicit text or JSON evidence. Images, lists, Sort,
-Tags, and explicit reasoning `off` or `on` are unsupported and rejected before
-dispatch; omitted reasoning or `auto` leaves the server behavior unchanged.
-The adapter translates the supported question types:
+The host supplies the model selected for the owning agent. The adapter translates
+the supported question types:
 
 | OpenClaw | TypeSafe | Result                                                       |
 | -------- | -------- | ------------------------------------------------------------ |
@@ -227,24 +297,22 @@ The adapter translates the supported question types:
 Choice supports 2–255 alternatives; Score supports 2–10 rubric levels.
 Unsupported input is rejected before transmission; the adapter does not truncate
 or split a consumer's rubric. Responses must match the complete question batch,
-its labels, types, and rubric bounds.
+its labels, types, and rubric bounds. Additional top-level response and usage
+fields outside the specification are accepted but are not exposed in
+provider-neutral results. Required fields and the plugin’s JSON size, depth,
+and node limits still apply.
 
 Reported probabilities can be rounded, so they may not sum exactly to one. A
 reported label or Score can also differ from a calculation over those estimates.
-Choice and Score distributions must have positive total probability mass; an
-all-zero map is invalid. OpenClaw preserves the reported values without
-renormalizing them or recomputing the chosen label or Score. Interpreting those
-estimates is an explicit consumer policy. Probabilities and confidence are
+OpenClaw preserves the returned values. Normalizing estimates or choosing their
+largest value is an explicit consumer policy. Probabilities and confidence are
 not demonstrated accuracy guarantees or permission to act.
 
 The host owns concurrency, circuit health, deadlines, cancellation, and provider
 lifecycle. Native decisions have a 30-second maximum; shorter consumer or
 plugin timeouts still apply. Requests use the fixed TypeSafe HTTPS endpoint unless
-`baseUrl` selects a local server. Both paths reject
-redirects, and do not retry automatically. HTTP 413 and 422 return sanitized
-`unsupported-input`; they do not establish an exact tokenizer or context-limit
-cause. Provider error bodies are discarded without exposing submitted evidence
-or credentials. Consumers decide what to do with
+provider configuration or the existing loopback `baseUrl` selects a self-hosted server. Both paths reject
+redirects, and do not retry automatically. Consumers decide what to do with
 unavailable decisions; caller cancellation must not start fallback work.
 
 ## Agent evaluation tool
@@ -260,7 +328,7 @@ The tool accepts explicit shared `state` and independent `boolean`, `choice`, an
 `score` questions. The calling agent's trusted identity selects its inherited or
 per-agent `decisionModel`; there is no per-call provider or model override. With a
 TypeSafe selection, the adapter translates Boolean questions to Noul and sends
-only the supplied evidence to hosted Jev or the configured local endpoint.
+only the supplied evidence to hosted Jev or the configured endpoint.
 
 A temporary credential or provider failure returns an actionable unavailable
 result and leaves the configured tool available. Clearing the agent's effective
@@ -269,6 +337,15 @@ Execution rechecks the selection and current authority. `timeoutMs` defaults to
 30,000 ms and caps provider requests at the shorter of this setting and the host's
 remaining deadline. Typed answers supply evidence, not permission to publish,
 send messages, or change durable state.
+
+HTTP 400 (Bad Request), HTTP 413 (Content Too Large), and TypeSafe's [documented
+422 request-validation response](https://docs.typesafe.ai/api#errors) return
+`unsupported-input`, not a provider outage. A request rejection does not establish
+context overflow specifically. The
+adapter cancels error bodies without reading them because they can reflect
+credentials or submitted evidence. Authentication (401/403), rate limits (429),
+and other HTTP/transport failures retain their existing classifications; no
+automatic retry is added.
 
 ## Existing external installation
 

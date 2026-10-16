@@ -5,6 +5,7 @@ import { createPluginRecord } from "../plugins/loader-records.js";
 import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import { createTestPluginRegistry } from "../plugins/registry-runtime.test-helpers.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { evaluateDecisionInRegistry, prepareDecisionProviderReload } from "./runtime.js";
 import type {
   DecisionBatch,
@@ -47,6 +48,7 @@ export function registered(
   isReady?: () => boolean,
   providerId = "fixture",
 ) {
+  const started = createDeferredCore();
   const builder = createTestPluginRegistry();
   const record = createPluginRecord({
     id: "owner",
@@ -62,7 +64,10 @@ export function registered(
       registration.registerDecisionProvider({
         id: providerId,
         contractVersion: 1,
-        evaluate,
+        evaluate: (...args) => {
+          started.resolve();
+          return evaluate(...args);
+        },
         isReady,
       }),
     api,
@@ -77,5 +82,5 @@ export function registered(
   });
   const run = (opts = options(), cfg = config) =>
     evaluateDecisionInRegistry(batch, opts, builder.registry, cfg);
-  return { ...builder, record, api, run };
+  return { ...builder, record, api, run, started: started.promise };
 }

@@ -1,43 +1,36 @@
 import type { ModelsListResult } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
 import { createPreparedModelCatalogProviderNormalizer } from "../../agents/model-catalog-provider-normalizer.js";
-import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { projectDecisionModelCatalog } from "../../model-catalog/decision-compatibility.js";
+import { listAvailableManifestContractPlugins } from "../../plugins/manifest-contract-eligibility.js";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
-import { resolveModelProviderCapabilities } from "./model-provider-capabilities.js";
 
-type ApiKeyProviderCapabilities = {
-  providers: ReadonlyMap<string, boolean>;
-  resolveProvider(provider: string): string;
-};
-export function apiKeyProviderCapabilities(params: {
-  cfg: OpenClawConfig;
-  metadataSnapshot: PluginMetadataSnapshot;
-  workspaceDir: string;
-}): ApiKeyProviderCapabilities {
-  const { capabilities, resolveProvider } = resolveModelProviderCapabilities({
-    config: params.cfg,
-    metadataSnapshot: params.metadataSnapshot,
-    workspaceDir: params.workspaceDir,
-  });
-  return {
-    providers: new Map(
-      capabilities.map(({ provider, apiKeySupported }) => [provider, apiKeySupported]),
-    ),
-    resolveProvider,
-  };
-}
+export class UnknownModelCatalogProviderError extends Error {}
 
-/** The compatibility wire derives only from the normal selected catalog. */
-export function listDecisionModels(params: {
-  catalog: readonly ModelCatalogEntry[];
+export function listDecisionModels({
+  config,
+  snapshot,
+}: {
+  config: OpenClawConfig;
   snapshot: PluginMetadataSnapshot;
-}): NonNullable<ModelsListResult["decisionModels"]> {
-  return projectDecisionModelCatalog(params.catalog).flatMap((model) => {
-    const owners = params.snapshot.owners.modelCatalogProviders.get(model.provider);
-    const pluginId = owners?.length === 1 ? owners[0] : undefined;
-    return pluginId ? [{ ...model, pluginId }] : [];
-  });
+}) {
+  const decisionModels: NonNullable<ModelsListResult["decisionModels"]> = [];
+  if (config.plugins?.enabled !== false) {
+    const seen = new Set<string>();
+    for (const plugin of listAvailableManifestContractPlugins({
+      snapshot,
+      config,
+      contract: "decisionProviders",
+    })) {
+      for (const model of plugin.decisionModels ?? []) {
+        const key = `${model.provider}/${model.id}`;
+        if (!seen.has(key)) {
+          decisionModels.push({ ...model, pluginId: plugin.id });
+          seen.add(key);
+        }
+      }
+    }
+  }
+  return decisionModels;
 }
 
 export function createModelsListProviderFilter(params: {
@@ -65,8 +58,8 @@ export function createModelsListProviderFilter(params: {
       ].map(normalizeProvider),
     );
     if (!knownProviders.has(providerFilter)) {
-      throw new Error(
-        "Unknown model catalog provider. Use a provider id from the installed plugins or configured providers.",
+      throw new UnknownModelCatalogProviderError(
+        `Unknown model catalog provider ${JSON.stringify(params.provider)}. Run openclaw models list --all to list models and their provider IDs.`,
       );
     }
   }

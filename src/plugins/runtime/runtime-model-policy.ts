@@ -5,6 +5,7 @@ import { normalizeAgentId } from "../../routing/session-key.js";
 import { modelKey } from "../../shared/model-key.js";
 import { normalizePluginsConfig } from "../config-state.js";
 import { compileModelAllowlist, type CompiledModelAllowlist } from "../model-allowlist.js";
+import { normalizePluginPolicyId } from "../plugin-policy-id.js";
 import { getPluginRuntimeGatewayRequestScope } from "./gateway-request-scope.js";
 import { createLlmCompleteError as completionError } from "./runtime-llm-error.js";
 import type { LlmCompleteCaller } from "./types-core.js";
@@ -34,18 +35,16 @@ type RuntimeLlmPolicy = {
   completionModels: CompiledModelAllowlist;
 };
 
-function normalizeCaller(
-  caller?: LlmCompleteCaller,
-  fallback?: LlmCompleteCaller,
-): LlmCompleteCaller {
-  const source = caller ?? fallback;
-  if (!source) {
+function normalizeCaller(caller?: LlmCompleteCaller): LlmCompleteCaller {
+  if (!caller) {
     return { kind: "unknown" };
   }
+  const id = normalizeOptionalString(caller.id);
+  const name = normalizeOptionalString(caller.name);
   return {
-    kind: source.kind,
-    ...(normalizeOptionalString(source.id) ? { id: source.id!.trim() } : {}),
-    ...(normalizeOptionalString(source.name) ? { name: source.name!.trim() } : {}),
+    kind: caller.kind,
+    ...(id ? { id } : {}),
+    ...(name ? { name } : {}),
   };
 }
 
@@ -146,7 +145,7 @@ export function resolvePluginLlmPolicy(
   if (!pluginId) {
     return undefined;
   }
-  const entry = normalizePluginsConfig(cfg.plugins).entries[pluginId]?.llm;
+  const entry = normalizePluginsConfig(cfg.plugins).entries[normalizePluginPolicyId(pluginId)]?.llm;
   return entry ? buildPolicyFromEntry(entry) : undefined;
 }
 

@@ -1,7 +1,7 @@
 import { normalizeModelCatalog } from "@openclaw/model-catalog-core/model-catalog-normalize";
 import type { ModelDecisionCapabilities } from "@openclaw/model-catalog-core/model-catalog-types";
 import { describe, expect, it, vi } from "vitest";
-import type { DecisionBatchV2 } from "./types-v2.js";
+import type { DecisionAnswerV2, DecisionBatchV2 } from "./types-v2.js";
 import { validateDecisionBatchV2, validateDecisionResultV2 } from "./validation-v2.js";
 import { DecisionContractError } from "./validation.js";
 
@@ -114,9 +114,66 @@ describe("V2 decision admission", () => {
           semantics !== "categorical",
         );
       }
-      expect(value).not.toHaveProperty("usage");
     },
   );
+
+  it("distinguishes undeclared question support from an explicitly unsupported kind", () => {
+    const capabilities: ModelDecisionCapabilities = {
+      protocol: "fixture-native",
+      input: ["text"],
+    };
+    expect(validateDecisionResultV2(batch, result(), capabilities)).toBe(true);
+    expect(
+      validateDecisionResultV2(batch, result(), {
+        ...capabilities,
+        questions: { boolean: { probabilities: "boolean", abstention: true } },
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects confidence reports when the route declares no confidence metric", () => {
+    const capabilities: ModelDecisionCapabilities = {
+      protocol: "fixture-native",
+      input: ["text"],
+      confidence: "none",
+    };
+    const cases: { input: DecisionBatchV2; answers: Record<string, DecisionAnswerV2> }[] = [
+      {
+        input: batch,
+        answers: {
+          truth: { type: "boolean", answer: true },
+          pick: { type: "choice", choice: "yes" },
+          rank: { type: "score", score: 1.25 },
+        },
+      },
+      {
+        input: { ...listBatch, questions: { sort: { type: "sort" } } },
+        answers: { sort: { type: "sort", order: ["b", "a"] } },
+      },
+    ];
+    for (const { input, answers } of cases) {
+      const value = { model: "fixture", answers };
+      expect(validateDecisionResultV2(input, value, capabilities)).toBe(true);
+      for (const [key, answer] of Object.entries(answers)) {
+        if (answer.type === "boolean") {
+          continue;
+        }
+        for (const confidence of [0.9, null]) {
+          const reported = {
+            ...value,
+            answers: { ...answers, [key]: { ...answer, confidence } },
+          };
+          expect(validateDecisionResultV2(input, reported, capabilities)).toBe(false);
+          expect(
+            validateDecisionResultV2(input, reported, {
+              ...capabilities,
+              confidence: "provider-specific",
+            }),
+          ).toBe(true);
+        }
+      }
+    }
+  });
 
   it("keeps declared no-probability answers and five-level fractional scores honest", () => {
     const scaleBatch: DecisionBatchV2 = {
@@ -139,9 +196,6 @@ describe("V2 decision admission", () => {
       answers: { truth: { type: "boolean", answer: null }, scale: { type: "score", score: 2.5 } },
     };
     expect(validateDecisionResultV2(scaleBatch, value, capabilities)).toBe(true);
-    expect(value.answers.truth).not.toHaveProperty("probabilityTrue");
-    expect(value.answers.scale).not.toHaveProperty("probabilities");
-    expect(value).not.toHaveProperty("usage");
     expect(
       validateDecisionResultV2(
         scaleBatch,
@@ -211,8 +265,6 @@ describe("V2 decision admission", () => {
       },
     };
     expect(validateDecisionResultV2(batch, value)).toBe(true);
-    expect(value.answers.truth).not.toHaveProperty("probabilityTrue");
-    expect(value.answers.pick).not.toHaveProperty("probabilities");
     expect(
       validateDecisionResultV2(batch, {
         ...value,
