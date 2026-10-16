@@ -59,11 +59,12 @@ function personId(index: number) {
   return `team-person-${String(index + 1).padStart(3, "0")}`;
 }
 
-function widgetHtml(index: number) {
+function widgetHtml(index: number, kind = "inline") {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Team metric ${index + 1}</title>
 <style>:root{color-scheme:dark light;font-family:system-ui}body{margin:0;padding:20px}h2{font-size:18px}progress{width:100%}</style></head>
 <body><h2>Team metric ${index + 1}</h2><p>Synthetic completed work: ${60 + index}%</p>
-<progress value="${60 + index}" max="100"></progress><p>All fixture systems are available.</p></body></html>`;
+<progress value="${60 + index}" max="100"></progress><p>All fixture systems are available.</p>
+<script>requestAnimationFrame(() => requestAnimationFrame(() => window.top.postMessage({type:"team-scale-widget-ready",kind:${JSON.stringify(kind)},index:${index}},"*")));</script></body></html>`;
 }
 
 /** One deterministic inventory shared by browser benchmarks and focused UI proofs. */
@@ -177,6 +178,14 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
   const pinnedRows = sessions.slice(-counts.pinned);
   const pinnedKeys = pinnedRows.map((row) => row.key);
   const selectedSessionKey = pinnedKeys[0]!;
+  const sharedMediaId = "00000000-0000-4000-8000-000000000001";
+  const sharedMediaPath = `/api/chat/media/outgoing/${encodeURIComponent(selectedSessionKey)}/${sharedMediaId}/full`;
+  if (options.duplicateBootReads) {
+    assets.set(sharedMediaPath, {
+      contentType: "audio/wav",
+      body: "RIFF,\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\x40\x1f\0\0\x40\x1f\0\0\x01\0\x08\0data\x08\0\0\0@@@@@@@@",
+    });
+  }
   pinnedRows[0]!.sharingRole = "admin";
   pinnedRows[0]!.visibility = "shared";
   if (options.liveRun) {
@@ -246,13 +255,12 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     content: [
       ...(options.duplicateBootReads && index === counts.transcriptMessages - 1
         ? Array.from({ length: 6 }, (_unused, alias) => ({
-            type: "image",
-            artifactId: "artifact_managed_image_team-scale",
-            url: `/api/chat/media/outgoing/${encodeURIComponent(selectedSessionKey)}/team-scale/full?mediaTicket=historical-${alias}`,
-            alt: `Shared artifact ${alias + 1}`,
-            mimeType: "image/png",
-            width: 1,
-            height: 1,
+            type: "audio",
+            artifactId: `artifact_managed_media_${sharedMediaId}`,
+            url: `${sharedMediaPath}?mediaTicket=historical-${alias}`,
+            fileName: `Shared recording ${alias + 1}.wav`,
+            mimeType: "audio/wav",
+            durationMs: 1,
           }))
         : []),
       {
@@ -360,7 +368,7 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     };
   });
   const boardPath = `/__openclaw__/board/${encodeURIComponent(selectedSessionKey)}/team-overview/index.html`;
-  assets.set(boardPath, { contentType: "text/html", body: widgetHtml(0) });
+  assets.set(boardPath, { contentType: "text/html", body: widgetHtml(0, "board") });
   const sandbox = { sandboxUrl: options.sandboxUrl, sandboxPort: options.sandboxPort };
   const board: BoardSnapshot = {
     sessionKey: selectedSessionKey,
@@ -443,14 +451,14 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
             "session.suggestions.list": { suggestions: [], role: "owner" },
             "artifacts.download": {
               artifact: {
-                id: "artifact_managed_image_team-scale",
-                title: "Shared artifact",
-                type: "image",
-                mimeType: "image/png",
-                download: { mode: "bytes" },
+                id: `artifact_managed_media_${sharedMediaId}`,
+                title: "Shared recording",
+                type: "audio",
+                mimeType: "audio/wav",
+                download: { mode: "url" },
               },
-              encoding: "base64",
-              data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=",
+              url: `${sharedMediaPath}?mediaTicket=current`,
+              expiresAt: new Date(now + 20 * 60_000).toISOString(),
             },
           }
         : {}),
