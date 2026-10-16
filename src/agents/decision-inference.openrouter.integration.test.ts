@@ -9,9 +9,10 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { DecisionRuntimeV2 } from "../decisions/types-v2.js";
 import {
   onTrustedInternalDiagnosticEvent,
-  type DiagnosticUsageEvent,
+  type DiagnosticEventPayload,
 } from "../infra/diagnostic-events.js";
 import { markTrustedOtelDiagnosticListener } from "../infra/diagnostic-otel-listener-provenance.js";
+import type { LookupFn } from "../infra/net/ssrf.js";
 import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
 import { loadAndActivateRootPluginRegistry } from "../plugins/loader.js";
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
@@ -88,7 +89,7 @@ it.each([
     if (route === "canonical") {
       // The registered plugin still uses the real guarded fetch. Keep DNS
       // hermetic and exercise admission changes during its asynchronous preparation.
-      vi.spyOn(dns, "lookup").mockImplementation(async () => {
+      vi.spyOn<{ lookup: LookupFn }, "lookup">(dns, "lookup").mockImplementation(async () => {
         await Promise.resolve();
         onLookup?.();
         return [{ address: "93.184.216.34", family: 4 }];
@@ -310,7 +311,7 @@ it.each([
             expect(
               registry.decisionProviders.filter((entry) => entry.host.provider.id === "openrouter"),
             ).toHaveLength(1);
-            const events: DiagnosticUsageEvent[] = [];
+            const events: Array<Extract<DiagnosticEventPayload, { type: "model.usage" }>> = [];
             onTestFinished(
               onTrustedInternalDiagnosticEvent(
                 markTrustedOtelDiagnosticListener((event) => {
