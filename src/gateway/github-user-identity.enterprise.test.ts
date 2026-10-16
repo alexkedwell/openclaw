@@ -308,3 +308,111 @@ it("retains a public primary identity and host-selected credit after linking an 
     },
   );
 });
+
+it("keeps global consent writable without a display primary after merging two enterprise hosts", async () => {
+  await withOpenClawTestState(
+    { scenario: "minimal", prepareProfileCatalog: true },
+    async (state) => {
+      await captureRuntimeConfigAsyncReader()();
+      const first = await enterpriseSync("ada@enterprise.example")();
+      const second = await enterpriseSync("ada@other.example", "code.example.test")();
+      await mergeCanonicalUserProfiles(second.profileId, first.profileId);
+      const sync = enterpriseSync("ada@enterprise.example");
+      await sync();
+      expect((await enterpriseSync("ada@other.example", "code.example.test")()).profileId).toBe(
+        first.profileId,
+      );
+      const client = {
+        ...identifiedClient(first.profileId),
+        connId: "multi-host-consent",
+        authenticatedGitHubIdentitySync: sync,
+      };
+      const respond = vi.fn<RespondFn>();
+      const requestOptions = createControlUiRequestOptions(() => ({}));
+      await expectDefined(
+        usersHandlers["users.self"],
+        "users.self handler",
+      )({
+        ...requestOptions({}, respond, { client }),
+        client,
+      });
+      expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
+        profile: expect.objectContaining({ id: first.profileId, githubIdentity: null }),
+      });
+      expect(validateUsersSelfResult(respond.mock.calls[0]?.[1])).toBe(true);
+      expect(JSON.stringify(respond.mock.calls[0]?.[1])).not.toContain("ada@");
+
+      const scope = {
+        agentId: "main",
+        env: state.env,
+        sessionKey: "agent:main:multi-host-consent",
+      };
+      await upsertSessionEntryCore(scope, { sessionId: "multi-host-consent", updatedAt: 1 });
+      recordSessionParticipant(scope, {
+        identity: { type: "profile", id: second.profileId },
+        promptedAt: 1,
+        sessionAgentId: "main",
+      });
+      const publication = {
+        row: {
+          request_id: "multi-host-consent",
+          agent_id: "main",
+          session_id: "multi-host-consent",
+          session_key: scope.sessionKey,
+          branch: "work",
+          title: "Prepared change",
+        },
+        storePath: resolveSessionStorePathForScope(scope, {}),
+        accountId: 999,
+        assertCurrent: () => {},
+        description: "Synthetic publication",
+      };
+      const firstContent = await prepareGitHubPublicationContent({
+        ...publication,
+        host: "ghe.example.test",
+      });
+      const secondContent = await prepareGitHubPublicationContent({
+        ...publication,
+        host: "code.example.test",
+      });
+      expect(firstContent.trailers).toEqual([
+        "Co-authored-by: enterprise-ada <ada@enterprise.example>",
+      ]);
+      expect(secondContent.trailers).toEqual([
+        "Co-authored-by: enterprise-ada <ada@other.example>",
+      ]);
+      respond.mockClear();
+      await expectDefined(
+        usersHandlers["users.prefs.set"],
+        "users.prefs.set handler",
+      )({
+        ...requestOptions({ entries: { [GIT_COAUTHOR_PREFERENCE_KEY]: false } }, respond, {
+          client,
+        }),
+        client,
+      });
+      expect(respond).toHaveBeenCalledExactlyOnceWith(true, { status: "ok" }, undefined);
+      await enterpriseSync("ada@enterprise.example")();
+      respond.mockClear();
+      await expectDefined(
+        usersHandlers["users.prefs.get"],
+        "users.prefs.get handler",
+      )({
+        ...requestOptions({ keys: [GIT_COAUTHOR_PREFERENCE_KEY] }, respond, { client }),
+        client,
+      });
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        { status: "ok", entries: { [GIT_COAUTHOR_PREFERENCE_KEY]: false } },
+        undefined,
+      );
+      expect(() => firstContent.assertAction()).toThrow("contributor credit changed");
+      expect(() => secondContent.assertAction()).toThrow("contributor credit changed");
+      for (const host of ["ghe.example.test", "code.example.test"]) {
+        expect((await prepareGitHubPublicationContent({ ...publication, host })).trailers).toEqual(
+          [],
+        );
+      }
+    },
+  );
+});
