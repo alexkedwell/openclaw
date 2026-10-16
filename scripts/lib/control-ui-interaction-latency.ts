@@ -229,7 +229,7 @@ export async function runInteractionLatencyScenario(
     const beforeRow = await thread.evaluate((element) => {
       const top = element.getBoundingClientRect().top;
       const row = [...element.querySelectorAll<HTMLElement>(".chat-virtual-row")].find(
-        (row) => row.getBoundingClientRect().bottom > top,
+        (candidate) => candidate.getBoundingClientRect().bottom > top,
       );
       if (!row) {
         throw new Error("Interaction scenario has no visible transcript row");
@@ -245,7 +245,7 @@ export async function runInteractionLatencyScenario(
       }
       const top = transcript.getBoundingClientRect().top;
       const row = [...transcript.querySelectorAll<HTMLElement>(".chat-virtual-row")].find(
-        (row) => row.getBoundingClientRect().bottom > top,
+        (candidate) => candidate.getBoundingClientRect().bottom > top,
       );
       return (
         row &&
