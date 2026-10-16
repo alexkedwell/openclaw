@@ -227,7 +227,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
     ];
   }
 
-  async function runDoctor() {
+  async function runDoctor(foundVersion = target - 1) {
     const lock = await acquireGatewayLock({
       env,
       allowInTests: true,
@@ -241,7 +241,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
         expect(preflight.incompatible).toEqual([]);
         expect(preflight.indeterminate).toEqual([]);
         expect(preflight.pendingMigrations).toEqual([
-          { kind: "state", path: pathname, foundVersion: target - 1, supportedVersion: target },
+          { kind: "state", path: pathname, foundVersion, supportedVersion: target },
         ]);
         return prepareDoctorDatabaseMigrations({
           env,
@@ -254,6 +254,75 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       await lock!.release();
     }
   }
+
+  it.each([24, 25])(
+    "backs up and restores the real version %s before the registered migration",
+    async (sourceVersion) => {
+      closeOpenClawStateDatabaseForTest();
+      stateEngineSchema.postgresMigrations = originalMigrations;
+      const sourceSchema = { ...stateEngineSchema, version: sourceVersion };
+      await client.query(`
+        UPDATE "${namespace}".openclaw_schema_meta
+          SET version = ${sourceVersion}, fingerprint = NULL, ddl_hash = NULL, server_major = NULL;
+        UPDATE "${namespace}".schema_meta SET schema_version = ${sourceVersion};
+        UPDATE "${namespace}".config_machine_state SET value_json = '${sourceVersion}'
+          WHERE state_key = 'state.schema.contentVersion';
+        INSERT INTO "${namespace}".config_machine_state VALUES ('doctor.fixture', '"before"', 1)
+          ON CONFLICT (state_key) DO UPDATE SET value_json = '"before"';
+        INSERT INTO "${namespace}".session_state_heads
+          (session_key, agent_id, last_sequence, pruned_max_sequence, updated_at)
+          VALUES ('doctor.fixture', 'main', 81, 7, 1)
+          ON CONFLICT (session_key, agent_id) DO UPDATE
+            SET last_sequence = 81, pruned_max_sequence = 7, updated_at = 1;`);
+      {
+        using anchor = openNodeSqliteDatabase(pathname);
+        publishSqliteDatabaseSchemaChange(anchor);
+      }
+      expect(admit(sourceSchema)?.version).toBe(sourceVersion);
+      const before = new Set(archives());
+      const result = await runDoctor(sourceVersion);
+      expect(result.warnings).toEqual([]);
+      expect(await readRows()).toEqual([{ value_json: '"before"' }]);
+      expect(await readMeta()).toEqual({ version: String(target), fingerprint: targetFingerprint });
+      const directory = path.join(
+        path.dirname(pathname),
+        archives().find((entry) => !before.has(entry))!,
+      );
+      const manifest = await verifyMatchedPostgresBackup(directory, "exact");
+      expect(manifest.source).toMatchObject({ owner: "state", schemaVersion: sourceVersion });
+      {
+        using image = openNodeSqliteDatabase(path.join(directory, "database.sqlite"));
+        expect(image.prepare("PRAGMA user_version").get()?.user_version).toBe(sourceVersion);
+        expect(
+          image.prepare("SELECT wr FROM pragma_table_list WHERE name = 'session_state_heads'").get()
+            ?.wr,
+        ).toBe(0);
+        expect(
+          image.prepare("SELECT last_sequence, pruned_max_sequence FROM session_state_heads").all(),
+        ).toEqual([{ last_sequence: 81, pruned_max_sequence: 7 }]);
+      }
+      const restoredPath = path.join(env.OPENCLAW_STATE_DIR!, `restored-v${sourceVersion}.sqlite`);
+      const restored = await preparePostgresRestore({
+        directory,
+        anchorPath: restoredPath,
+        config,
+        profile: "exact",
+        assertCurrent() {},
+      });
+      namespaces.add(restored.namespace);
+      expect(admit(sourceSchema, restoredPath)?.version).toBe(sourceVersion);
+      expect(
+        (
+          await client.query(
+            `SELECT last_sequence, pruned_max_sequence FROM "${restored.namespace}".session_state_heads`,
+          )
+        ).rows,
+      ).toEqual([{ last_sequence: "81", pruned_max_sequence: "7" }]);
+      expect(
+        (await client.query(`SELECT schema_version FROM "${restored.namespace}".schema_meta`)).rows,
+      ).toEqual([{ schema_version: String(sourceVersion) }]);
+    },
+  );
 
   it("captures the predecessor before migration, re-admits exact DDL, and publishes", async () => {
     await prepare();
