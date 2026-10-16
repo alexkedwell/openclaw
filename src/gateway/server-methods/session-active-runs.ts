@@ -234,7 +234,7 @@ export function resolveVisibleActiveSessionRunState(params: {
   // Connection, worker-lifecycle, and embedded registries are independent owners.
   // Settlement in one must not hide live work owned by another.
   const running =
-    ((hasLiveSubagent || hasQueuedSubagent) && !subagentCapacityWait) ||
+    (hasLiveSubagent && !subagentCapacityWait) ||
     matchingTrackedRuns.some((active) => !isAgentRunWaitingForCapacity(active.runId)) ||
     projectedRunState === "running" ||
     embeddedRunState === "running";
@@ -256,7 +256,8 @@ export function resolveVisibleActiveSessionRunState(params: {
     ...(identitiesComplete ? { runIds: runIds.toSorted() } : {}),
     ...(active &&
     !running &&
-    (subagentCapacityWait ||
+    (hasQueuedSubagent ||
+      subagentCapacityWait ||
       projectedRunState === "queued" ||
       projectedRunState === "capacity-wait")
       ? { status: "queued" as const }

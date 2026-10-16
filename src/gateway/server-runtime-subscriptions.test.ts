@@ -676,9 +676,11 @@ describe("startGatewayEventSubscriptions", () => {
         if (change === "newer write") {
           successor.resolve();
           await successor.promise;
-          // Finishing the earlier receipt must not erase its accepted successor.
-          await expect(waitForChatAbortTerminalPersistence(entry)).rejects.toBe(
-            successorDispatchFailure,
+          // The accepted write settles cancellation even if optional dispatch failed.
+          await expect(waitForChatAbortTerminalPersistence(entry)).resolves.toBeUndefined();
+          expect(warn).toHaveBeenCalledWith(
+            "Agent event dispatch failed",
+            expect.objectContaining({ runId, error: successorDispatchFailure }),
           );
         }
       } finally {

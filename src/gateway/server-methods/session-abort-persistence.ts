@@ -1,4 +1,5 @@
 import type { ActiveEmbeddedRunOwner } from "../../agents/embedded-agent-runner/runs.js";
+import { composeSessionSourceAssertion } from "../../config/sessions/session-source-authority.js";
 import { assertAgentRunLifecycleGenerationCurrent } from "../../infra/agent-events.js";
 import { persistGatewaySessionLifecycleEvent } from "../session-lifecycle-state.js";
 
@@ -19,10 +20,10 @@ export function createSessionAbortPersistence(params: {
     persistGatewaySessionLifecycleEvent({
       sessionKey: params.sessionKey,
       agentId: params.agentId,
-      assertCommitAllowed: () => {
-        params.assertCurrent?.();
-        assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration);
-      },
+      assertCommitAllowed: composeSessionSourceAssertion([
+        params.assertCurrent,
+        () => assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration),
+      ]),
       expectedWriter: {
         ...(requireYielded ? { requireYielded } : {}),
         runId: owner.runId,

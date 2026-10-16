@@ -208,7 +208,8 @@ vi.mock("./server-startup-log.js", () => ({
   logGatewayStartup: hoisted.logGatewayStartup,
 }));
 
-vi.mock("../infra/update-startup.js", () => ({
+vi.mock("../infra/update-startup.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../infra/update-startup.js")>()),
   startGatewayUpdateChecks: hoisted.startGatewayUpdateChecks,
 }));
 

@@ -689,13 +689,15 @@ describe("Goal chat admission and continuation", () => {
         if (!reservation || !isRecord(reservation.payload)) {
           throw new Error("Expected the fresh Goal's pending reservation.");
         }
-        context.dedupe.set(key, {
+        const replacement = {
           ...reservation,
-          payload: {
-            ...reservation.payload,
-            ...(change === "expired" ? { expiresAtMs: 1 } : { attemptId: "successor-attempt" }),
-          },
-        });
+          payload: { ...reservation.payload },
+        };
+        if (change === "expired") {
+          reservation.payload.expiresAtMs = 1;
+        } else {
+          context.dedupe.set(key, replacement);
+        }
         release.resolve();
         const response = await pending;
         expect(response.mock.calls[0]?.[1]).toMatchObject(
@@ -707,9 +709,7 @@ describe("Goal chat admission and continuation", () => {
         expectNoDispatch();
         expect(sessionLifecycle.isSessionWorkAdmissionActive(storePath, [sessionKey])).toBe(false);
         if (change === "replaced") {
-          expect(context.dedupe.get(key)?.payload).toMatchObject({
-            attemptId: "successor-attempt",
-          });
+          expect(context.dedupe.get(key)).toBe(replacement);
         }
       } finally {
         release.resolve();

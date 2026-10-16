@@ -1478,7 +1478,8 @@ describe("agent event handler", () => {
     );
     expect(persistParams.sessionKey).toBe(sessionKey);
     const event = requireRecord(persistParams.event, "persisted event");
-    expectRecordFields(event, { runId, clientRunId });
+    expectRecordFields(event, { runId });
+    expect(persistParams.clientRunId).toBe(clientRunId);
     expect(requireRecord(event.data, "lifecycle data").phase).toBe("end");
     expect(h.clearTrackedActiveRun).toHaveBeenCalledWith({ runId, clientRunId, sessionKey });
     const terminalCallIndex = h.broadcastToConnIds.mock.calls.indexOf(

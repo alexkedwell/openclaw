@@ -34,6 +34,7 @@ import {
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
 import { createDirectChatContext } from "./server-chat.agent-events.test-helpers.js";
+import { createSessionAbortPersistence } from "./server-methods/session-abort-persistence.js";
 import {
   bindGatewayRequestHandlerMutationAuthority,
   bindInProcessRequestMutationAuthority,
@@ -256,99 +257,116 @@ it("writes cross-store patches in the worker and refuses a source revoked before
   }
 });
 
-it("keeps a recovered tool caller's source preparation through in-process Stop authority", async () => {
-  expect(isMainThread).toBe(true);
-  const fixture = await recoveryFixture("in-process-stop-source");
-  const target = { ...fixture.target, sessionKey: "agent:main:stop-target" };
-  const runId = "stop-target-run";
-  const sessionId = "stop-target-session";
-  try {
-    await replaceSessionEntry(target, {
-      sessionId,
-      updatedAt: 1_000,
-      startedAt: 1_000,
-      lifecycleRunId: runId,
-      activeWriterRunId: runId,
-    });
-    const caller = expectDefined(
-      createAdmittedGatewayToolCallerIdentity({
-        admittedRunContext: fixture.admittedRunContext,
-        agentId: "main",
-        sessionKey: fixture.target.sessionKey,
-      }),
-      "the real admitted recovery run must issue its caller identity",
-    );
-    await withGatewayToolCallerIdentity(caller, async () => {
-      const assertCallerCurrent = expectDefined(
-        captureGatewayToolCallerAssertion("sessions.abort"),
-        "captured Stop caller",
-      );
-      const context = createDirectChatContext();
-      const client = createSyntheticPluginRuntimeClient({
-        operatorRoleActor: { kind: "system" },
-        scopes: ["operator.write"],
+it.each(["current", "revoked"] as const)(
+  "keeps a recovered tool caller's %s source authority through the Stop writer",
+  async (sourceState) => {
+    expect(isMainThread).toBe(true);
+    const fixture = await recoveryFixture(`in-process-stop-source-${sourceState}`);
+    const target = { ...fixture.target, sessionKey: "agent:main:stop-target" };
+    const runId = "stop-target-run";
+    const sessionId = "stop-target-session";
+    try {
+      await replaceSessionEntry(target, {
+        sessionId,
+        updatedAt: 1_000,
+        startedAt: 1_000,
+        lifecycleRunId: runId,
+        activeWriterRunId: runId,
       });
-      // Dispatch carries the actual captured caller through its composed host guard.
-      const sessionMutationCommitGuard = composeSessionSourceAssertion([assertCallerCurrent]);
-      const req = {
-        type: "req" as const,
-        id: "recovered-tool-stop",
-        method: "sessions.abort",
-        params: { key: target.sessionKey, runId },
-      };
-      const request = bindInProcessRequestMutationAuthority(
-        {
-          req,
-          client,
-          context,
-          respond: vi.fn(),
-          isWebchatConnect: () => false,
+      const caller = expectDefined(
+        createAdmittedGatewayToolCallerIdentity({
+          admittedRunContext: fixture.admittedRunContext,
+          agentId: "main",
+          sessionKey: fixture.target.sessionKey,
+        }),
+        "the real admitted recovery run must issue its caller identity",
+      );
+      await withGatewayToolCallerIdentity(caller, async () => {
+        const assertCallerCurrent = expectDefined(
+          captureGatewayToolCallerAssertion("sessions.abort"),
+          "captured Stop caller",
+        );
+        const context = createDirectChatContext();
+        const client = createSyntheticPluginRuntimeClient({
+          operatorRoleActor: { kind: "system" },
+          scopes: ["operator.write"],
+        });
+        // Dispatch carries the actual captured caller through its composed host guard.
+        const sessionMutationCommitGuard = composeSessionSourceAssertion([assertCallerCurrent]);
+        const req = {
+          type: "req" as const,
+          id: "recovered-tool-stop",
+          method: "sessions.abort",
+          params: { key: target.sessionKey, runId },
+        };
+        const request = bindInProcessRequestMutationAuthority(
+          {
+            req,
+            client,
+            context,
+            respond: vi.fn(),
+            isWebchatConnect: () => false,
+            sessionMutationCommitGuard,
+          },
+          undefined,
           sessionMutationCommitGuard,
-        },
-        undefined,
-        sessionMutationCommitGuard,
-      );
-      const handler = bindGatewayRequestHandlerMutationAuthority(
-        request,
-        {
-          ...request,
-          params: req.params,
-        },
-        undefined,
-      );
-      const authority = readGatewayRequestMutationAuthority(handler);
-      // sessions.abort passes this request authority into the same lifecycle writer.
-      const assertAbortCurrent = composeSessionSourceAssertion([authority.assertCurrent]);
-      const sql = observeHostDataSql();
-      try {
-        await fixture.owner.persist({
+        );
+        const handler = bindGatewayRequestHandlerMutationAuthority(
+          request,
+          {
+            ...request,
+            params: req.params,
+          },
+          undefined,
+        );
+        const authority = readGatewayRequestMutationAuthority(handler);
+        // Use the same effect writer as sessions.abort, not presentation persistence.
+        const assertAbortCurrent = composeSessionSourceAssertion([authority.assertCurrent]);
+        const persistSessionAbort = createSessionAbortPersistence({
           sessionKey: target.sessionKey,
           agentId: "main",
-          assertCommitAllowed: assertAbortCurrent,
-          event: {
+          assertCurrent: assertAbortCurrent,
+          lifecycleGeneration: fixture.authority.lifecycleGeneration,
+        });
+        if (sourceState === "revoked") {
+          replaceSessionEntrySync(fixture.target, {
+            ...fixture.entry,
+            restartRecoveryHarnessCompletion: undefined,
+          });
+        }
+        const clock = vi.spyOn(Date, "now").mockReturnValue(3_000);
+        const sql = observeHostDataSql();
+        try {
+          const persistence = persistSessionAbort({
             runId,
             sessionId,
-            lifecycleGeneration: fixture.authority.lifecycleGeneration,
-            ts: 3_000,
-            data: {
-              phase: "end",
-              status: "cancelled",
-              aborted: true,
-              stopReason: "rpc",
-              startedAt: 1_000,
-              endedAt: 3_000,
-            },
-          },
-        });
-        for (const call of sql.calls) {
-          expect(call).not.toHaveBeenCalled();
+            startedAtMs: 1_000,
+          });
+          if (sourceState === "revoked") {
+            await expect(persistence).rejects.toThrow(
+              "agent tool caller authority is no longer active",
+            );
+          } else {
+            await persistence;
+          }
+          for (const call of sql.calls) {
+            expect(call).not.toHaveBeenCalled();
+          }
+        } finally {
+          sql.restore();
+          clock.mockRestore();
         }
-      } finally {
-        sql.restore();
+      });
+      const entry = loadSessionEntry(target);
+      if (sourceState === "revoked") {
+        expect(entry).toMatchObject({ lifecycleRunId: runId, activeWriterRunId: runId });
+        expect(entry?.status).toBeUndefined();
+        expect(entry?.endedAt).toBeUndefined();
+      } else {
+        expect(entry).toMatchObject({ status: "killed", endedAt: 3_000 });
       }
-    });
-    expect(loadSessionEntry(target)).toMatchObject({ status: "killed", endedAt: 3_000 });
-  } finally {
-    await fixture.close();
-  }
-});
+    } finally {
+      await fixture.close();
+    }
+  },
+);

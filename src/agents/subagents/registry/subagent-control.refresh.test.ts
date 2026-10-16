@@ -148,11 +148,8 @@ it.for(["complete", "reject undefined"] as const)(
           return "selected";
         },
         undefined,
-        {
-          prepare: async (publish) => {
-            publishedBeforeJoin ||= !finalReadSettled;
-            await publish();
-          },
+        () => {
+          publishedBeforeJoin ||= !finalReadSettled;
         },
       ),
     );

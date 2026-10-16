@@ -514,7 +514,11 @@ describe("queued collector session projection", () => {
         await flushPendingSessionsChangedEvents(context);
         expect(context.broadcastToConnIds).toHaveBeenCalledWith(
           "sessions.changed",
-          expect.objectContaining({ sessionKey: entry.childSessionKey, reason: "abort" }),
+          expect.objectContaining(
+            preparation === "failed"
+              ? { agentId: "main", reason: "update" }
+              : { sessionKey: entry.childSessionKey, reason: "abort" },
+          ),
           new Set(["observer"]),
           expect.any(Object),
         );
