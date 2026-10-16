@@ -25,7 +25,6 @@ import type { PresencePayload } from "../../app/user-profile.ts";
 import type { MarkdownRenderOptions } from "../../components/markdown-render-options.ts";
 import type { SessionPanelToggleSlot } from "../../components/session-panel-toggle-buffer.ts";
 import { SessionProgressCardController } from "../../components/session-progress-card-controller.ts";
-import { I18nController } from "../../i18n/lib/lit-controller.ts";
 import type {
   BoardCommandEvent,
   BoardProvider,
@@ -47,7 +46,6 @@ import {
   SubscriptionsController,
   viewState,
 } from "../../lib/subscriptions-controller.ts";
-import { PollController } from "../../lit/poll-controller.ts";
 import { ChatComposerCapabilityHost } from "./chat-composer-capability-host.tsx";
 import {
   CHAT_PANE_LIFECYCLE_CHANGED_EVENT,
@@ -63,7 +61,7 @@ import { sameChatPanePresence } from "./chat-pane-presence.ts";
 import type { PendingSessionPanelToggle } from "./chat-pane-session-panel-toggle.ts";
 import type { ChatPaneConnectionScope, PaneSessionChangeOptions } from "./chat-pane-shared.ts";
 import { SessionParticipationTracker } from "./chat-pane-state.ts";
-import { ChatStateController } from "./chat-state-controller.ts";
+import { createChatState } from "./chat-state-controller.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { requestChatPageUpdate } from "./chat-state-render.ts";
 import type { ChatTypingActorState } from "./chat-typing-presence.ts";
@@ -85,7 +83,6 @@ import type { SessionSnapshotStore } from "./session-snapshot-store.ts";
 import type { SidebarLayout } from "./sidebar-layout-types.ts";
 
 export abstract class ChatPaneBase extends ControllerHost {
-  protected readonly i18nController = new I18nController(this);
   private readonly changedProperties = new Map<PropertyKey, unknown>();
   private completeUpdate: (() => void) | undefined;
   private commitPromise: Promise<boolean> | undefined;
@@ -132,6 +129,7 @@ export abstract class ChatPaneBase extends ControllerHost {
   }
 
   prepareRender(): void {
+    this.chatState.prepareRender();
     this.lastCommittedProperties = new Map(this.changedProperties);
     this.changedProperties.clear();
     this.willUpdate(this.lastCommittedProperties);
@@ -142,7 +140,7 @@ export abstract class ChatPaneBase extends ControllerHost {
     this.completeUpdate = undefined;
     this.commitPromise = undefined;
     this.updated(this.lastCommittedProperties);
-    this.chatState.hostUpdated();
+    this.chatState.commitRender();
     complete?.();
   }
 
@@ -153,6 +151,7 @@ export abstract class ChatPaneBase extends ControllerHost {
   private readonly handleVisibilityChange = () => {
     // Progress watches follow visibility before the parked view resumes.
     this.progressCard.hostUpdate();
+    this.requestUpdate();
     if (document.visibilityState !== "hidden") {
       return;
     }
@@ -172,6 +171,9 @@ export abstract class ChatPaneBase extends ControllerHost {
     }
   };
   connectedCallback() {
+    if (this.chatState.disposed) {
+      this.chatState = this.mountChatState();
+    }
     this.paneLifecycleRoot = this.closest("openclaw-app-shell") ?? this.element.parentElement;
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
     super.connect();
@@ -189,6 +191,7 @@ export abstract class ChatPaneBase extends ControllerHost {
     );
     this.context?.connectionBootstrap.setForegroundPane(this, null);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    this.chatState.dispose();
     super.disconnect();
     this.completeUpdate?.();
     this.completeUpdate = undefined;
@@ -201,14 +204,6 @@ export abstract class ChatPaneBase extends ControllerHost {
     paneRoot?.dispatchEvent(new Event(CHAT_PANE_LIFECYCLE_CHANGED_EVENT));
   }
 
-  // Relative labels still need a minute tick; external PR state is server-pushed.
-  readonly minutePoll = new PollController(
-    this,
-    60_000,
-    () => this.requestUpdate(),
-    true,
-    "visible",
-  );
   @viewState()
   mcpAppLaunch?: import("../../components/mcp-app-launch.ts").McpAppOpenDetail;
   @viewState() paneId = "single";
@@ -382,27 +377,31 @@ export abstract class ChatPaneBase extends ControllerHost {
   @viewState() boardProvider?: BoardProvider;
 
   private publishedRunActivity: ChatPaneBase["runActivity"] = null;
-  protected readonly chatState = new ChatStateController<ChatPageHost>(
-    this,
-    () => {
-      this.syncQueuedEditRetention();
-      const activity = this.runActivity;
-      if (
-        activity?.client === this.publishedRunActivity?.client &&
-        activity?.agentId === this.publishedRunActivity?.agentId &&
-        activity?.working === this.publishedRunActivity?.working &&
-        activity?.completion === this.publishedRunActivity?.completion
-      ) {
-        return;
-      }
-      this.publishedRunActivity = activity;
-      this.dispatchEvent(new Event(CHAT_RUN_ACTIVITY_CHANGED_EVENT, { bubbles: true }));
-    },
-    (item) =>
-      getTranscriptState(this.presentationId).transcriptRenderContext.onAsyncQuestionDiscard?.(
-        item,
-      ),
-  );
+  protected chatState: ReturnType<typeof createChatState<ChatPageHost>> = this.mountChatState();
+
+  private mountChatState() {
+    return createChatState<ChatPageHost>(
+      this,
+      () => {
+        this.syncQueuedEditRetention();
+        const activity = this.runActivity;
+        if (
+          activity?.client === this.publishedRunActivity?.client &&
+          activity?.agentId === this.publishedRunActivity?.agentId &&
+          activity?.working === this.publishedRunActivity?.working &&
+          activity?.completion === this.publishedRunActivity?.completion
+        ) {
+          return;
+        }
+        this.publishedRunActivity = activity;
+        this.dispatchEvent(new Event(CHAT_RUN_ACTIVITY_CHANGED_EVENT, { bubbles: true }));
+      },
+      (item) =>
+        getTranscriptState(this.presentationId).transcriptRenderContext.onAsyncQuestionDiscard?.(
+          item,
+        ),
+    );
+  }
 
   get runActivity() {
     return this.chatState.projectRunActivity(this.state);

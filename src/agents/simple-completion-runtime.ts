@@ -6,6 +6,10 @@ import { bindModelLlmRuntime } from "../llm/model-runtime-binding.js";
 import type { Model } from "../llm/types.js";
 import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
+import {
+  attachProviderAuthAuthority,
+  getProviderAuthAuthority,
+} from "../plugins/provider-auth-authority.js";
 import { resolveProviderAuthScope } from "../plugins/provider-auth-scope.js";
 import {
   attachModelProviderRuntimePluginHandle,
@@ -372,6 +376,7 @@ async function prepareSimpleCompletionModelCore(
     };
   }
 
+  resolvedModel = attachProviderAuthAuthority(resolvedModel, getProviderAuthAuthority(auth));
   let authValue = rawApiKey;
   if (rawApiKey) {
     const runtimeAuth = await prepareProviderRuntimeAuth({

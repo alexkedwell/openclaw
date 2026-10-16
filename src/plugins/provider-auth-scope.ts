@@ -5,6 +5,7 @@ import { getActiveSecretsRuntimeSnapshotRevisionState } from "../secrets/runtime
 import { getCurrentPluginMetadataSnapshot } from "./current-plugin-metadata-snapshot.js";
 import { getPluginValueInstance } from "./plugin-instance-scope.js";
 import type { PluginMetadataRegistryView } from "./plugin-metadata-snapshot.types.js";
+import { attachProviderAuthAuthority } from "./provider-auth-authority.js";
 import type { ProviderSyntheticAuthResult } from "./provider-external-auth.types.js";
 import { getProviderOwnerIndex } from "./provider-owner-index.js";
 import type { ProviderPlugin } from "./provider-plugin.types.js";
@@ -78,23 +79,37 @@ export function resolvePluginOwnedProviderAuthWith(
   const provider = resolveProviderRuntimePlugin(lookup);
   const hook = provider?.resolveSyntheticAuth;
   const instance = hook ? getPluginValueInstance(hook) : undefined;
-  if (!provider || provider.authScope !== "plugin" || !hook || !instance) {
+  const owner = instance?.owner;
+  const registry = owner?.registry;
+  const registration = registry?.providers.find(
+    (entry) =>
+      entry.pluginId === provider?.pluginId &&
+      entry.provider.id === provider?.id &&
+      entry.provider.resolveSyntheticAuth === hook,
+  );
+  if (!provider || provider.authScope !== "plugin" || !hook || !instance || !registration) {
     throw pluginProviderAuthUnavailable(
       params.provider,
       "selected live resolveSyntheticAuth owner is missing",
     );
   }
+  const registeredProvider = registration.provider;
   const revision = getActiveSecretsRuntimeSnapshotRevisionState();
   const assertCurrent = () => {
     if (
       !instance.acceptingCalls ||
-      instance.owner?.revoked ||
+      instance.owner !== owner ||
+      owner?.revoked ||
       instance.lifecycle.signal.aborted ||
       instance.pluginId !== provider.pluginId ||
-      !instance.owner?.record.enabled ||
-      instance.owner.record.status !== "loaded" ||
+      !owner?.record.enabled ||
+      owner.record.status !== "loaded" ||
+      owner.registry !== registry ||
       getActiveSecretsRuntimeSnapshotRevisionState() !== revision ||
-      resolveProviderRuntimePlugin(lookup)?.resolveSyntheticAuth !== hook
+      !registry?.providers.includes(registration) ||
+      registration.provider !== registeredProvider ||
+      registeredProvider.authScope !== "plugin" ||
+      registeredProvider.resolveSyntheticAuth !== hook
     ) {
       throw pluginProviderAuthUnavailable(
         params.provider,
@@ -130,5 +145,5 @@ export function resolvePluginOwnedProviderAuthWith(
       "live credential or no-auth evidence is missing",
     );
   }
-  return result;
+  return attachProviderAuthAuthority(result, assertCurrent);
 }

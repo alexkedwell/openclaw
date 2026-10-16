@@ -18,9 +18,9 @@ import {
 } from "../panel-toggle-contract.ts";
 import { SolidPanelController } from "../solid-panel-controller.ts";
 import type { DesktopAppLauncher } from "./desktop-app-launcher.ts";
-import { DesktopAudio } from "./desktop-audio.ts";
+import type { DesktopAudio } from "./desktop-audio.ts";
 import * as desktopTransport from "./desktop-client.ts";
-import { DesktopMobileKeyboard } from "./desktop-mobile-keyboard.ts";
+import type { DesktopMobileKeyboard } from "./desktop-mobile-keyboard.ts";
 import {
   DesktopConnectionHandoff,
   releaseDesktopObservation,
@@ -31,8 +31,8 @@ import {
 import * as desktopAuth from "./desktop-panel-credentials.ts";
 import { desktopPanelLayout } from "./desktop-panel-layout.ts";
 import type { DesktopPanelState } from "./desktop-panel-state.ts";
-import { DesktopPictureInPicture } from "./desktop-picture-in-picture.ts";
-import { DesktopSessionController } from "./desktop-session-controller.ts";
+import type { DesktopPictureInPicture } from "./desktop-picture-in-picture.ts";
+import { DesktopSessionOwner } from "./desktop-session-owner.ts";
 import { desktopSourceForEnvironment } from "./desktop-source.ts";
 
 registerDesktopEnglish();
@@ -61,6 +61,8 @@ export class DesktopPanelController extends SolidPanelController {
     | ((target: Extract<ControlUiFocusBuildTarget, { kind: "desktop" }>) => void)
     | null = null;
   fullscreenMode!: DesktopFullscreen;
+  audio!: DesktopAudio;
+  pictureInPicture!: DesktopPictureInPicture;
   launcher!: DesktopAppLauncher;
 
   /** Browser tests replace the transport without opening a real RFB socket. */
@@ -81,12 +83,6 @@ export class DesktopPanelController extends SolidPanelController {
   private canResize = false;
 
   private readonly connection = new DesktopConnectionHandoff();
-  private readonly audio = new DesktopAudio(
-    this,
-    () => this.state === "connected",
-    () => void this.connectEnvironment(this.environmentId, this.controlling),
-  );
-  private readonly pictureInPicture = new DesktopPictureInPicture(this, () => this.state);
   private credentials: DesktopCredentials | undefined;
   private credentialAuth: "vnc-password" | "ard-account" | undefined;
   private pendingConnection: PendingDesktopConnection | null = null;
@@ -94,8 +90,9 @@ export class DesktopPanelController extends SolidPanelController {
   private controlTakeoverRecoveryUsed = false;
   // Automatic resolution follows the session; an explicit choice owns its pop-out target.
   private sourceSelection: "pending" | "resolved" | "explicit" | "picker" = "pending";
-  private readonly sessionSource = new DesktopSessionController(
+  readonly sessionSource = new DesktopSessionOwner(
     this,
+    () => this.invalidate(),
     () => this.environmentId,
     (target) => {
       if (this.usesAutomaticSource) {
@@ -133,16 +130,18 @@ export class DesktopPanelController extends SolidPanelController {
       }
     },
   );
-  private readonly mobileKeyboard = new DesktopMobileKeyboard({
-    connection: () => this.connection.handle,
-    controlling: () => this.controlling,
-    input: () => this.renderRoot.querySelector<HTMLTextAreaElement>(".desktop-keyboard-input"),
-  });
+  mobileKeyboard!: DesktopMobileKeyboard;
+  readonly keyboardTarget = () => (this.controlling ? this.connection.handle : null);
   readonly dockLayout = new DockLayoutController(this, {
     layout: desktopPanelLayout,
     reservationPrefix: "desktop",
     isAvailable: () => this.available,
     isFullscreen: () => this.fullscreenMode?.ownsFullscreen() ?? false,
+  });
+
+  readonly audioTarget = () => ({
+    connected: this.state === "connected",
+    reconnect: () => void this.connectEnvironment(this.environmentId, this.controlling),
   });
 
   get launchTarget() {
@@ -315,16 +314,18 @@ export class DesktopPanelController extends SolidPanelController {
   }
 
   private disconnectConnection(retainViewer = false): void {
-    this.audio.close();
-    this.pictureInPicture.close();
+    // Native close can precede Solid mounting; each Solid owner handles its disposal.
+    if (this.isConnected) {
+      this.audio.close();
+      this.pictureInPicture.close();
+      this.mobileKeyboard.reset();
+    }
     this.operationId += 1;
     this.pendingConnection = null;
     this.connection.begin(retainViewer);
-    this.mobileKeyboard.reset();
     if (!retainViewer) {
       this.sessionSource.invalidate();
       this.loading = false;
-      // Disposal invalidates launch work through the Solid owner without publishing feedback.
       if (this.isConnected) {
         this.launcher.clear();
       }
@@ -354,7 +355,6 @@ export class DesktopPanelController extends SolidPanelController {
       );
       if (selected && this.sourceSelection === "pending") {
         this.sourceSelection = "resolved";
-        this.invalidate();
         await this.connectEnvironment(selected.id, false);
       }
       return true;
@@ -415,7 +415,6 @@ export class DesktopPanelController extends SolidPanelController {
     this.returnToPicker(explicit ? "explicit" : this.sourceSelection);
     this.environmentId = environmentId;
     this.state = "connecting";
-    this.invalidate();
     const operationId = this.operationId;
     const inventoryLoaded = await this.refreshEnvironments(operationId, environmentId);
     if (operationId !== this.operationId) {
@@ -681,7 +680,6 @@ export class DesktopPanelController extends SolidPanelController {
             if ((this.state === "inventory-error" && this.documentMode) || !this.environmentId) {
               if (this.sourceSelection !== "picker") {
                 this.sourceSelection = "pending";
-                this.invalidate();
               }
               this.state = "picker";
               this.invalidate();
