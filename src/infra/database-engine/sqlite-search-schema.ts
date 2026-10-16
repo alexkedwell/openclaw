@@ -28,11 +28,11 @@ function inspectMemoryFts(
     ...MEMORY_CHUNK_FTS_TRIGGER_DEFINITIONS.map(({ name }) => name),
     ...MEMORY_PATH_FTS_TRIGGER_DEFINITIONS.map(({ name }) => name),
   ];
-  // SAFETY: SQLite owns these catalog columns. Names are bound, including deprecated custom names.
   const rows = db
     .prepare(
       `SELECT type, name, sql FROM sqlite_schema WHERE name COLLATE NOCASE IN (${names.map(() => "?").join(", ")})`,
     )
+    // SAFETY: SQLite owns these catalog columns. Names are bound, including deprecated custom names.
     .all(...names) as SearchSchemaObject[];
   const objects = new Map(rows.map((row) => [row.name.toLowerCase(), row]));
   let catalog: SqliteSchemaCatalog | undefined;

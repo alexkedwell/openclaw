@@ -32,6 +32,7 @@ export function createSqliteMemoryVectorSchema(
   dimensions: number,
   ifNotExists: boolean,
 ): void {
+  // sqlite-allow-raw: Engine-owned virtual-table DDL cannot be expressed through the query builder.
   db.exec(buildSqliteMemoryVectorSchema({ tableName, dimensions, ifNotExists }));
   if (!ifNotExists) {
     publishSqliteDatabaseAdmission(db, vectorAdmission(tableName, dimensions), true);
