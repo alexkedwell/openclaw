@@ -181,8 +181,10 @@ describe("session observer terminal, persistence, synthesis, and races", () => {
       delete terminal.sessionKey;
       delete terminal.agentId;
       const persisted = nextPersistence(harness);
+      const published = createDeferred();
+      harness.broadcastToConnIds.mockImplementationOnce(() => published.resolve());
       harness.observer.handleEvent(terminal);
-      await withinTest(persisted, signal);
+      await withinTest(Promise.all([persisted, published.promise]), signal);
       expect(broadcastDigest(harness, -1)).toMatchObject({ runId: "run-1", health: "done" });
       expect(persistedDigest(harness)).toMatchObject({ runId: "run-1", health: "done" });
       expect(harness.persistDigest).toHaveBeenCalledOnce();
