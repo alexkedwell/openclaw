@@ -75,7 +75,7 @@ function readJpegDimensions(buffer: Buffer): { width: number; height: number } |
 }
 
 async function listLinuxVideoDevices(ffmpeg: string): Promise<VideoDevice[]> {
-  const entries = await fs.readdir("/dev").catch(() => []);
+  const entries = await fs.readdir("/dev");
   const deviceNames = entries
     .filter((entry) => /^video\d+$/u.test(entry))
     .toSorted((left, right) => left.localeCompare(right, "en", { numeric: true }));
