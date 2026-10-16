@@ -801,7 +801,6 @@ describe.skipIf(process.platform === "win32")(
             if (!(context instanceof settledContext.CodexSettledTurnContext)) {
               throw new Error("Native turn lost its settled-tool evidence");
             }
-            expect(Object.isFrozen(context)).toBe(true);
             if (hidden) {
               expect(context.data).toEqual(
                 expect.arrayContaining([

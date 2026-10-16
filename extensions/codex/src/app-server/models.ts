@@ -147,7 +147,7 @@ function readCodexModel(value: CodexModel): CodexAppServerModel {
     ...(description ? { description } : {}),
     hidden: value.hidden,
     isDefault: value.isDefault,
-    inputModalities: value.inputModalities,
+    inputModalities: value.inputModalities ?? ["text", "image"],
     serviceTiers: normalizeUniqueTrimmedStringList(
       (value.serviceTiers ?? []).map((tier) => tier.id),
     ),
