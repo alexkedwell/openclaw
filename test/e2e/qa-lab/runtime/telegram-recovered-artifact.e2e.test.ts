@@ -193,7 +193,12 @@ test("delivers a recovered artifact once while preserving its inter-session tran
       const form = await new Response(new Uint8Array(raw), {
         headers: { "content-type": String(req.headers["content-type"]) },
       }).formData();
-      const document = form.get("document");
+      // grammY names the upload separately and sends its attachment reference in document.
+      const reference = form.get("document");
+      if (typeof reference !== "string" || !reference.startsWith("attach://")) {
+        throw new Error("Telegram document did not reference a multipart upload");
+      }
+      const document = form.get(reference.slice("attach://".length));
       expect(document).toBeInstanceOf(File);
       const file = document as File;
       const chatId = form.get("chat_id");
@@ -253,7 +258,16 @@ test("delivers a recovered artifact once while preserving its inter-session tran
     await withServer(
       (req, res) => {
         void handleRequest(req, res).catch((error: unknown) => {
-          writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+          const message = error instanceof Error ? error.message : String(error);
+          writeJson(res, 500, {
+            ok: false,
+            error_code: 500,
+            description: sliceUtf16Safe(
+              redactSensitiveText(message.replaceAll(BOT_TOKEN, "<bot-token>"), { mode: "tools" }),
+              0,
+              2_048,
+            ),
+          });
         });
       },
       async (apiRoot) => {
