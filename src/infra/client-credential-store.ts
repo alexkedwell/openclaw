@@ -118,8 +118,11 @@ export function withClientCredentialStore<T>(
     using db = openNodeSqliteDatabase(resolveExistingSqliteFileUri(pathname), { timeout: 5000 });
     // The app keeps this same SQLite lock across its bounded operations. CLI
     // custody ends at close; no PID, timestamp, or second lock database decides it.
-    db.exec("PRAGMA locking_mode=EXCLUSIVE");
-    if (db.prepare("PRAGMA journal_mode").get()?.journal_mode !== "delete") {
+    db.exec("PRAGMA locking_mode=EXCLUSIVE"); // sqlite-allow-raw -- Connection-local exclusive owner custody.
+    if (
+      // sqlite-allow-raw -- Read native journal policy before admission.
+      db.prepare("PRAGMA journal_mode").get()?.journal_mode !== "delete"
+    ) {
       throw new Error(
         "Client credentials require DELETE journal mode for exclusive owner custody.",
       );
@@ -129,12 +132,12 @@ export function withClientCredentialStore<T>(
         const version = readSqliteUserVersion(db);
         if (
           version === 0 &&
-          !db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'").get()
+          !db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'").get() // sqlite-allow-raw -- Bootstrap only an empty native catalog.
         ) {
           if (!createIfMissing) {
             return undefined;
           }
-          db.exec(CLIENT_CREDENTIAL_SCHEMA_SQL);
+          db.exec(CLIENT_CREDENTIAL_SCHEMA_SQL); // sqlite-allow-raw -- Canonical first-use schema DDL.
           writeSqliteUserVersion(db, CLIENT_CREDENTIAL_SCHEMA_VERSION);
         } else {
           if (version !== CLIENT_CREDENTIAL_SCHEMA_VERSION) {

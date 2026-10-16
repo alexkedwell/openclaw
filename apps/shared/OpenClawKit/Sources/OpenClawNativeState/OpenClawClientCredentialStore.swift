@@ -4,6 +4,7 @@ import SQLite3
 
 /// The local credential owner; it never opens the selected Gateway database.
 /// Preparatory API only: production consumers switch together after migration.
+/// periphery:ignore - PR1b activates this preparatory local credential adapter.
 public final class OpenClawClientCredentialStore: @unchecked Sendable {
     public struct Identity: Equatable, Sendable {
         public let key: String

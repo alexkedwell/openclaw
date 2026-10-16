@@ -1955,6 +1955,8 @@ src/state/postgres-schema.generated/runtime.ts
 src/state/postgres-schema.generated/sqlite-agent-catalogs.json
 src/state/postgres-schema.generated/sqlite-agent-catalogs.ts
 src/state/postgres-schema.generated/sqlite-catalogs.ts
+src/state/postgres-schema.generated/sqlite-client-catalogs.json
+src/state/postgres-schema.generated/sqlite-client-catalogs.ts
 src/state/postgres-schema.generated/sqlite-daemon-catalogs.json
 src/state/postgres-schema.generated/sqlite-daemon-catalogs.ts
 src/state/postgres-schema.generated/sqlite-memory-catalogs.json
