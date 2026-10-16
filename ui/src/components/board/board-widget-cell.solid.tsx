@@ -30,8 +30,8 @@ import { formatUiError } from "../../lib/format-error.ts";
 import { useOptionalApplication } from "../../lib/reactive/context.ts";
 import { t } from "../../lib/reactive/i18n.ts";
 import { projectOwner, projectSource } from "../../lib/reactive/projection.ts";
+import { defineSolidBridge, type SolidBridgeElement } from "../../lib/solid-bridge.ts";
 import { showToast } from "../../lib/toast.ts";
-import { defineSolidBridge, type SolidBridgeElement } from "../../lit/solid-bridge.ts";
 import { CustomPluginUiDisabled } from "../../plugins/control-ui-disabled.solid.tsx";
 import { PluginContribution } from "../../plugins/control-ui-view.solid.tsx";
 import { LazyViewError } from "../solid/lazy-view-error.tsx";
@@ -54,7 +54,7 @@ import {
   BoardWidgetRejected,
 } from "./board-widget-cell-render.solid.tsx";
 import { BoardWidgetError } from "./board-widget-error.tsx";
-import { BoardWidgetFrameLifecycle } from "./board-widget-frame.tsx";
+import { BoardWidgetFrameOwner } from "./board-widget-frame.tsx";
 import { BoardWidgetMenu } from "./board-widget-menu.tsx";
 
 const loadMcpAppView = () => import("../mcp-app-view-registration.ts");
@@ -128,7 +128,7 @@ function BoardWidgetCellContent(
     sessionKey: () => untrack(() => props.sessionKey ?? ""),
     widget: () => untrack(() => props.widget),
   });
-  const frame = new BoardWidgetFrameLifecycle({
+  const frame = new BoardWidgetFrameOwner({
     active: () => untrack(active),
     connected: () => connected,
     loadingCovered: () => props.loadingCovered ?? false,
@@ -141,7 +141,6 @@ function BoardWidgetCellContent(
       host.closest("openclaw-board-view")?.scrollBy({ top: deltaY, behavior: "auto" }),
     requestUpdate,
     resolveFrameUrl: () => props.widgetFrameUrl,
-    root: () => host,
     widget: () => untrack(() => props.widget),
   });
   const state = createMemo(() => {

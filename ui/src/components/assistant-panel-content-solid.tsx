@@ -2,7 +2,7 @@ import { createEffect, createMemo, onSettled, untrack } from "solid-js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { projectSource } from "../lib/reactive/projection.ts";
-import { defineSolidBridge, type SolidBridgeElement } from "../lit/solid-bridge.ts";
+import { defineSolidBridge, type SolidBridgeElement } from "../lib/solid-bridge.ts";
 import {
   buildHomeWorkContext,
   subscribeChatWorkContext,
