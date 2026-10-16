@@ -266,8 +266,9 @@ export function loadPluginManifest(
     modelCatalog: normalizeModelCatalog(raw.modelCatalog, {
       ownedProviders: new Set([...providers, ...cliBackends]),
     }),
+    // CLI backends bill like providers, so they may declare their own pricing source.
     modelPricing: modelProviderNormalizers.normalizeManifestModelPricing(raw.modelPricing, {
-      ownedProviders: new Set(providers),
+      ownedProviders: new Set([...providers, ...cliBackends]),
     }),
     modelIdNormalization: modelProviderNormalizers.normalizeManifestModelIdNormalization(
       raw.modelIdNormalization,

@@ -74,4 +74,26 @@ describe("plugin manifest model catalog", () => {
       },
     });
   });
+
+  it("allows cli backends to own pricing policy", () => {
+    const dir = makePluginDir();
+    writeManifest(dir, {
+      id: "anthropic",
+      providers: ["anthropic"],
+      cliBackends: ["claude-cli"],
+      modelPricing: {
+        providers: {
+          "claude-cli": { modelsDev: { provider: "anthropic" } },
+          unowned: { modelsDev: { provider: "anthropic" } },
+        },
+      },
+      configSchema: { type: "object" },
+    });
+
+    const result = loadPluginManifest(dir);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(Object.keys(result.manifest.modelPricing?.providers ?? {})).toEqual(["claude-cli"]);
+  });
 });
