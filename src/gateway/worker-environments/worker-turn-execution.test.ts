@@ -28,7 +28,6 @@ import {
   initializeGlobalHookRunner,
   resetGlobalHookRunner,
 } from "../../plugins/hook-runner-global.js";
-import type { PluginHookHandlerMap } from "../../plugins/hook-types.js";
 import { createUserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
 import { closeStateDatabaseForTest } from "../../test-utils/database-cleanup.js";
 import { observeMainThreadSql } from "../../test-utils/main-thread-sql-spies.test-support.js";
@@ -96,17 +95,40 @@ function expectUnused(...mocks: Array<ReturnType<typeof vi.fn>>) {
   }
 }
 
-async function preparePolicy(
-  input: ReturnType<typeof turn>,
-  handler: PluginHookHandlerMap["before_agent_run"],
-) {
-  const runtime = await acquireAgentRunPreparedModelRuntime({
-    config: input.config,
-    agentId: input.agentId,
-    agentDir: resolveAgentDir(input.config, input.agentId),
-    workspaceDir: input.workspaceDir,
-  });
-  try {
+describe("worker turn execution", () => {
+  beforeEach(setupWorkerTurnLauncherTest);
+  afterEach(() => cleanupWorkerTurnLauncherTest({ reuseReadWorkers: true }));
+  afterEach(resetGlobalHookRunner);
+
+  it.each(["block", "throw", "revoke"] as const)("enforces the input gate (%s)", async (mode) => {
+    await seedActivePlacement();
+    const input = turn(`input-gate-${mode}`);
+    const entered = createDeferred();
+    const release = createDeferred();
+    let current = true;
+    const resolveTarget = vi.fn(() => ({ ...sessionTarget, sessionEntry: undefined }));
+    const recorder =
+      mode === "throw"
+        ? createUserTurnTranscriptRecorder({ target: resolveTarget, input: { text: input.prompt } })
+        : undefined;
+    const handler = vi.fn(async () => {
+      expect((await openSessionManager()).getEntries()).toEqual([]);
+      if (mode === "revoke") {
+        entered.resolve();
+        await release.promise;
+        return { outcome: "pass" as const };
+      }
+      if (mode === "throw") {
+        throw new Error("synthetic policy failure");
+      }
+      return { outcome: "block" as const, reason: "synthetic policy", message: "Request blocked." };
+    });
+    await using runtime = await acquireAgentRunPreparedModelRuntime({
+      config: input.config,
+      agentId: input.agentId,
+      agentDir: resolveAgentDir(input.config, input.agentId),
+      workspaceDir: input.workspaceDir,
+    });
     const registry = runtime.snapshot.pluginRegistry;
     assert(registry);
     const registration = {
@@ -117,123 +139,80 @@ async function preparePolicy(
     };
     registry.typedHooks.push(registration);
     initializeGlobalHookRunner(registry);
-    return {
-      pluginGeneration: runtime.pluginGeneration,
-      async [Symbol.asyncDispose]() {
-        registry.typedHooks.splice(registry.typedHooks.indexOf(registration), 1);
-        input.preparedRunAdmission.close();
-        await runtime[Symbol.asyncDispose]();
-      },
-    };
-  } catch (error) {
-    await runtime[Symbol.asyncDispose]();
-    throw error;
-  }
-}
-
-describe("worker turn execution", () => {
-  beforeEach(setupWorkerTurnLauncherTest);
-  afterEach(() => cleanupWorkerTurnLauncherTest({ reuseReadWorkers: true }));
-  afterEach(resetGlobalHookRunner);
-
-  it.each([
-    { recorderOwned: false, throws: false },
-    { recorderOwned: true, throws: true },
-  ])("redacts blocked input before launch (%j)", async ({ recorderOwned, throws }) => {
-    await seedActivePlacement();
-    const input = turn("blocked-input");
-    const resolveTarget = vi.fn(() => ({ ...sessionTarget, sessionEntry: undefined }));
-    const recorder = recorderOwned
-      ? createUserTurnTranscriptRecorder({
-          target: resolveTarget,
-          input: { text: input.prompt },
-        })
-      : undefined;
-    const handler = vi.fn(async () => {
-      expect((await openSessionManager()).getEntries()).toEqual([]);
-      if (throws) {
-        throw new Error("synthetic policy failure");
-      }
-      return { outcome: "block" as const, reason: "synthetic policy", message: "Request blocked." };
-    });
-    await using runtime = await preparePolicy(input, handler);
-    const environments = { ...unusedEnvironments(), get: attachedEnvironment };
-    const provider = createWorkerSessionTurnPlacementProvider({ placements, environments });
-    const runLocal = vi.fn();
-    const onUserMessagePersisted = vi.fn();
-    const result = await provider.executeTurn(
-      { ...sessionTarget, runId: input.runId },
-      {
-        ...input,
-        pluginGeneration: runtime.pluginGeneration,
-        userTurnTranscriptRecorder: recorder,
-        onUserMessagePersisted,
-      },
-      runLocal,
-    );
-    expect(result.meta.error?.kind).toBe("hook_block");
-    expect(result.meta.livenessState).toBe("blocked");
-    expect(handler).toHaveBeenCalledOnce();
-    if (recorderOwned) {
-      expect(resolveTarget).toHaveBeenCalledOnce();
-    }
-    expect(environments.acquireTurnCredential).not.toHaveBeenCalled();
-    expect(environments.startTunnel).not.toHaveBeenCalled();
-    expect(runLocal).not.toHaveBeenCalled();
-    const messages = (await openSessionManager()).buildSessionContext().messages;
-    expect(messages).toEqual([
-      expect.objectContaining({
-        role: "user",
-        content: [{ type: "text", text: result.payloads?.[0]?.text }],
-        idempotencyKey: `hook-block:before_agent_run:user:${input.runId}`,
-        __openclaw: {
-          beforeAgentRunBlocked: {
-            blockedBy: throws ? "before_agent_run" : "policy",
-            blockedAt: expect.any(Number),
-          },
-        },
-      }),
-    ]);
-    expect(JSON.stringify(readWorkerTurnTranscriptStorageRows())).not.toContain(input.prompt);
-    expect(onUserMessagePersisted).toHaveBeenCalledExactlyOnceWith(messages[0]);
-    expect(placements.get(SESSION_ID)?.turnClaim).toBeNull();
-  });
-
-  it("fences a passing gate when run authority closes during its await", async () => {
-    await seedActivePlacement();
-    const entered = createDeferred();
-    const release = createDeferred();
-    const input = turn("revoked-gate");
-    await using runtime = await preparePolicy(input, async () => {
-      entered.resolve();
-      await release.promise;
-      return { outcome: "pass" as const };
-    });
-    const environments = { ...unusedEnvironments(), get: attachedEnvironment };
-    const provider = createWorkerSessionTurnPlacementProvider({ placements, environments });
-    let current = true;
-    const execution = provider.executeTurn(
-      { ...sessionTarget, runId: input.runId },
-      { ...input, pluginGeneration: runtime.pluginGeneration },
-      vi.fn(),
-      undefined,
-      () => {
-        if (!current) {
-          throw new Error("synthetic authority closed");
-        }
-      },
-    );
-    const outcome = execution.catch((error: unknown) => error);
     try {
-      await awaitGateBeforeSettlement(entered.promise, execution, "turn skipped its input gate");
-      current = false;
-      release.resolve();
-      expect(await outcome).toMatchObject({ message: "synthetic authority closed" });
-      expect((await openSessionManager()).getEntries()).toEqual([]);
+      const environments = { ...unusedEnvironments(), get: attachedEnvironment };
+      const provider = makeProvider(environments);
+      const runLocal = vi.fn();
+      const onUserMessagePersisted = vi.fn();
+      const execution = provider.executeTurn(
+        { ...sessionTarget, runId: input.runId },
+        {
+          ...input,
+          pluginGeneration: runtime.pluginGeneration,
+          userTurnTranscriptRecorder: recorder,
+          onUserMessagePersisted,
+        },
+        runLocal,
+        undefined,
+        mode === "revoke"
+          ? () => {
+              if (!current) {
+                throw new Error("synthetic authority closed");
+              }
+            }
+          : undefined,
+      );
+      if (mode === "revoke") {
+        const outcome = execution.catch((error: unknown) => error);
+        try {
+          await awaitGateBeforeSettlement(
+            entered.promise,
+            execution,
+            "turn skipped its input gate",
+          );
+          current = false;
+          release.resolve();
+          expect(await outcome).toMatchObject({ message: "synthetic authority closed" });
+          expect((await openSessionManager()).getEntries()).toEqual([]);
+          expect(environments.acquireTurnCredential).not.toHaveBeenCalled();
+        } finally {
+          release.resolve();
+          await outcome;
+        }
+        return;
+      }
+      const result = await execution;
+      expect(result.meta).toMatchObject({
+        error: { kind: "hook_block" },
+        livenessState: "blocked",
+      });
+      expect(handler).toHaveBeenCalledOnce();
+      if (mode === "throw") {
+        expect(resolveTarget).toHaveBeenCalledOnce();
+      }
       expect(environments.acquireTurnCredential).not.toHaveBeenCalled();
+      expect(environments.startTunnel).not.toHaveBeenCalled();
+      expect(runLocal).not.toHaveBeenCalled();
+      const messages = (await openSessionManager()).buildSessionContext().messages;
+      expect(messages).toEqual([
+        expect.objectContaining({
+          role: "user",
+          content: [{ type: "text", text: result.payloads?.[0]?.text }],
+          idempotencyKey: `hook-block:before_agent_run:user:${input.runId}`,
+          __openclaw: {
+            beforeAgentRunBlocked: {
+              blockedBy: mode === "throw" ? "before_agent_run" : "policy",
+              blockedAt: expect.any(Number),
+            },
+          },
+        }),
+      ]);
+      expect(JSON.stringify(readWorkerTurnTranscriptStorageRows())).not.toContain(input.prompt);
+      expect(onUserMessagePersisted).toHaveBeenCalledExactlyOnceWith(messages[0]);
+      expect(placements.get(SESSION_ID)?.turnClaim).toBeNull();
     } finally {
-      release.resolve();
-      await outcome;
+      registry.typedHooks.splice(registry.typedHooks.indexOf(registration), 1);
+      input.preparedRunAdmission.close();
     }
   });
 
