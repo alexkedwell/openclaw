@@ -199,7 +199,8 @@ describe("queued collector native admission", () => {
         await dispatched.promise;
         // This unadopted launch still owns its provisional session; join its real cleanup.
         await closeSwarmScheduler();
-        expect(registration).not.toHaveBeenCalled();
+        expect(registration).toHaveBeenCalledOnce();
+        await expect(registration.mock.results[0]?.value).resolves.toBe(false);
         const stopped = expectDefined(
           registryMemory.getCurrentSubagentRunOwner(registryMemory.subagentRuns, entry),
           "stopped native collector after cleanup",
