@@ -8,12 +8,15 @@ import { closeOpenClawStateDatabaseAsync, openOpenClawStateDatabase } from "./op
 import { captureOpenClawStateWorkerContext } from "./openclaw-state-worker-context.js";
 import { openExistingSqliteWorkerBackend } from "./openclaw-state.worker.js";
 
+// mock-isolation: Throw on import to detect eager loading of unrelated secret commands.
 vi.mock("../secrets/store/secret-store.worker.js", () => {
   throw new Error("Cold preparation must not load secret-store commands");
 });
+// mock-isolation: Throw on import to detect eager loading of unrelated cron commands.
 vi.mock("../cron/store/dispatch.worker.js", () => {
   throw new Error("Cold preparation must not load cron commands");
 });
+// mock-isolation: Throw on import to detect eager loading of unrelated updater commands.
 vi.mock("../infra/update-run-dispatch.worker.js", () => {
   throw new Error("Cold preparation must not load updater commands");
 });
