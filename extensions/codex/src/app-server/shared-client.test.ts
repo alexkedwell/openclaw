@@ -12,10 +12,6 @@ import { CodexAppServerClient } from "./client.js";
 import type { CodexAppServerStartOptions } from "./config.js";
 import { withCodexAppServerJsonClient } from "./request.js";
 import { createCodexTestBindingStore } from "./session-binding.test-helpers.js";
-import {
-  deferNextAuthProfileApplication,
-  registerSharedClientAcquisitionDiagnosticsTests,
-} from "./shared-client-acquisition-diagnostics.test-support.js";
 import { registerSharedClientCompactionRetentionTests } from "./shared-client-compaction-retention.test-support.js";
 import { registerSharedClientConnectionArtifactTests } from "./shared-client-connection-artifact.test-support.js";
 import { registerSharedClientIdleTests } from "./shared-client-idle.test-support.js";
@@ -79,6 +75,15 @@ const mocks = vi.hoisted(() => ({
 }));
 mocks.waitForCodexDesktopGeneration.mockImplementation(async () => mocks.desktopGeneration);
 
+function deferNextAuthProfileApplication(): () => void {
+  let release: () => void = () => {};
+  const gate = new Promise<CodexAppServerAuthHandoff | undefined>((resolve) => {
+    release = () => resolve(undefined);
+  });
+  mocks.applyCodexAppServerAuthProfile.mockReturnValueOnce(gate);
+  return release;
+}
+
 vi.mock("./auth-bridge.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./auth-bridge.js")>()),
   applyCodexAppServerAuthProfile: mocks.applyCodexAppServerAuthProfile,
@@ -129,6 +134,7 @@ import {
   getSharedCodexAppServerClient,
   readCodexAppServerClientDesktopGeneration,
 } from "./shared-client.js";
+import { resolveCodexAppServerSpawnIdentity } from "./spawn-identity.js";
 
 let listCodexAppServerModels: typeof import("./models.js").listCodexAppServerModels;
 let clearSharedCodexAppServerClientAndWait: typeof import("./shared-client.js").clearSharedCodexAppServerClientAndWait;
@@ -330,11 +336,6 @@ describe("shared Codex app-server client", () => {
     authHandoff: mocks.applyCodexAppServerAuthProfile,
   });
 
-  registerSharedClientAcquisitionDiagnosticsTests({
-    createInitializingClientHarness,
-    sendInitializeResult,
-  });
-
   registerSharedClientInferenceTests((generation, command) => {
     mocks.desktopGeneration = generation;
     mocks.resolveManagedCodexAppServerStartOptions.mockImplementation(async (options) =>
@@ -431,6 +432,20 @@ describe("shared Codex app-server client", () => {
     );
     expect(harness.process.stdin.destroyed).toBe(true);
     startSpy.mockRestore();
+  });
+
+  it("fingerprints argv without exposing secret-shaped config overrides", () => {
+    const identity = resolveCodexAppServerSpawnIdentity(
+      createStartOptions({
+        homeScope: "agent",
+        command: "/usr/local/bin/codex",
+        commandSource: "config",
+        args: ["-c", "provider.api_key=super-secret-value", "app-server"],
+      }),
+    );
+
+    expect(identity.argsFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(identity)).not.toContain("super-secret-value");
   });
 
   it("does not resolve startup context for a pre-aborted acquire", async () => {
