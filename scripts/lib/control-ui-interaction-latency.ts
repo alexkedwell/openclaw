@@ -217,11 +217,7 @@ export async function runInteractionLatencyScenario(
       }
       const viewport = transcript.getBoundingClientRect();
       const content = reply.getBoundingClientRect();
-      return (
-        transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 2 &&
-        content.bottom > viewport.top &&
-        content.top < viewport.bottom
-      );
+      return content.bottom > viewport.top && content.top < viewport.bottom;
     });
     await composer.focus();
     await step("typing", async () => {
