@@ -659,7 +659,10 @@ export function startGatewayEventSubscriptions(params: GatewayEventSubscriptionP
                 () => undefined,
               );
             }
-            return getTranscriptUpdateHandler();
+            const handler = await getTranscriptUpdateHandler();
+            return async (event) => {
+              published = (await handler(event)) !== false;
+            };
           },
           event: evt,
           log: params.log,

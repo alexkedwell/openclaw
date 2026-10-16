@@ -5,6 +5,7 @@ import {
   createDeferred,
   withinTest,
 } from "../../test/helpers/promise.js";
+import { SessionTranscriptProjectionUnavailableError } from "../config/sessions/session-transcript-projection-error.js";
 import {
   bindAgentAssistantSource,
   emitAgentEvent,
@@ -19,6 +20,7 @@ import {
   getAgentRunContextOwnerStatus,
   releaseAgentRunContext,
 } from "../infra/agent-run-registry.js";
+import { WorkerTaskError } from "../infra/worker-task-pool.js";
 import {
   getActiveGatewayRootWorkCount,
   tryBeginGatewayRootWorkAdmission,
@@ -290,13 +292,16 @@ export function registerSessionPublicationTests(fixture: {
     },
   );
   it.for([
-    { terminal: false, mixed: false, claimedError: false },
-    { terminal: true, mixed: false, claimedError: false },
-    { terminal: true, mixed: true, claimedError: false },
-    { terminal: true, mixed: false, claimedError: true },
+    { terminal: false, mixed: false, claimedError: false, retry: false, failureKind: "exception" },
+    { terminal: false, mixed: false, claimedError: false, retry: true, failureKind: "exception" },
+    { terminal: true, mixed: false, claimedError: false, retry: false, failureKind: "exception" },
+    { terminal: true, mixed: true, claimedError: false, retry: false, failureKind: "exception" },
+    { terminal: true, mixed: false, claimedError: true, retry: false, failureKind: "exception" },
+    { terminal: true, mixed: false, claimedError: false, retry: false, failureKind: "rebuilding" },
+    { terminal: true, mixed: false, claimedError: false, retry: false, failureKind: "overloaded" },
   ])(
-    "retains failed publication text without duplicating saved rows (terminal=$terminal, mixed=$mixed, claimedError=$claimedError)",
-    async ({ terminal, mixed, claimedError }, { signal }) => {
+    "retains failed publication text without duplicating saved rows (terminal=$terminal, mixed=$mixed, claimedError=$claimedError, failure=$failureKind, retry=$retry)",
+    async ({ terminal, mixed, claimedError, failureKind, retry }, { signal }) => {
       const actual = await vi.importActual<typeof import("./server-chat.js")>("./server-chat.js");
       transcriptBroadcastMocks.useActualHandler = true;
       const params = createParams();
@@ -326,6 +331,9 @@ export function registerSessionPublicationTests(fixture: {
         if (event === "session.message") {
           delivered.push({ event, payload });
           savedPublished.resolve();
+        } else if (event === "sessions.changed") {
+          delivered.push({ event, payload });
+          failureReported.resolve();
         }
       };
       params.sessionEventSubscribers.subscribe("conn-transcript");
@@ -365,8 +373,15 @@ export function registerSessionPublicationTests(fixture: {
             storePath: "/synthetic/session.sqlite",
           },
         });
-      const failure = new Error("transcript read unavailable");
-      warn.mockImplementationOnce(() => failureReported.resolve());
+      const failure =
+        failureKind === "rebuilding"
+          ? new SessionTranscriptProjectionUnavailableError(sessionId)
+          : failureKind === "overloaded"
+            ? new WorkerTaskError("transcript reader overloaded", "overloaded")
+            : new Error("transcript read unavailable");
+      if (failureKind === "exception") {
+        warn.mockImplementationOnce(() => failureReported.resolve());
+      }
       const savedMessage = {
         role: "assistant",
         idempotencyKey: "successful-item",
@@ -460,27 +475,53 @@ export function registerSessionPublicationTests(fixture: {
           );
           // A later callback carrying the same durable receipt must not hide the fallback again.
           await emitText("failed-item", "Keep this corrected reply visible.", source);
+          if (retry) {
+            transcriptBroadcastMocks.readMessageById.mockResolvedValueOnce({
+              found: true,
+              oversized: false,
+              seq: 2,
+              message: failedMessage,
+            });
+            persist("failed-message", failedMessage);
+            await withinTest(savedPublished.promise, signal);
+          }
         }
         await withinTest(unsubs.agentUnsub(), signal);
-        expect(warn).toHaveBeenCalledWith("Transcript update dispatch failed", {
-          sessionKey,
-          error: failure,
-        });
+        if (failureKind === "exception") {
+          expect(warn).toHaveBeenCalledWith("Transcript update dispatch failed", {
+            sessionKey,
+            error: failure,
+          });
+        } else {
+          expect(warn).not.toHaveBeenCalled();
+          expect(
+            delivered.filter(
+              ({ event, payload }) =>
+                event === "sessions.changed" && asNullableRecord(payload)?.phase === "message",
+            ),
+          ).toHaveLength(1);
+        }
         expect(delivered.filter(({ event }) => event === "session.message")).toHaveLength(
-          mixed ? 1 : 0,
+          mixed || retry ? 1 : 0,
         );
-        const last = delivered.at(-1)?.payload;
+        const last = delivered.findLast(({ event }) => event === "chat")?.payload;
         expect(last).toMatchObject({
           runId,
           state: claimedError ? "error" : terminal ? "final" : "delta",
         });
         const message = asNullableRecord(asNullableRecord(last)?.message);
-        expect(message?.openclawDisplayContent ?? message?.content).toEqual([
-          {
-            type: "text",
-            text: terminal ? "Keep this reply visible." : "Keep this corrected reply visible.",
-          },
-        ]);
+        expect(message?.openclawDisplayContent ?? message?.content).toEqual(
+          retry
+            ? [{ type: "text", text: "" }]
+            : [
+                {
+                  type: "text",
+                  text: terminal
+                    ? "Keep this reply visible."
+                    : "Keep this corrected reply visible.",
+                },
+              ],
+        );
         if (terminal) {
           expect(message?.content).toEqual([
             {

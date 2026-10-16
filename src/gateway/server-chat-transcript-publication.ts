@@ -168,9 +168,9 @@ export function createChatTranscriptPublication(params: {
       const changed = source
         ? chatRunState.retireSource(clientRunId, source)
         : chatRunState.retireBuffer(clientRunId, itemIds);
+      const publicationIds = source?.itemId ? [source.itemId] : itemIds;
       if (publication) {
         const items = run.assistantItems;
-        const publicationIds = source?.itemId ? [source.itemId] : itemIds;
         const pending: PendingPublication = currentPublication(clientRunId) ?? {
           pending: 0,
           isCurrent: () => {
@@ -229,7 +229,13 @@ export function createChatTranscriptPublication(params: {
         publications.add(settled);
         void settled.then(() => publications.delete(settled));
       }
-      if (!changed) {
+      if (
+        !changed &&
+        !(
+          publication &&
+          publicationIds.some((id) => run.assistantItems?.get(id)?.published === false)
+        )
+      ) {
         return;
       }
       run.liveTextEpoch = {};
