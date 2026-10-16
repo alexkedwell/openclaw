@@ -218,7 +218,9 @@ purpose, rubric version, deadline, signal and explicit decision-model selection
 as V1. Optional `reasoning` must match the selected model's declared modes.
 The prepared runtime resolves that exact model, normal provider credentials and
 route. An explicit `@profile` selection is locked; it cannot fall through to
-another account. V2 providers receive private prepared model/auth facts and a
+another account. Credentials resolve for the selected agent/profile during preparation;
+provider status makes no global V2 credential-readiness claim.
+V2 providers receive private prepared model/auth facts and a
 required `isAdmissible()` predicate. Check it immediately before physical I/O,
 including after DNS or a worker queue wait. False closes the request; do not
 swallow an authority assertion to continue inference.

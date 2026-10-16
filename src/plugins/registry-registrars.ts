@@ -80,9 +80,7 @@ export function createPluginRegistrars(state: PluginRegistryState) {
         }
       }
     }
-    const host = new DecisionProviderHost(provider, record, canonical, (cfg) =>
-      state.registryParams.runtime.modelAuth.isProviderApiKeyConfigured({ provider: id, cfg }),
-    );
+    const host = new DecisionProviderHost(provider, record, canonical);
     registry.decisionProviders.push({ pluginId: record.id, host });
     record.services.push(`decisions:${id}`);
     getPluginInstance(record)?.lifecycle.onDispose(() => host.stop());

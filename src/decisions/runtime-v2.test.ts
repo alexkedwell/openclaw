@@ -9,7 +9,6 @@ import { createPluginRecord } from "../plugins/loader-records.js";
 import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import { createTestPluginRegistry } from "../plugins/registry-runtime.test-helpers.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
-import type { PluginRuntime } from "../plugins/runtime/types.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { decisionBatchV1ToV2 } from "./compatibility.js";
 import type { DecisionProviderContextV2 } from "./provider-context.js";
@@ -50,9 +49,7 @@ afterEach(() => {
 });
 
 function native(evaluate: DecisionProviderV2["evaluate"]) {
-  const builder = createTestPluginRegistry({
-    modelAuth: { isProviderApiKeyConfigured: () => true },
-  } as unknown as PluginRuntime);
+  const builder = createTestPluginRegistry();
   const record = createPluginRecord({
     id: "owner",
     source: "/synthetic/index.ts",
@@ -83,6 +80,18 @@ function native(evaluate: DecisionProviderV2["evaluate"]) {
   });
   return { ...builder, record, api };
 }
+
+it("leaves V2 credential admission to preparation without a global readiness claim", async () => {
+  const evaluate = vi.fn<DecisionProviderV2["evaluate"]>(async () => answer);
+  const host = native(evaluate);
+  const status = host.registry.decisionProviders[0]!.host.inspect(config);
+  expect(status).not.toHaveProperty("credentialReady");
+  expect(status.callable).toBe(true);
+  await expect(host.api.runtime.decisions.evaluateV2(richer, options())).resolves.toMatchObject({
+    status: "ok",
+  });
+  expect(evaluate).toHaveBeenCalledOnce();
+});
 
 it.each([undefined, false, true])(
   "preserves the explicit V2 owner independently of LLM override permission (%j)",
