@@ -972,18 +972,12 @@ const reviewedOperations = new Map([
     [
       {
         tier: "W",
-        operations: ["readGatewayLastShutdownInDatabase"],
-        evidence:
-          "Private reader called only by gatewayBootReadOperations in the state read worker. Daemon status and update inspection both dispatch through readGatewayLastShutdownAsync; no synchronous caller remains.",
-      },
-      {
-        tier: "T2",
         operations: [
+          "readGatewayLastShutdownInDatabase",
           "inspectGatewayCrashLoopBreakerInDatabase",
-          "inspectGatewayCrashLoopBreakerInDatabase.latestStartedAt",
         ],
         evidence:
-          "Extracted from the existing gateway-boot-lifecycle.ts boot exception. Native inspectGatewayCrashLoopBreaker is only called by cli/gateway-cli/run.ts beginBoot before starting the Gateway; runtime inspection and recovery commit revalidation execute via gatewayBootReadOperations and gateway-boot-lifecycle.worker.ts in the existing state workers.",
+          "SQL readers execute only through gatewayBootReadOperations in the shared-state read worker or gatewayBootOperations begin/recover in the shared-state writer. Host lifecycle APIs dispatch these operations; remaining host imports from this kernel are pure helpers and constants.",
       },
     ],
   ],
