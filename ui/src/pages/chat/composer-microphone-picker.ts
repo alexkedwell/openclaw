@@ -62,7 +62,7 @@ export class ComposerMicrophoneOwner extends EventTarget {
       return;
     }
     this.open = true;
-    this.deviceWatch ??= observeRealtimeTalkDevices(this.discover);
+    this.deviceWatch ??= observeRealtimeTalkDevices(() => void this.discover());
     void this.discover();
     void this.loadCatalog();
   };

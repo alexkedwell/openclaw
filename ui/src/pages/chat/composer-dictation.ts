@@ -301,6 +301,7 @@ export class ComposerDictationOwner extends EventTarget {
               void this.stop({ commit: true });
             } else if (this.pendingCommitSession === session) {
               this.retirePendingCommit();
+              this.dispatchEvent(new Event("change"));
             }
           }
         },

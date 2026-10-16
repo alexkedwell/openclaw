@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onSettled, untrack } from "solid-js";
+import { listen } from "../../../lib/reactive/listener.ts";
 import { projectOwner } from "../../../lib/reactive/projection.ts";
 import { ComposerDictationOwner } from "../composer-dictation.ts";
 import { ComposerMicrophoneOwner } from "../composer-microphone-picker.ts";
@@ -6,7 +7,7 @@ import {
   createChatComposerContext,
   createComposerDictationOptions,
 } from "./chat-composer-frame.ts";
-import { ComposerPredictionController } from "./chat-composer-prediction.ts";
+import { createComposerPrediction } from "./chat-composer-prediction.ts";
 import { getChatComposerState, isChatRunWorking } from "./chat-composer-state.ts";
 import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { renderChatComposerView } from "./chat-composer-view.tsx";
@@ -51,11 +52,11 @@ export function ChatComposer(props: ChatComposerInput) {
   const currentProps = new Proxy(props, {
     get: (target, key) => (key === "onRequestUpdate" ? requestUpdate : Reflect.get(target, key)),
   });
-  state.microphonePicker ??= new ComposerMicrophoneOwner();
+  const microphonePicker = (state.microphonePicker ??= new ComposerMicrophoneOwner());
   state.dictation ??= new ComposerDictationOwner(
-    createComposerDictationOptions(currentProps, state, state.microphonePicker),
+    untrack(() => createComposerDictationOptions(currentProps, state, microphonePicker)),
   );
-  const voice = { dictation: state.dictation, picker: state.microphonePicker };
+  const voice = { dictation: state.dictation, picker: microphonePicker };
   onCleanup(
     voice.dictation.subscribe(() => {
       if (voice.dictation.locksComposer) {
@@ -66,7 +67,7 @@ export function ChatComposer(props: ChatComposerInput) {
   );
   const dictation = projectOwner(voice.dictation, (owner) => owner);
   const microphone = projectOwner(voice.picker, (owner) => owner);
-  const prediction = new ComposerPredictionController(() => {
+  const prediction = createComposerPrediction(() => {
     const options = currentProps.composerPredictions;
     const client = currentProps.gatewayClient;
     if (!options || !client) {
@@ -96,7 +97,7 @@ export function ChatComposer(props: ChatComposerInput) {
         document.visibilityState !== "hidden",
       idle: !isChatRunWorking(currentProps) && !currentProps.sending && !currentProps.queue.length,
     };
-  }, requestUpdate);
+  });
   const context = createMemo(() => {
     dictation.read();
     microphone.read();
@@ -111,17 +112,23 @@ export function ChatComposer(props: ChatComposerInput) {
     }
   });
   createEffect(
+    () => [context().mentionDirectory, context().emojiEnabled, context().draftKey] as const,
+    ([directory, emojiEnabled, draftKey], previous) => {
+      state.mentionMenu.syncDirectory(directory);
+      if (!emojiEnabled || draftKey !== previous?.[2]) {
+        state.emojiMenu.close();
+      }
+    },
+  );
+  createEffect(
     () => {
       context();
       return currentProps.composerPredictions;
     },
     () => untrack(() => prediction.sync()),
   );
-  const visibilityChanged = () => prediction.sync();
-  document.addEventListener("visibilitychange", visibilityChanged);
+  onSettled(() => listen(document, "visibilitychange", () => prediction.sync()));
   onCleanup(() => {
-    document.removeEventListener("visibilitychange", visibilityChanged);
-    prediction.dispose();
     disposed = true;
     state.textareaRef?.();
     state.composerInputRef?.();

@@ -51,9 +51,8 @@ export class NewSessionDictationControl extends EventTarget {
   }
 
   previewDraft(): string | undefined {
-    const dictation = this.session;
-    return dictation?.active
-      ? this.options.textarea.previewTranscript(dictation.transcript)
+    return this.session?.active
+      ? this.options.textarea.previewTranscript(this.session.transcript)
       : undefined;
   }
 

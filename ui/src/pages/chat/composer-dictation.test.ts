@@ -299,6 +299,10 @@ afterEach(() => {
 describe("ComposerDictationOwner", () => {
   it("surfaces final transcription failure and discards its pending result", async () => {
     const { controller, onCommit, onError } = createHarness();
+    const publishedErrors: unknown[] = [];
+    const unsubscribe = controller.subscribe(() => {
+      publishedErrors.push(onError.mock.lastCall?.[0]);
+    });
 
     await startDirect(controller);
     const finished = controller.finishActive();
@@ -312,6 +316,8 @@ describe("ComposerDictationOwner", () => {
     expect(onCommit).not.toHaveBeenCalled();
     expect(controller.locksComposer).toBe(false);
     expect(listeners.size).toBe(0);
+    expect(publishedErrors).toContain("Local transcription failed");
+    unsubscribe();
   });
 
   it("lets Read aloud discard pending dictation without stopping newer playback", async () => {
