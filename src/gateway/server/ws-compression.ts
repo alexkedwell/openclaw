@@ -1,5 +1,11 @@
 import { kMaxLength } from "node:buffer";
-import { constants as zlibConstants, deflateRawSync, inflateRawSync } from "node:zlib";
+import {
+  constants as zlibConstants,
+  createDeflateRaw,
+  createInflateRaw,
+  deflateRawSync,
+  inflateRawSync,
+} from "node:zlib";
 import type { WebSocket } from "ws";
 import { gatewayReceiver } from "./ws-receiver.js";
 
@@ -26,14 +32,97 @@ const TRAILER = Buffer.from([0x00, 0x00, 0xff, 0xff]);
 const EMPTY = Buffer.alloc(0);
 const Z_SYNC_FLUSH = zlibConstants.Z_SYNC_FLUSH;
 const DEFLATE_LEVEL = 1;
+const MIN_OUTPUT_CHUNK_BYTES = 1024;
+const MAX_OUTPUT_CHUNK_BYTES = 64 * 1024;
+
+// SAFETY: node:zlib's own sync helpers drive this native handle through
+// _handle.writeSync and read [availOutAfter, availInAfter] from _writeState.
+type NativeZlibStream = {
+  readonly destroyed: boolean;
+  _handle?: {
+    writeSync?: (
+      flush: number,
+      input: Buffer,
+      inputOffset: number,
+      inputLength: number,
+      output: Buffer,
+      outputOffset: number,
+      outputLength: number,
+    ) => void;
+  } | null;
+  _writeState?: Uint32Array;
+  reset(): void;
+  close(): void;
+  on(event: "error", listener: () => void): unknown;
+};
+
+/**
+ * One zlib context shared by every connection on this thread and reset after each
+ * message, which no context takeover makes independent. Creating and freeing a full
+ * context per message fragments the native heap; ws keeps one per socket instead.
+ * Returns null when Node no longer exposes the handle; callers use the one-shot API.
+ */
+function sharedZlib(open: () => NativeZlibStream) {
+  let stream: NativeZlibStream | undefined;
+  return (input: Buffer, maxOutputLength: number): Buffer | null => {
+    if (!stream) {
+      stream = open();
+      // Failures surface through `destroyed`; the deferred error event needs a listener.
+      stream.on("error", () => {});
+    }
+    const handle = stream["_handle"];
+    const state = stream["_writeState"];
+    if (typeof handle?.writeSync !== "function" || !(state instanceof Uint32Array)) {
+      return null;
+    }
+    const chunkBytes = Math.min(
+      MAX_OUTPUT_CHUNK_BYTES,
+      Math.max(MIN_OUTPUT_CHUNK_BYTES, input.length * 2),
+    );
+    const parts: Buffer[] = [];
+    let total = 0;
+    let offset = 0;
+    let pending = input.length;
+    try {
+      do {
+        const output = Buffer.allocUnsafe(chunkBytes);
+        handle.writeSync(Z_SYNC_FLUSH, input, offset, pending, output, 0, chunkBytes);
+        if (stream.destroyed) {
+          throw new Error("zlib stream failed");
+        }
+        const produced = chunkBytes - state[0]!;
+        total += produced;
+        if (total > maxOutputLength) {
+          throw new RangeError("Max payload size exceeded");
+        }
+        parts.push(output.subarray(0, produced));
+        offset += pending - state[1]!;
+        pending = state[1]!;
+      } while (state[0] === 0);
+      stream.reset();
+    } catch (error) {
+      stream.close();
+      stream = undefined;
+      throw error;
+    }
+    return parts.length === 1 ? parts[0]! : Buffer.concat(parts, total);
+  };
+}
+
+const inflateShared = sharedZlib(() => createInflateRaw());
+const deflateShared = new Map<number, ReturnType<typeof sharedZlib>>();
 
 function isPerMessageDeflateCodec(value: unknown): value is PerMessageDeflateCodec {
-  const codec = value as Partial<PerMessageDeflateCodec> | undefined;
   return (
-    typeof codec?.compress === "function" &&
-    typeof codec.decompress === "function" &&
-    typeof codec.params === "object" &&
-    codec.params !== null
+    typeof value === "object" &&
+    value !== null &&
+    "compress" in value &&
+    typeof value.compress === "function" &&
+    "decompress" in value &&
+    typeof value.decompress === "function" &&
+    "params" in value &&
+    typeof value.params === "object" &&
+    value.params !== null
   );
 }
 
@@ -85,13 +174,13 @@ export function installGatewayDeflateCodec(socket: WebSocket): boolean {
     }
     const input = Buffer.concat([...inbound, TRAILER]);
     inbound = [];
+    // ws treats 0 as unlimited; the limit bounds the inflated size.
+    const maxOutputLength = receiver["_maxPayload"] || kMaxLength;
     let output: Buffer;
     try {
-      output = inflateRawSync(input, {
-        finishFlush: Z_SYNC_FLUSH,
-        // ws treats 0 as unlimited; the limit bounds the inflated size.
-        maxOutputLength: receiver["_maxPayload"] || kMaxLength,
-      });
+      output =
+        inflateShared(input, maxOutputLength) ??
+        inflateRawSync(input, { finishFlush: Z_SYNC_FLUSH, maxOutputLength });
     } catch {
       // ws's own path reproduces its canonical error and close code (1007/1009).
       streamDecompress(input.subarray(0, -TRAILER.length), true, callback);
@@ -100,6 +189,17 @@ export function installGatewayDeflateCodec(socket: WebSocket): boolean {
     deliver(callback, output);
   };
 
+  // Peers may cap the server window; farther back-references would break their inflater.
+  const windowBits =
+    typeof codec.params.server_max_window_bits === "number"
+      ? codec.params.server_max_window_bits
+      : zlibConstants.Z_DEFAULT_WINDOWBITS;
+  const deflateOptions = { finishFlush: Z_SYNC_FLUSH, level: DEFLATE_LEVEL, windowBits };
+  let deflate = deflateShared.get(windowBits);
+  if (!deflate) {
+    deflate = sharedZlib(() => createDeflateRaw(deflateOptions));
+    deflateShared.set(windowBits, deflate);
+  }
   let fragmentedSend = false;
   codec.compress = (data, fin, callback) => {
     if (fragmentedSend || !fin) {
@@ -107,7 +207,8 @@ export function installGatewayDeflateCodec(socket: WebSocket): boolean {
       streamCompress(data, fin, callback);
       return;
     }
-    const output = deflateRawSync(data, { finishFlush: Z_SYNC_FLUSH, level: DEFLATE_LEVEL });
+    const input = typeof data === "string" ? Buffer.from(data) : data;
+    const output = deflate(input, kMaxLength) ?? deflateRawSync(input, deflateOptions);
     // Z_SYNC_FLUSH ends with the empty block that permessage-deflate strips.
     process.nextTick(callback, null, output.subarray(0, -TRAILER.length));
   };

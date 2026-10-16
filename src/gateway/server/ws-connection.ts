@@ -63,6 +63,9 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
           upgradeReq.socket.uncork();
         });
       },
+      sendUncompressed(frame: string, callback?: (error?: Error) => void) {
+        socket.send(frame, { compress: false }, callback);
+      },
     });
     const ingressSocket = socket as GatewayIngressWebSocket;
     const connectionKind = ingressSocket[GATEWAY_WS_CONNECTION_KIND_PROPERTY] ?? "gateway";

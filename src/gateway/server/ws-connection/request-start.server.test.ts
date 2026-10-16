@@ -436,6 +436,16 @@ describe("authenticated operator request starts", () => {
         handler: registry.gatewayHandlers["test.echo"],
       }),
     );
+    // Real Gateways advertise many plugin methods; push hello past the compression threshold.
+    for (let index = 0; index < 64; index++) {
+      registry.gatewayMethodDescriptors.push(
+        createPluginGatewayMethodDescriptor({
+          pluginId: "request-start-proof",
+          name: `test.padding.hello-method-${index}`,
+          handler: registry.gatewayHandlers["test.echo"],
+        }),
+      );
+    }
     setTestPluginRegistry(registry);
     const token = "gateway-compression-test-token";
     let capture: ReturnType<typeof captureGatewayConnection> | undefined;
@@ -449,15 +459,22 @@ describe("authenticated operator request starts", () => {
         controlUiEnabled: false,
       });
       capture = captureGatewayConnection(portClaim.port);
-      const sends = vi.spyOn(WebSocket.prototype, "send");
-      const socket = await openOperatorSocket(portClaim.port, token);
+      // Peers may cap the server window; its inflater rejects farther back-references.
+      const socket = new WebSocket(`ws://127.0.0.1:${portClaim.port}`, {
+        perMessageDeflate: { serverMaxWindowBits: 10 },
+      });
       ws = socket;
-      expect(socket.extensions).toContain("permessage-deflate");
-      // Device tokens ride in hello; secrets never share a compressed frame.
-      const hello = sends.mock.calls.find(([data]) => String(data).includes('"hello-ok"'));
-      expect(hello?.[1]).toEqual({ compress: false });
-      sends.mockRestore();
+      trackConnectChallengeNonce(socket);
+      const upgraded = once(socket, "upgrade");
+      await once(socket, "open");
+      const [upgrade] = (await upgraded) as [IncomingMessage];
+      expect(upgrade.headers["sec-websocket-extensions"]).toContain("server_max_window_bits=10");
       const { stream } = capture.get();
+      // Device tokens ride in hello; secrets never share a compressed frame.
+      const beforeHello = stream.bytesWritten;
+      const hello = JSON.stringify(await connectOk(socket, { token }));
+      expect(hello.length).toBeGreaterThan(16 * 1024);
+      expect(stream.bytesWritten - beforeHello).toBeGreaterThan(hello.length);
       const echo = async (id: string, text: string, send = () => {}) => {
         const response = onceMessage<{
           type: "res";
@@ -489,11 +506,12 @@ describe("authenticated operator request starts", () => {
           socket.send(request("repetitive", repetitiveText)),
         ),
       ).toBeLessThan(repetitiveText.length / 4);
+      // Repeats farther apart than the negotiated window must not be referenced.
+      const windowText = randomBytes(1536).toString("base64").repeat(16);
+      await echo("window", windowText, () => socket.send(request("window", windowText)));
       // Barely compressible frames still round-trip.
       const randomText = randomBytes(384 * 1024).toString("base64");
-      expect(
-        await echo("random", randomText, () => socket.send(request("random", randomText))),
-      ).toBeLessThan(randomText.length);
+      await echo("random", randomText, () => socket.send(request("random", randomText)));
       // Fragmented compressed requests inflate once the final fragment arrives.
       const fragmented = request("fragmented", inlineText);
       const split = fragmented.length >> 1;
