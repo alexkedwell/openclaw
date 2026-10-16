@@ -108,11 +108,12 @@ export function admitStatePostgres(db: PostgresSqlConnection, fresh: boolean): v
       "SELECT value_json FROM config_machine_state WHERE state_key = 'state.schema.contentVersion'",
     )
     .get();
+  // SQLite may publish the current header without a redundant content-version row.
   if (
     meta?.schema_version !== OPENCLAW_STATE_SCHEMA_VERSION ||
     meta.role !== "global" ||
     meta.agent_id !== null ||
-    content?.value_json !== String(OPENCLAW_STATE_SCHEMA_VERSION)
+    (content !== undefined && content.value_json !== String(OPENCLAW_STATE_SCHEMA_VERSION))
   ) {
     throw new Error(`PostgreSQL state metadata mismatch. ${recovery}`);
   }
@@ -123,10 +124,7 @@ export function admitStatePostgres(db: PostgresSqlConnection, fresh: boolean): v
   publishStateRuntimeSchemaAdmission(db, true);
 }
 
-export const stateEngineSchema = {
-  id: "state",
-  version: OPENCLAW_STATE_SCHEMA_VERSION,
-  sqlite: "",
+const statePostgresSchema = {
   postgres: runtime.eagerSql,
   postgresFragments: runtime.fragments.map((fragment): PostgresSchemaFragment => {
     const { activation } = fragment;
@@ -141,6 +139,21 @@ export const stateEngineSchema = {
       activation,
     };
   }),
+};
+
+export const stateEngineSchema = {
+  id: "state",
+  version: OPENCLAW_STATE_SCHEMA_VERSION,
+  sqlite: "",
+  ...statePostgresSchema,
+  postgresMigrations: [
+    {
+      version: 25,
+      sql: runtime.operatorRecoveryV25Sql,
+      fromSchema: statePostgresSchema,
+      schema: statePostgresSchema,
+    },
+  ],
 };
 
 export function ensureStatePostgresFragment(db: PostgresSqlConnection, table: string): void {

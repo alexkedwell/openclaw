@@ -2,8 +2,8 @@ import { codexAppIdentityKey } from "./app-identity.js";
 import { defaultCodexAppInventoryCache, CodexAppInventoryCache } from "./app-inventory-cache.js";
 import { fingerprintCodexPolicy } from "./config-policy-json.js";
 import {
+  readCodexPluginConfig,
   resolveCodexPluginsPolicy,
-  type CodexPluginConfig,
   type CodexPluginDestructiveApprovalMode,
   type ResolvedCodexPluginPolicy,
   type ResolvedCodexPluginsPolicy,
@@ -65,7 +65,8 @@ export type CodexPluginThreadConfig = {
 };
 
 type BuildCodexPluginThreadConfigParams = {
-  pluginConfig?: CodexPluginConfig;
+  pluginConfig?: unknown;
+  policy?: ResolvedCodexPluginsPolicy;
   request: CodexPluginRuntimeRequest;
   configCwd?: string;
   threadId?: string;
@@ -80,16 +81,16 @@ type BuildCodexPluginThreadConfigParams = {
 const CODEX_PLUGIN_THREAD_CONFIG_INPUT_FINGERPRINT_VERSION = 15;
 const CODEX_PLUGIN_THREAD_CONFIG_FINGERPRINT_VERSION = 2;
 
-export function shouldBuildCodexPluginThreadConfig(pluginConfig?: CodexPluginConfig): boolean {
-  return resolveCodexPluginsPolicy(pluginConfig).configured;
+export function shouldBuildCodexPluginThreadConfig(pluginConfig?: unknown): boolean {
+  return resolveCodexPluginsPolicy(readCodexPluginConfig(pluginConfig)).configured;
 }
 
 /** Fingerprints policy and app-cache identity before runtime inventory is read. */
 export function buildCodexPluginThreadConfigInputFingerprint(params: {
-  pluginConfig?: CodexPluginConfig;
+  policy: ResolvedCodexPluginsPolicy;
   appCacheKey?: string;
 }): string {
-  const policy = resolveCodexPluginsPolicy(params.pluginConfig);
+  const { policy } = params;
   return fingerprintCodexPolicy({
     version: CODEX_PLUGIN_THREAD_CONFIG_INPUT_FINGERPRINT_VERSION,
     policy: {
@@ -105,7 +106,7 @@ export function buildCodexPluginThreadConfigInputFingerprint(params: {
 
 /** Builds the deny-all app patch used when plugin discovery exceeds its turn budget. */
 export function buildCodexPluginThreadConfigTimeoutFallback(params: {
-  pluginConfig?: CodexPluginConfig;
+  policy: ResolvedCodexPluginsPolicy;
   appCacheKey: string;
   message: string;
 }): CodexPluginThreadConfig {
@@ -123,8 +124,12 @@ export async function buildCodexPluginThreadConfig(
 ): Promise<CodexPluginThreadConfig> {
   const appCache = params.appCache ?? defaultCodexAppInventoryCache;
   const threadAppCacheKey = resolveCodexPluginThreadAppCacheKey(params);
-  let inputFingerprint = buildCodexPluginThreadConfigInputFingerprint(params);
-  const policy = resolveCodexPluginsPolicy(params.pluginConfig);
+  const policy =
+    params.policy ?? resolveCodexPluginsPolicy(readCodexPluginConfig(params.pluginConfig));
+  const inputFingerprint = buildCodexPluginThreadConfigInputFingerprint({
+    policy,
+    appCacheKey: params.appCacheKey,
+  });
   if (!policy.enabled) {
     return finishPluginThreadConfig({
       enabled: false,
@@ -159,7 +164,6 @@ export async function buildCodexPluginThreadConfig(
       targetAppIds: collectCodexPluginOwnedAppIds(inventory),
     });
     inventory = await readInventory();
-    inputFingerprint = buildCodexPluginThreadConfigInputFingerprint(params);
   };
   const activationRequired = inventory.records.some((record) => record.activationRequired);
   const appInventoryMissing = shouldRefreshMissingAppInventory(params, policy, inventory);

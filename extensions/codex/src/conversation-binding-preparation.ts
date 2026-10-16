@@ -462,7 +462,6 @@ async function bindThread(params: CodexThreadBindingParams, threadId?: string) {
             ...options,
             withCurrent: async (write: () => void) => {
               await resolved.assertCurrent();
-              options.assertCurrent();
               write();
             },
           };

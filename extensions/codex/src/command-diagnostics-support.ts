@@ -63,13 +63,13 @@ export function createCodexDiagnosticsConfirmation(
     pendingCodexDiagnosticsConfirmationTokensByScope.size >=
       CODEX_DIAGNOSTICS_CONFIRMATION_MAX_SCOPES
   ) {
-    const oldestScopeKey = pendingCodexDiagnosticsConfirmationTokensByScope.keys().next().value;
-    if (oldestScopeKey !== undefined) {
+    for (const oldestScopeKey of pendingCodexDiagnosticsConfirmationTokensByScope.keys()) {
       for (const token of pendingCodexDiagnosticsConfirmationTokensByScope.get(oldestScopeKey) ??
         []) {
         pendingCodexDiagnosticsConfirmations.delete(token);
       }
       pendingCodexDiagnosticsConfirmationTokensByScope.delete(oldestScopeKey);
+      break;
     }
   }
   const scopeTokens = pendingCodexDiagnosticsConfirmationTokensByScope.get(params.scopeKey) ?? [];
@@ -103,7 +103,7 @@ export function readCodexDiagnosticsConfirmationScope(ctx: PluginCommandContext)
     accountId: normalizeCodexDiagnosticsScopeField(ctx.accountId),
     channelId: normalizeCodexDiagnosticsScopeField(ctx.channelId),
     messageThreadId:
-      ctx.messageThreadId !== undefined
+      typeof ctx.messageThreadId === "string" || typeof ctx.messageThreadId === "number"
         ? normalizeCodexDiagnosticsScopeField(String(ctx.messageThreadId))
         : undefined,
     threadParentId: normalizeCodexDiagnosticsScopeField(ctx.threadParentId),

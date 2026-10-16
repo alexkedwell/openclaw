@@ -20,7 +20,6 @@ import {
 import { z } from "zod";
 import { protectCodexAppServerLiveThread } from "./client-runtime.js";
 import type { CodexAppServerClient } from "./client.js";
-import { listCodexMcpServerStatuses } from "./mcp-server-status.js";
 import {
   projectCodexMcpServerMetadata,
   projectCodexMcpToolMetadata,
@@ -93,27 +92,32 @@ export function createNativeMcpRuntime(params: {
     if (statuses) {
       return statuses;
     }
-    statuses = await listCodexMcpServerStatuses(
-      async (cursor) => {
-        params.assertCurrent?.();
-        const response = await params.client.request(
-          "mcpServerStatus/list",
-          {
-            threadId: params.threadId,
-            detail: "full",
-            ...(cursor ? { cursor } : {}),
-          },
-          { assertCurrent: params.assertCurrent },
-        );
-        params.assertCurrent?.();
-        return response;
-      },
-      {
-        repeatedCursor: "Native MCP status cursor repeated",
-        pageLimit: "Native MCP status exceeded the page limit",
-      },
-    );
-    return statuses;
+    const loaded: CodexMcpServerStatus[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 100; page += 1) {
+      const response = await params.client.request(
+        "mcpServerStatus/list",
+        {
+          threadId: params.threadId,
+          detail: "full",
+          ...(cursor ? { cursor } : {}),
+        },
+        { assertCurrent: params.assertCurrent },
+      );
+      params.assertCurrent?.();
+      loaded.push(...response.data);
+      if (!response.nextCursor) {
+        statuses = loaded;
+        return statuses;
+      }
+      if (cursors.has(response.nextCursor)) {
+        throw new Error("Native MCP status cursor repeated");
+      }
+      cursor = response.nextCursor;
+      cursors.add(cursor);
+    }
+    throw new Error("Native MCP status exceeded the page limit");
   };
   const getCatalog = async (): Promise<McpToolCatalog> => {
     if (catalog) {

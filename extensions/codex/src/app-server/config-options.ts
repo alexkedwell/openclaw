@@ -36,6 +36,7 @@ import {
   DEFAULT_CODEX_COMPUTER_USE_PLUGIN_NAME,
   DEFAULT_CODEX_COMPUTER_USE_TOOL_CALL_TIMEOUT_MS,
   assertCodexAppServerCommandHasNoInlineArgs,
+  readCodexPluginConfig,
 } from "./config-parsing.js";
 import { parseCodexRequirementsPolicy, readCodexRequirementsToml } from "./config-requirements.js";
 import {
@@ -77,6 +78,13 @@ export function resolveCodexAppServerHomeScope(params: {
   return params.connectionScope === "supervision" && params.appServer?.transport !== "websocket"
     ? "user"
     : "agent";
+}
+
+export function resolveCodexAppServerRequestTimeoutMs(pluginConfig?: unknown): number {
+  return resolvePositiveTimerTimeoutMs(
+    readCodexPluginConfig(pluginConfig).appServer?.requestTimeoutMs,
+    60_000,
+  );
 }
 
 // Registration binds the host's canonical resolver; cold callers use config-runtime.ts.
@@ -309,7 +317,7 @@ export function createCodexAppServerConfig({
       ...(config.nativeHookRelay ? { nativeHookRelay: config.nativeHookRelay } : {}),
       codeModeOnly: config.codeModeOnly === true,
       loopDetectionPreToolUseRelay: config.loopDetectionPreToolUseRelay !== false,
-      requestTimeoutMs: resolvePositiveTimerTimeoutMs(config.requestTimeoutMs, 60_000),
+      requestTimeoutMs: resolveCodexAppServerRequestTimeoutMs(pluginConfig),
       approvalPolicy: forcedPolicy?.approvalPolicy ?? approvalPolicy,
       sandbox: resolvedSandbox,
       approvalsReviewer:

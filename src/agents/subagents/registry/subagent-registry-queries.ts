@@ -15,11 +15,22 @@ import {
   latestSubagentRun,
   recordLatestSubagentRun,
 } from "./subagent-run-generation.js";
-import { hasSubagentRunEnded, isRetainedUnendedSubagentRun } from "./subagent-run-liveness.js";
+import {
+  hasSubagentRunEnded,
+  isRetainedUnendedSubagentRun,
+  isStaleUnendedSubagentRun,
+  isSubagentRunLive,
+  isSubagentRunQueued,
+} from "./subagent-run-liveness.js";
 
-function isDeliveryTerminalForRequesterSettle(entry: Pick<SubagentRunRecord, "delivery">): boolean {
+function isDeliveryTerminalForRequesterSettle(
+  entry: Pick<SubagentRunRecord, "delivery" | "pauseReason">,
+): boolean {
   return (
     isDeliverySuspended(entry) ||
+    entry.delivery?.status === "delivered" ||
+    (entry.delivery?.status === "not_required" && entry.pauseReason !== "sessions_yield") ||
+    entry.delivery?.status === "discarded" ||
     entry.delivery?.disposition === "delivered" ||
     entry.delivery?.disposition === "intentional_non_delivery" ||
     entry.delivery?.disposition === "permanent_failure"
@@ -157,8 +168,24 @@ export function listRunsForControllerFromRuns<T extends SubagentRunReadRecord>(
   );
 }
 
+export type SubagentRunReadSnapshot<T extends SubagentRunReadRecord = SubagentRunRecord> = {
+  runs: Map<string, T>;
+  inMemoryRuns: T[];
+  /** Display facts only; exact object references survive structured cloning with the rows. */
+  displayLiveRuns: ReadonlySet<T>;
+  displayQueuedRuns: ReadonlySet<T>;
+};
+
 export type SubagentRunReadIndex<T extends SubagentRunReadRecord = SubagentRunRecord> = {
-  inputs: { runs: Map<string, T>; inMemoryRuns: Iterable<T> };
+  inputs: {
+    runs: Map<string, T>;
+    inMemoryRuns: Iterable<T>;
+    displayLiveRuns?: ReadonlySet<T>;
+    displayQueuedRuns?: ReadonlySet<T>;
+  };
+  snapshot(): SubagentRunReadSnapshot<T>;
+  isDisplayLiveRun(entry: T | null | undefined): boolean;
+  isDisplayQueuedRun(entry: T | null | undefined): boolean;
   /** Identity of published topology facts, shared by clock-specific views. */
   revision: object;
   /** Reuse prepared topology while leaving the captured view unchanged. */
@@ -224,6 +251,8 @@ export function buildLatestSubagentRunReadIndexFromRuns<T extends SubagentRunRea
 export function buildSubagentRunReadIndexFromRuns<T extends SubagentRunReadRecord>(params: {
   runs: Map<string, T>;
   inMemoryRuns?: Iterable<T>;
+  displayLiveRuns?: ReadonlySet<T>;
+  displayQueuedRuns?: ReadonlySet<T>;
   now?: number;
 }): SubagentRunReadIndex<T> {
   const { runs } = params;
@@ -239,8 +268,33 @@ export function buildSubagentRunReadIndexFromRuns<T extends SubagentRunReadRecor
     getDescendantRuns,
   } = topology;
 
+  const readInputs = {
+    ...inputs,
+    displayLiveRuns: params.displayLiveRuns,
+    displayQueuedRuns: params.displayQueuedRuns,
+  };
+  const isDisplayLiveRun = (entry: T | null | undefined) =>
+    Boolean(entry && (params.displayLiveRuns?.has(entry) ?? isSubagentRunLive(entry)));
+  const isDisplayQueuedRun = (entry: T | null | undefined) =>
+    Boolean(entry && (params.displayQueuedRuns?.has(entry) ?? isSubagentRunQueued(entry)));
+  const isRetained = (entry: T, clock: number) =>
+    !hasSubagentRunEnded(entry) &&
+    (isDisplayLiveRun(entry) ||
+      isDisplayQueuedRun(entry) ||
+      !isStaleUnendedSubagentRun(entry, clock));
+  const snapshot = (): SubagentRunReadSnapshot<T> => {
+    const inMemoryRuns = Array.from(inputs.inMemoryRuns);
+    const entries = [...runs.values(), ...inMemoryRuns];
+    return {
+      runs,
+      inMemoryRuns,
+      displayLiveRuns: new Set(entries.filter(isDisplayLiveRun)),
+      displayQueuedRuns: new Set(entries.filter(isDisplayQueuedRun)),
+    };
+  };
+
   const isRetainedReadRun = (entry: T, clock = now): boolean => {
-    if (isRetainedUnendedSubagentRun(entry, clock)) {
+    if (isRetained(entry, clock)) {
       return true;
     }
     if (hasSubagentRunEnded(entry)) {
@@ -248,11 +302,7 @@ export function buildSubagentRunReadIndexFromRuns<T extends SubagentRunReadRecor
     }
     // Compact facts resolve status through the captured resident owner, never acquire custody.
     const current = inMemoryDisplayByChildSessionKey.get(entry.childSessionKey.trim());
-    return (
-      current !== undefined &&
-      isSameSubagentRun(current, entry) &&
-      isRetainedUnendedSubagentRun(current, clock)
-    );
+    return current !== undefined && isSameSubagentRun(current, entry) && isRetained(current, clock);
   };
 
   const atTime = (clock: number, captured?: ReadonlySet<T>): SubagentRunReadIndex<T> => {
@@ -376,7 +426,10 @@ export function buildSubagentRunReadIndexFromRuns<T extends SubagentRunReadRecor
     ];
 
     return {
-      inputs,
+      inputs: readInputs,
+      snapshot,
+      isDisplayLiveRun,
+      isDisplayQueuedRun,
       revision: topology.revision,
       atTime,
       patch,
@@ -571,30 +624,6 @@ export function buildScopedSubagentRunReadIndexFromRuns<T extends SubagentRunRea
           )
         : runs,
   });
-}
-
-export function countActiveDescendantRunsFromRuns(
-  runs: Map<string, SubagentRunRecord>,
-  rootSessionKey: string,
-  requesterAgentId?: string,
-  requesterStorePath?: string | null,
-  rootRunIds?: ReadonlySet<string>,
-): number {
-  return buildScopedSubagentRunReadIndexFromRuns(
-    runs,
-    rootSessionKey,
-    requesterAgentId,
-    requesterStorePath,
-    rootRunIds,
-  ).countActiveDescendantRuns(rootSessionKey);
-}
-
-/** Counts descendants that are live or ended but not yet cleaned up. */
-export function countPendingDescendantRunsFromRuns(
-  runs: Map<string, SubagentRunRecord>,
-  rootSessionKey: string,
-): number {
-  return buildSubagentRunReadIndexFromRuns({ runs }).countPendingDescendantRuns(rootSessionKey);
 }
 
 /**

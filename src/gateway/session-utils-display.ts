@@ -3,8 +3,6 @@ import {
   buildSubagentSessionListReadIndex,
   getSubagentSessionRuntimeMs,
   getSubagentSessionStartedAt,
-  isSubagentRunLive,
-  isSubagentRunQueued,
   resolveSubagentSessionStatus,
 } from "../agents/subagents/registry/subagent-registry-read.js";
 import {
@@ -108,7 +106,8 @@ export function projectGatewaySessionRunState(params: {
   const subagentOwner =
     normalizeOptionalString(subagentRun?.controllerSessionKey) ||
     normalizeOptionalString(subagentRun?.requesterSessionKey);
-  const liveSubagentRunActive = isSubagentRunLive(subagentRun) || isSubagentRunQueued(subagentRun);
+  const liveSubagentRunActive =
+    subagentRuns.isDisplayLiveRun(subagentRun) || subagentRuns.isDisplayQueuedRun(subagentRun);
   // Follow-up turns retain the child session while owning a different run from its original spawn.
   const hasActiveSubagentRun =
     liveSubagentRunActive ||
@@ -128,6 +127,7 @@ export function projectGatewaySessionRunState(params: {
     GatewaySessionRow,
     | "status"
     | "lastRunError"
+    | "suppressErrorNotice"
     | "subagentRunState"
     | "hasActiveSubagentRun"
     | "startedAt"
@@ -136,6 +136,7 @@ export function projectGatewaySessionRunState(params: {
   > = {
     status: entry?.status,
     lastRunError: entry?.lastRunError,
+    suppressErrorNotice: entry?.suppressErrorNotice,
     subagentRunState: undefined,
     hasActiveSubagentRun: subagentRun || hasActiveSubagentRun ? hasActiveSubagentRun : undefined,
     startedAt: entry?.startedAt,

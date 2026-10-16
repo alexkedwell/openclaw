@@ -141,6 +141,7 @@ export function createCodexAppServerModelCatalog(runtime: string) {
       const result = await withCodexAppServerJsonClient(
         {
           startOptions: start,
+          pluginConfig: configured,
           config: params.config,
           agentDir: params.agentDir,
           timeoutMs,
