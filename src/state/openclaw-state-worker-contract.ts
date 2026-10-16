@@ -12,7 +12,7 @@ import type {
 } from "../infra/sqlite-wal-write-admission.js";
 import type { SqliteWorkerPreparedBackend } from "../infra/sqlite-worker-contract.js";
 import type { SqliteWorkerAdmissionFactory } from "../infra/sqlite-worker-operation-admission.js";
-import type { UpdateRunWorkerOperations } from "../infra/update-run-dispatch.worker.js";
+import type { UpdateRunWorkerOperations } from "../infra/update-run-mutation.types.js";
 import type { PluginStateWriteOperations } from "../plugin-state/plugin-state-worker-contract.js";
 import type { CaptureWorkerOperations } from "../proxy-capture/store.worker-contract.js";
 import type { SkillUploadWorkerOperations } from "../skills/lifecycle/upload-store.worker-contract.js";
