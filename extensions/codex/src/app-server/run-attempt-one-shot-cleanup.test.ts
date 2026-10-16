@@ -96,7 +96,10 @@ describe("Codex one-shot cleanup receipts", () => {
     clearRuntimeConfigSnapshot();
   });
 
-  it("uses host-owned tools for strict one-shot Codex runs", async () => {
+  it("uses host-owned tools for strict one-shot Codex runs", async ({ signal }) => {
+    // Tool ownership does not depend on how long cold startup takes.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const threadStarted = Promise.withResolvers<{ params?: unknown }>();
     const responses: Record<string, unknown> = {
       initialize: { userAgent: `openclaw/${CODEX_APP_SERVER_VERSION} (macOS; test)` },
       "config/read": { config: {}, layers: [] },
@@ -107,8 +110,11 @@ describe("Codex one-shot cleanup receipts", () => {
     };
     const harness = createInferenceReadyClientHarness({
       onWrite: (line, send) => {
-        const request = JSON.parse(line) as { id?: number; method: string };
+        const request = JSON.parse(line) as { id?: number; method: string; params?: unknown };
         if (request.id !== undefined) {
+          if (request.method === "thread/start") {
+            threadStarted.resolve(request);
+          }
           send({ id: request.id, result: responses[request.method] ?? {} });
         }
       },
@@ -131,7 +137,10 @@ describe("Codex one-shot cleanup receipts", () => {
     vi.spyOn(CodexAppServerClient, "start").mockResolvedValueOnce(harness.client);
     const run = runCodexAppServerAttempt(params, { bindingStore: testCodexAppServerBindingStore });
     try {
-      const start = await waitForHarnessRequest(harness, "thread/start");
+      const start = await withinTest(
+        awaitGateBeforeSettlement(threadStarted.promise, run, "run settled before thread/start"),
+        signal,
+      );
       expect(start.params).toMatchObject({ config: { "features.code_mode": false } });
       const { dynamicTools } = start.params as { dynamicTools: CodexDynamicToolSpec[] };
       expect(
@@ -139,12 +148,15 @@ describe("Codex one-shot cleanup receipts", () => {
           .map((tool) => tool.name)
           .toSorted(),
       ).toEqual(["exec", "message", "process"]);
-      await waitForHarnessRequest(harness, "turn/start");
+      await withinTest(run.waitForTurnAccepted(), signal);
       harness.send({
         method: "turn/completed",
         params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed", items: [] } },
       });
-      expect(readAttemptTerminal(await run)).toMatchObject({ aborted: false, timedOut: false });
+      expect(readAttemptTerminal(await withinTest(run, signal))).toMatchObject({
+        aborted: false,
+        timedOut: false,
+      });
     } finally {
       harness.client.close();
       await run.catch(() => undefined);
