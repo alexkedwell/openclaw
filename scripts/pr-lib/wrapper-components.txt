@@ -2196,6 +2196,7 @@ packages/ai/src/internal/shared.ts
 packages/ai/src/media-payload.ts
 packages/ai/src/model-utils.ts
 packages/ai/src/provider-options.ts
+packages/ai/src/provider-types.ts
 packages/ai/src/providers/anthropic-model-contract.ts
 packages/ai/src/providers/github-copilot-request-facts.ts
 packages/ai/src/providers/openai-reasoning-effort.ts
