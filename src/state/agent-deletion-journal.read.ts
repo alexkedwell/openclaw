@@ -18,6 +18,7 @@ import { readAgentDeletionRecoveryHolds } from "./agent-deletion-journal-recover
 import {
   getAgentDeletionJournalStatus,
   loadAgentDeletionJournalStatus,
+  seedAgentDeletionDiscovery,
 } from "./agent-deletion-journal-status.js";
 import type {
   AgentDatabaseDeletionSnapshot,
@@ -250,6 +251,9 @@ export function prepareAgentDatabaseDeletionSnapshotRead(
       { context: readContext, current: true },
     );
     assertReadCurrent();
+    if (purpose === "runtime-discovery" && reply) {
+      seedAgentDeletionDiscovery(options.path, reply.snapshot.retainedDeletions);
+    }
     return { snapshot: reply?.snapshot, assertCurrent: assertReadCurrent };
   };
   const read = () => readSnapshot(context);

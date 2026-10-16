@@ -1,15 +1,21 @@
 import fs from "node:fs";
 import { expectDefined } from "@openclaw/normalization-core";
 import { resolveRequiredHomeDir, resolveUserPath } from "../../infra/home-dir.js";
+import { getPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { isDeeplyFrozenPlainData } from "../../shared/immutable-data.js";
 import { getAgentDatabaseStartupAdmission } from "../../state/agent-database-startup.js";
 import {
   createRetainedAgentDatabaseMatcher,
   createRetainedAgentDatabaseMatcherFromSnapshot,
 } from "../../state/agent-deletion-discovery.js";
+import { getPreparedAgentDeletionDiscovery } from "../../state/agent-deletion-journal-status.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "../../state/openclaw-agent-db-contract.js";
-import { readOpenClawAgentDatabaseRegistryToken } from "../../state/openclaw-agent-db.js";
+import {
+  listOpenClawRegisteredAgentDatabases,
+  readOpenClawAgentDatabaseRegistryToken,
+} from "../../state/openclaw-agent-db.js";
 import { createOpenClawAgentDatabasePathMatcher } from "../../state/openclaw-agent-db.paths.js";
+import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { resolveSessionStoreCompatibilityAgentId } from "../legacy.default-agent-owner.js";
 import { resolveStateDir } from "../state-dir.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
@@ -183,11 +189,26 @@ export function createGatewayRetainedStoreMatcher(
   const env = readOptions.env ?? process.env;
   const readConfiguredTargets = () =>
     resolveConfiguredAgentDatabaseTargets(cfg, { env, ...readOptions });
-  return discovery
+  const prepared = discovery
+    ? undefined
+    : getPreparedAgentDeletionDiscovery(resolveOpenClawStateSqlitePath(env));
+  const snapshot =
+    discovery?.snapshot ??
+    (prepared && {
+      retainedDeletions: prepared,
+      registeredAgentDatabases: listOpenClawRegisteredAgentDatabases({ env }),
+    });
+  if (!discovery && !snapshot && getPluginRuntimeGatewayRequestScope()) {
+    throw new Error(
+      "Session discovery requires worker preparation; await the asynchronous session store loader.",
+    );
+  }
+  // The shipped synchronous SDK also supports offline one-shot callers without a Gateway.
+  return discovery || snapshot
     ? createRetainedAgentDatabaseMatcherFromSnapshot(
         env,
         readConfiguredTargets,
-        discovery.snapshot,
+        snapshot,
         "database",
         "runtime-discovery",
       )

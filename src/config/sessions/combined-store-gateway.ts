@@ -19,10 +19,12 @@ import {
   readAgentDatabaseAdmissionRefusal,
 } from "../../state/agent-database-admission.js";
 import { getAgentDatabaseStartupAdmission } from "../../state/agent-database-startup.js";
+import { getPreparedAgentDeletionDiscovery } from "../../state/agent-deletion-journal-status.js";
 import {
   listOpenClawRegisteredAgentDatabases,
   readOpenClawAgentDatabaseRegistryToken,
 } from "../../state/openclaw-agent-db.js";
+import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { resolveSessionStoreCompatibilityAgentId } from "../legacy.default-agent-owner.js";
 import { resolveStateDir } from "../state-dir.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
@@ -86,6 +88,7 @@ function capturePhysicalStoreTargets() {
 type PreparedConfiguredSessionStoreTargets = {
   cfg: OpenClawConfig;
   registryToken: symbol;
+  deletionFacts: ReturnType<typeof getPreparedAgentDeletionDiscovery>;
   resolved: ResolvedGatewaySessionStoreTargets;
 };
 
@@ -252,8 +255,15 @@ function resolvePreparedConfiguredSessionStoreTargets(
 ): ResolvedGatewaySessionStoreTargets {
   const readOptions = gatewayDiscoveryReadOptions(cfg, discovery);
   const registryToken = discovery ? undefined : readOpenClawAgentDatabaseRegistryToken();
+  const deletionFacts = discovery
+    ? undefined
+    : getPreparedAgentDeletionDiscovery(resolveOpenClawStateSqlitePath());
   const cached = discovery ? undefined : preparedConfiguredSessionStoreTargets;
-  if (cached?.cfg === cfg && cached.registryToken === registryToken) {
+  if (
+    cached?.cfg === cfg &&
+    cached.registryToken === registryToken &&
+    cached.deletionFacts === deletionFacts
+  ) {
     return cached.resolved;
   }
 
@@ -302,6 +312,7 @@ function resolvePreparedConfiguredSessionStoreTargets(
     preparedConfiguredSessionStoreTargets = {
       cfg,
       registryToken,
+      deletionFacts,
       resolved,
     };
   }

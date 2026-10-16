@@ -9,6 +9,11 @@ import {
   type UsageSessionSelection,
 } from "../../gateway/server-methods/usage-session-selection.js";
 import type { WorkerTaskPool } from "../../infra/worker-task-pool.js";
+import { loadCombinedSessionStoreForGateway } from "../../plugin-sdk/session-transcript-hit.js";
+import {
+  beginAgentDeletionJournalInDatabase,
+  completeAgentDeletionJournalInDatabase,
+} from "../../state/agent-deletion-journal.js";
 import { readAgentDatabaseDeletionSnapshot } from "../../state/agent-deletion-journal.read.js";
 import {
   closeOpenClawAgentDatabaseByPathAsync,
@@ -20,7 +25,11 @@ import {
   resolveOpenClawAgentSqlitePath,
 } from "../../state/openclaw-agent-db.js";
 import { resolveIncognitoOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
-import { beginAgentDeletionJournal } from "../../test-utils/agent-deletion-journal.js";
+import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.js";
+import {
+  beginAgentDeletionJournal,
+  removeAgentDeletionJournal,
+} from "../../test-utils/agent-deletion-journal.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { withMockedPlatform } from "../../test-utils/vitest-spies.js";
 import * as configEnv from "../config-env-vars.js";
@@ -304,6 +313,78 @@ it.each([{ read: "context", suppliedDiscovery: false, restoreBeforeConsume: true
     });
   },
 );
+
+it("reuses committed deletion facts for the synchronous SDK loader", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const cfg: OpenClawConfig = { agents: { entries: { main: {}, work: {} } } };
+    for (const agentId of ["main", "work"]) {
+      replaceSessionEntrySync(
+        { agentId, sessionKey: `agent:${agentId}:main` },
+        { sessionId: `${agentId}-session`, updatedAt: 1 },
+      );
+    }
+    await loadCombinedSessionStoreForGatewayCoreAsync(cfg);
+    const observed = observeHostDataSql();
+    try {
+      expect(Object.keys(loadCombinedSessionStoreForGateway(cfg).store).toSorted()).toEqual([
+        "agent:main:main",
+        "agent:work:main",
+      ]);
+      expect(observed.queries.filter((sql) => /agent_deletion_journal/i.test(sql))).toEqual([]);
+      const journal = {
+        agentId: "work",
+        operationId: "sync-discovery-delete",
+        agentDir: state.agentDir("work"),
+        workspaceDir: state.workspaceDir,
+        sessionsDir: state.sessionsDir("work"),
+        databasePaths: [],
+        deleteFiles: false,
+      };
+      expect(() =>
+        runOpenClawStateWriteTransaction(
+          (database) => {
+            beginAgentDeletionJournalInDatabase(database, journal);
+            throw new Error("roll back discovery");
+          },
+          { env: state.env },
+        ),
+      ).toThrow("roll back discovery");
+      expect(Object.keys(loadCombinedSessionStoreForGateway(cfg).store).toSorted()).toEqual([
+        "agent:main:main",
+        "agent:work:main",
+      ]);
+      beginAgentDeletionJournal(journal, { env: state.env });
+      observed.queries.length = 0;
+      for (const options of [{}, { configuredAgentsOnly: true }, { agentId: "main" }]) {
+        expect(Object.keys(loadCombinedSessionStoreForGateway(cfg, options).store)).toEqual([
+          "agent:main:main",
+        ]);
+      }
+      expect(observed.queries.filter((sql) => /agent_deletion_journal/i.test(sql))).toEqual([]);
+      runOpenClawStateWriteTransaction(
+        (database) => {
+          expect(
+            completeAgentDeletionJournalInDatabase(database, "work", journal.operationId),
+          ).toBe(true);
+        },
+        { env: state.env },
+      );
+      expect(Object.keys(loadCombinedSessionStoreForGateway(cfg).store)).toEqual([
+        "agent:main:main",
+      ]);
+      removeAgentDeletionJournal("work", journal.operationId, { env: state.env });
+      observed.queries.length = 0;
+      expect(
+        Object.keys(
+          loadCombinedSessionStoreForGateway(cfg, { configuredAgentsOnly: true }).store,
+        ).toSorted(),
+      ).toEqual(["agent:main:main", "agent:work:main"]);
+      expect(observed.queries.filter((sql) => /agent_deletion_journal/i.test(sql))).toEqual([]);
+    } finally {
+      observed.restore();
+    }
+  });
+});
 
 it("reads committed shared-store changes without running discovery SQL on the host", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
