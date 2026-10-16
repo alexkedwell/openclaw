@@ -594,9 +594,15 @@ export class ChatSessionVirtualizerHost implements ChatTranscriptSession {
       cancelAnimationFrame(this.scrollRestoreHost.pendingScrollFrame);
       this.scrollRestoreHost.pendingScrollFrame = null;
     }
-    // A deferred size correction would displace the next native scroll target.
+    // The smooth journey may already be automatic when its skipped sizes settle.
     if (measureSkippedRows) {
-      this.presentation.measureRows();
+      const adjustScroll = this.virtualizer.shouldAdjustScrollPositionOnItemSizeChange;
+      this.virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+      try {
+        this.presentation.measureRows();
+      } finally {
+        this.virtualizer.shouldAdjustScrollPositionOnItemSizeChange = adjustScroll;
+      }
     }
     const element = this.scrollElement;
     if (element) {
