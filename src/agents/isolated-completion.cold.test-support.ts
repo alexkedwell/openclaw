@@ -1,3 +1,4 @@
+import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { vi } from "vitest";
 import {
@@ -8,6 +9,13 @@ import * as pluginProfile from "../plugins/plugin-load-profile.js";
 import * as runtimeBuild from "./prepared-model-runtime.build.js";
 import * as runtimeFacts from "./prepared-model-runtime.facts.js";
 import * as preparedRuntime from "./prepared-model-runtime.js";
+
+// Resolve already-evaluated namespaces after the original static graph, preserving its load order.
+const jitiFactory = await import("../plugins/jiti-factory.js");
+const nativeModules = await import("../plugins/native-module-require.js");
+const instanceLoader = await import("../plugins/plugin-instance-module-loader.js");
+const artifactIdentity = await import("../plugins/plugin-runtime-artifact-identity.js");
+const stateOperationLoader = await import("../plugins/plugin-state-operation-module-loader.js");
 
 /** Observe already-imported owners without preloading the cold harness or provider graph. */
 export function traceIsolatedCompletionColdStart(
@@ -28,6 +36,38 @@ export function traceIsolatedCompletionColdStart(
       events.push({ event, atMs: performance.now() - startedAt, ...values });
     } else {
       dropped++;
+    }
+  };
+  // Measurements are inclusive; nested SDK work is not additive to loader totals.
+  const synchronousWork = new Map<
+    string,
+    {
+      calls: number;
+      durationMs: number;
+      maxDurationMs: number;
+      firstAtMs: number;
+      lastAtMs: number;
+    }
+  >();
+  const measure = <T>(phase: string, run: () => T): T => {
+    const start = performance.now();
+    try {
+      return run();
+    } finally {
+      const end = performance.now();
+      const durationMs = end - start;
+      const stats = synchronousWork.get(phase) ?? {
+        calls: 0,
+        durationMs: 0,
+        maxDurationMs: 0,
+        firstAtMs: start - startedAt,
+        lastAtMs: 0,
+      };
+      stats.calls++;
+      stats.durationMs += durationMs;
+      stats.maxDurationMs = Math.max(stats.maxDurationMs, durationMs);
+      stats.lastAtMs = end - startedAt;
+      synchronousWork.set(phase, stats);
     }
   };
   const observe = <T>(pending: Promise<T>, event: string, id: number): Promise<T> => {
@@ -64,6 +104,42 @@ export function traceIsolatedCompletionColdStart(
       record("phase-settled", values);
     },
     { include: ["diagnostic.phase.completed"] },
+  );
+  // These owners already belong to runtimeFacts' static graph; plugin/SDK evaluation stays cold.
+  const bindLoader = instanceLoader.bindPluginInstanceModuleLoader;
+  const fingerprint = artifactIdentity.fingerprintPluginRuntimeArtifact;
+  const capture = stateOperationLoader.captureBundledPluginStateOperationModules;
+  const loadNative = nativeModules.tryNativeRequireModule;
+  const createJiti = jitiFactory.createJiti;
+  spies.push(
+    vi
+      .spyOn(instanceLoader, "bindPluginInstanceModuleLoader")
+      .mockImplementation((...args) => measure("loader-init", () => bindLoader(...args))),
+    vi
+      .spyOn(artifactIdentity, "fingerprintPluginRuntimeArtifact")
+      .mockImplementation((...args) => measure("artifact-fingerprint", () => fingerprint(...args))),
+    vi
+      .spyOn(stateOperationLoader, "captureBundledPluginStateOperationModules")
+      .mockImplementation((...args) => measure("state-capture", () => capture(...args))),
+    vi.spyOn(nativeModules, "tryNativeRequireModule").mockImplementation((...args) => {
+      const entry = path.basename(args[0]).replace(/\.[cm]?[jt]s$/u, "");
+      const surface = [
+        "lazy-runtime",
+        "model-ref-parse",
+        "plugin-config-runtime",
+        "plugin-entry",
+        "provider-auth",
+        "provider-catalog-live-runtime",
+        "provider-model-metadata",
+        "provider-model-shared",
+        "provider-tools",
+        "secret-input-runtime",
+      ].find((candidate) => candidate === entry);
+      return measure(surface ? `native-${surface}` : "native-other", () => loadNative(...args));
+    }),
+    vi
+      .spyOn(jitiFactory, "createJiti")
+      .mockImplementation((...args) => measure("jiti-factory", () => createJiti(...args))),
   );
   // Direct probes import completion lazily; their trace must not move that cold boundary.
   if (completionOwners) {
@@ -200,6 +276,9 @@ export function traceIsolatedCompletionColdStart(
       }
       for (const spy of spies.toReversed()) {
         spy.mockRestore();
+      }
+      for (const [phase, stats] of synchronousWork) {
+        record("sync-work", { phase, ...stats });
       }
       record("fixture-settled");
       console.error("[isolated-cold-proof]", JSON.stringify({ scenario, events, dropped }));

@@ -16,6 +16,8 @@ const { createPluginMetadataSnapshot, makeRegistry } =
   await import("../../config/plugin-auto-enable.test-helpers.js");
 
 const { AsyncWorkScope } = await import("../../shared/async-work-scope.js");
+// Completion already imports pricing; observe its first use without preparing a context.
+const usageFormat = await import("../../utils/usage-format.js");
 
 beforeEach(resetIsolatedCompletionTestState);
 
@@ -98,11 +100,47 @@ describe("runIsolatedCompletion native authorization", () => {
             : []),
         ],
       });
-      const runIsolatedCompletionV2 = vi.fn(async () => ({
-        assistant: isolatedAssistant([{ type: "text", text: "API sibling reply" }]),
-      }));
+      const startedAt = performance.now();
+      const events: Array<{ event: string; atMs: number }> = [];
+      const record = (event: string) => {
+        if (apiSibling === "profile" && events.length < 16) {
+          events.push({ event, atMs: performance.now() - startedAt });
+        }
+      };
+      const estimateCost = usageFormat.estimateAggregateUsageCost;
+      const costSpy =
+        apiSibling === "profile"
+          ? vi.spyOn(usageFormat, "estimateAggregateUsageCost").mockImplementation((...args) => {
+              record("usage-cost-start");
+              try {
+                return estimateCost(...args);
+              } finally {
+                record("usage-cost-settled");
+              }
+            })
+          : undefined;
+      using _trace = {
+        [Symbol.dispose]() {
+          costSpy?.mockRestore();
+          if (apiSibling === "profile") {
+            console.error(
+              "[isolated-cold-proof]",
+              JSON.stringify({ scenario: "native-auth", events }),
+            );
+          }
+        },
+      };
+      const runIsolatedCompletionV2 = vi.fn(async () => {
+        record("runtime-result");
+        return { assistant: isolatedAssistant([{ type: "text", text: "API sibling reply" }]) };
+      });
       registerIsolatedHarness({ authBootstrap: "harness", runIsolatedCompletionV2 });
+      record("caller-start");
       const pending = runIsolatedCompletion(isolatedRequest());
+      void pending.then(
+        () => record("caller-completed"),
+        () => record("caller-error"),
+      );
       if (apiSibling === "profile") {
         await expect(pending).resolves.toMatchObject({ text: "API sibling reply" });
         expect(runIsolatedCompletionV2).toHaveBeenCalledOnce();
