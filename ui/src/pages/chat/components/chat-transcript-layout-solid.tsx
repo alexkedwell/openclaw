@@ -29,6 +29,7 @@ import {
   UnplacedSubagentWait,
   WorkGroupSummary,
 } from "./chat-message-stream-view.tsx";
+import { ChatSystemEvents } from "./chat-system-events.tsx";
 import type { TranscriptLayoutProps } from "./chat-transcript-layout.ts";
 import { TranscriptMediaDisconnect } from "./chat-transcript-media-lifecycle.ts";
 import { transcriptArraysEqual } from "./chat-transcript-memo.ts";
@@ -40,6 +41,9 @@ import {
 function NativeRow(props: { value: NativeTranscriptView }): JSX.Element {
   return (
     <Switch>
+      <Match when={props.value.kind === "system-events" ? props.value : undefined}>
+        {(view) => <ChatSystemEvents item={view().item} />}
+      </Match>
       <Match when={props.value.kind === "group" ? props.value : undefined}>
         {(view) => <MessageGroup group={view().group} options={view().options} />}
       </Match>

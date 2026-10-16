@@ -3350,6 +3350,9 @@ export const en: TranslationMap & {
     resumeInNewSession: "Resume in new session",
     resumingSession: "Resuming…",
     systemNotice: {
+      event: "{count} system event",
+      events: "{count} system events",
+      updatesNotDelivered: "Updates not delivered",
       guardian: {
         approvedSummary: "Guardian approved {action}.",
         deniedLabel: "Guardian denied",

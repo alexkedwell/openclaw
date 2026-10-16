@@ -229,6 +229,8 @@ export type ChatItem =
       startsTurn?: true;
       boundaryId?: string;
       tone?: "danger";
+      /** Informational source-owned event eligible for timeline folding. */
+      systemEvent?: "info" | "delivery-warning";
       /** Collapse the body behind a disclosure; the label line stays visible. */
       collapsedBody?: true;
       showTimestamp?: true;
@@ -244,6 +246,7 @@ export type ChatItem =
       key: string;
       compaction?: "active" | "complete";
       compactionId?: string;
+      systemEvent?: "info";
       label: string;
       icon?: keyof typeof toolIcons;
       metric?: string;

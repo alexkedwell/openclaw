@@ -1,0 +1,36 @@
+import type { ChatItem } from "../../lib/chat/chat-types.ts";
+import type { coalesceAgentRunFrames } from "./chat-agent-run-grouping.ts";
+
+export type SystemEventItem = Extract<ChatItem, { kind: "notice" | "divider" }>;
+export type SystemEventGroup = {
+  kind: "system-event-group";
+  key: string;
+  events: SystemEventItem[];
+};
+
+export type SystemEventRenderItem =
+  | ReturnType<typeof coalesceAgentRunFrames>[number]
+  | SystemEventGroup;
+type RenderItem = SystemEventRenderItem;
+
+/** Presentation only: semantic turn and run grouping has already finished. */
+export function coalesceSystemEvents(items: RenderItem[]): RenderItem[] {
+  const result: RenderItem[] = [];
+  let events: SystemEventItem[] = [];
+  const flush = () => {
+    if (events.length) {
+      result.push({ kind: "system-event-group", key: "system-events:" + events[0]!.key, events });
+      events = [];
+    }
+  };
+  for (const item of items) {
+    if ((item.kind === "notice" || item.kind === "divider") && item.systemEvent) {
+      events.push(item);
+    } else {
+      flush();
+      result.push(item);
+    }
+  }
+  flush();
+  return result;
+}

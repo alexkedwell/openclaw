@@ -6,6 +6,7 @@ import {
   assistantMessageIsInterrupted,
   resolveAssistantReplyPhase,
 } from "./chat-assistant-reply.ts";
+import type { SystemEventGroup } from "./chat-system-event-grouping.ts";
 import {
   groupEndsRunInFailure,
   joinActivityRuns,
@@ -42,7 +43,9 @@ export type AgentRunFrameRenderItem = {
 
 type AgentRunFrameInput = CompletedTurnRenderItem | ActivityRunRenderItem;
 
-export function chatItemGroups(item: AgentRunFrameInput | AgentRunFrameRenderItem): MessageGroup[] {
+export function chatItemGroups(
+  item: AgentRunFrameInput | AgentRunFrameRenderItem | SystemEventGroup,
+): MessageGroup[] {
   if (item.kind === "agent-run-frame") {
     return item.parts.flatMap(chatItemGroups);
   }
