@@ -12,7 +12,6 @@ import {
   type DiagnosticUsageEvent,
 } from "../infra/diagnostic-events.js";
 import { markTrustedOtelDiagnosticListener } from "../infra/diagnostic-otel-listener-provenance.js";
-import { modelCatalogEntryMatchesTask } from "../model-catalog/decision-compatibility.js";
 import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
 import { loadAndActivateRootPluginRegistry } from "../plugins/loader.js";
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
@@ -25,8 +24,8 @@ import {
 } from "../plugins/test-helpers/cold-plugin-fixtures.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
-import { modelFromStaticCatalogRow } from "./embedded-agent-runner/model.static-catalog-row.js";
 import { modelCatalogRowToEntry } from "./model-catalog-entry.js";
+import { buildAllowedModelSet } from "./model-selection-shared.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runtime.test-support.js";
 
 function readOpenRouterManifest() {
@@ -514,8 +513,12 @@ it("projects the declared Jev routes as decision-only without fabricated chat fi
     expect(row.maxTokens).toBeUndefined();
     expect(row.cost).toBeUndefined();
     expect(row.inference?.decision?.limits?.maxStateAndQuestionTokens).toBe(32000);
-    expect(modelCatalogEntryMatchesTask(modelCatalogRowToEntry(row), "decision")).toBe(true);
-    expect(modelCatalogEntryMatchesTask(modelCatalogRowToEntry(row))).toBe(false);
-    expect(() => modelFromStaticCatalogRow(row)).toThrow("does not support chat");
   }
+  const conversational = buildAllowedModelSet({
+    cfg: {},
+    catalog: rows.map(modelCatalogRowToEntry),
+    defaultProvider: "openrouter",
+  });
+  expect(conversational.allowedCatalog).toEqual([]);
+  expect(conversational.allowedKeys.size).toBe(0);
 });
