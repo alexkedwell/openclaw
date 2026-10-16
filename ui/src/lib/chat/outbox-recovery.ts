@@ -11,7 +11,6 @@ import type {
 } from "./chat-types.ts";
 import { findChatSubmissionMessage } from "./history-message-identity.ts";
 import { outboxPayloadCanRecover } from "./outbox-payload-store.runtime.ts";
-import { normalizeStoredSession } from "./outbox-store-codec.ts";
 import { nextDraftRevision, readDraftRevisionState } from "./outbox-store-draft-state.ts";
 import type { ComposerStorageTarget, StoredChatOutboxScope } from "./outbox-store-scope.ts";
 import {
@@ -436,10 +435,6 @@ function consumeChatOutboxRecovery(
           legacy.recovery[recoveryId] = expected;
           removeLegacySource(legacy, id);
           commit(legacyTarget, legacy, before);
-          legacy = readStoredOutboxStore(storage, legacyTarget);
-          if (!sameRecovery(legacy.recovery[recoveryId], expected)) {
-            return "storage-failed";
-          }
         }
       }
       let claimed = legacy.recovery[recoveryId];
@@ -460,14 +455,7 @@ function consumeChatOutboxRecovery(
         legacy.recovery[recoveryId] = expected;
         removeLegacySource(legacy, sourceId);
         commit(legacyTarget, legacy, before);
-        legacy = readStoredOutboxStore(storage, legacyTarget);
         claimed = legacy.recovery[recoveryId];
-        if (
-          !sameRecovery(claimed, expected) ||
-          sameRecovery(legacySource(legacy, sourceId), expected)
-        ) {
-          return "storage-failed";
-        }
       }
       if (claimed) {
         // Copy into the existing account recovery bucket before releasing the
@@ -483,10 +471,6 @@ function consumeChatOutboxRecovery(
           const before = JSON.stringify(store);
           store.recovery[recoveryId] = expected;
           commit(target, store, before);
-          store = readStoredOutboxStore(storage, target);
-          if (!sameRecovery(store.recovery[recoveryId], expected)) {
-            return "storage-failed";
-          }
         }
         legacy = readStoredOutboxStore(storage, legacyTarget);
         if (
@@ -553,7 +537,7 @@ function consumeChatOutboxRecovery(
       delivered && (hasStoredComposerDraftInput(current.session) || remainingQueue?.length)
         ? {
             ...current,
-            session: normalizeStoredSession({ ...current.session, queue: remainingQueue })!,
+            session: { ...current.session, queue: remainingQueue },
           }
         : undefined;
     // Publication or retirement consumes the account recovery row in the same write.
@@ -567,15 +551,6 @@ function consumeChatOutboxRecovery(
       return "conflict";
     }
     commit(target, store, before, { requiredSessionKey: key, validate: sourceRetired });
-    const written = readStoredOutboxStore(storage, target);
-    if (
-      !sameRecovery(written.recovery[recoveryId], retained) ||
-      (key !== undefined &&
-        JSON.stringify(written.sessions[key]) !==
-          JSON.stringify(normalizeStoredSession(store.sessions[key])))
-    ) {
-      return "storage-failed";
-    }
     notifyStoredChatOutboxChanges();
     return "completed";
   } catch (error) {

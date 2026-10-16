@@ -114,9 +114,6 @@ export function extractChatMessagePreview(toolMessage: unknown): ChatMessagePrev
 }
 
 function readChatMessagePreview(toolMessage: Record<string, unknown>): ChatMessagePreview | null {
-  if (!safeNormalizeMessage(toolMessage)) {
-    return null;
-  }
   const cards = extractToolCardsCached(toolMessage);
   for (let index = cards.length - 1; index >= 0; index--) {
     const card = cards[index];

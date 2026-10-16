@@ -464,7 +464,7 @@ export function pruneAssistantMessageExpansions(
   const retainedKeys = new Set(
     sourceMessages
       .map((message) => readChatThreadMessageIdentity(message)?.id)
-      .filter((id): id is string => typeof id === "string")
+      .filter((id) => id != null)
       .map((id) => messageRecoveryKey(agentId, id)),
   );
   for (const key of expanded.keys()) {

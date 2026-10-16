@@ -97,12 +97,10 @@ export function isUnfinishedSubagent(row: GatewaySessionRow): boolean {
 
 function finishedRuntimeMs(row: GatewaySessionRow): number | null {
   const { runtimeMs, startedAt, endedAt } = row;
-  if (typeof runtimeMs === "number" && Number.isFinite(runtimeMs) && runtimeMs >= 0) {
+  if (runtimeMs != null && runtimeMs >= 0) {
     return runtimeMs;
   }
-  return typeof startedAt === "number" && typeof endedAt === "number" && endedAt >= startedAt
-    ? endedAt - startedAt
-    : null;
+  return startedAt != null && endedAt != null && endedAt >= startedAt ? endedAt - startedAt : null;
 }
 
 function endedWithoutFinishing(row: GatewaySessionRow): "failed" | "stopped" | undefined {

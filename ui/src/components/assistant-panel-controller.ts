@@ -204,7 +204,9 @@ export class AssistantPanelController {
         saved = asNullableRecord(
           JSON.parse(getSafeLocalStorage()?.getItem(this.targetStorageKey) ?? "null"),
         );
-      } catch {}
+      } catch {
+        // Missing or invalid saved presentation preferences use the default destination.
+      }
       this.destination = saved?.destination === "home" ? "home" : "custodian";
       this.builtInDestination = this.destination;
     }
@@ -318,7 +320,9 @@ export class AssistantPanelController {
         this.targetStorageKey,
         JSON.stringify({ destination: this.destination }),
       );
-    } catch {}
+    } catch {
+      // Storage can be unavailable; the current panel selection still takes effect.
+    }
   }
 
   get homeTarget() {

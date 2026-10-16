@@ -510,7 +510,7 @@ export function reconcileChatInputCustody(
   const acceptedRunIds = new Set(
     [...(page?.items ?? []), ...receipts]
       .map((item) => item.runId)
-      .filter((runId) => typeof runId === "string"),
+      .filter((runId) => runId !== undefined),
   );
   retireChatSubmissionDisplay(owner, acceptedRunIds, { awaitTranscriptReceipt: true });
   const stoppedRunIds = new Set(
@@ -521,7 +521,7 @@ export function reconcileChatInputCustody(
       ...receipts
         .filter((receipt) => receipt.state === "pending" && receipt.cancelled)
         .map((receipt) => receipt.runId),
-    ].filter((runId) => typeof runId === "string"),
+    ].filter((runId) => runId !== undefined),
   );
   retireChatSubmissionDisplay(owner, stoppedRunIds);
   return {

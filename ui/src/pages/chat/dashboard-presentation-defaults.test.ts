@@ -35,15 +35,6 @@ import {
 } from "./sidebar-layout.ts";
 
 vi.mock("../../lib/toast.ts", () => ({ showToast: vi.fn() }));
-// Board widgets own their rendering tests; these tests keep the real pane, page
-// state, settings, session capability, and header/menu composition.
-vi.mock("../../components/board/board-view.ts", () => {
-  if (!customElements.get("openclaw-board-view")) {
-    customElements.define("openclaw-board-view", class extends HTMLElement {});
-  }
-  return {};
-});
-
 const defaultAction = '[value="dashboard-default"]';
 const defaultStatus = '[data-menu-status="dashboard-default"]';
 

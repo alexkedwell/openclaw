@@ -49,7 +49,7 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
   const props = untrack(() => context.props);
 
   const activeSession = createMemo(() => props.selectedSession);
-  const composerControls = createMemo(() => props.composerControls ?? undefined);
+  const composerControls = createMemo(() => props.composerControls);
   const composerLeadControl = (
     <Show when={props.permissionPicker}>{(picker) => <ChatPermissionPicker {...picker()} />}</Show>
   );

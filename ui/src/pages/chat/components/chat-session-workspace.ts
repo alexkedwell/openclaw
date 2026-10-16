@@ -79,7 +79,7 @@ function unsupportedFileSidebarContent(
     "",
     `- Path: ${formatMarkdownCodeSpan(filePath)}`,
     file.mimeType ? `- Type: ${formatMarkdownCodeSpan(file.mimeType)}` : null,
-    typeof file.size === "number" ? `- Size: ${file.size.toLocaleString()} bytes` : null,
+    file.size !== undefined ? `- Size: ${file.size.toLocaleString()} bytes` : null,
     updatedAt ? `- Updated: ${updatedAt}` : null,
   ].filter((line): line is string => line !== null);
   const content = lines.join("\n");
@@ -106,10 +106,8 @@ function workspaceBrowserFilePath(root: string | undefined, filePath: string): s
 }
 
 function readWorkspaceFileText(file: SessionWorkspaceGetResult["file"] | undefined): string | null {
-  return file?.previewKind === "text" &&
-    file.contentEncoding === "utf8" &&
-    typeof file.content === "string"
-    ? file.content
+  return file?.previewKind === "text" && file.contentEncoding === "utf8"
+    ? (file.content ?? null)
     : null;
 }
 
@@ -244,7 +242,7 @@ function openFile(
       if (file.previewKind === "image") {
         if (
           file.contentEncoding !== "base64" ||
-          typeof file.content !== "string" ||
+          file.content === undefined ||
           !file.mimeType ||
           !BROWSER_IMAGE_MIME_TYPES.has(file.mimeType)
         ) {
@@ -269,7 +267,7 @@ function openFile(
         return null;
       }
       const canEdit =
-        typeof file.hash === "string" &&
+        file.hash !== undefined &&
         hasUniformLineEndings(text) &&
         isGatewayMethodAdvertised(state, "sessions.files.set") === true &&
         hasOperatorAdminAccess(state.hello?.auth ?? null);
@@ -289,13 +287,13 @@ function openFile(
                 );
                 const hash = saved?.file.hash;
                 if (
-                  typeof hash === "string" &&
+                  hash !== undefined &&
                   viewingSession &&
                   isCurrentSessionWorkspace(state, workspace)
                 ) {
                   refreshSessionWorkspace(state, true);
                 }
-                return typeof hash === "string"
+                return hash !== undefined
                   ? {
                       ok: true as const,
                       hash,

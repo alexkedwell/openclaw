@@ -6,6 +6,7 @@ import {
   GATEWAY_CLIENT_IDS,
   GATEWAY_CLIENT_MODES,
 } from "../../../../packages/gateway-protocol/src/client-info.js";
+import type { NodeListNode } from "../../../../src/shared/node-list-types.js";
 import { Icon } from "../../components/solid/icon.tsx";
 import { resolveMacFormFactor } from "../../lib/mac-form-factor.ts";
 import { t } from "../../lib/reactive/i18n.ts";
@@ -44,23 +45,17 @@ export function resolveConfigAgents(config: Record<string, unknown> | null): Con
 }
 
 export function resolveNodeTargets(
-  nodes: Array<Record<string, unknown>>,
+  nodes: NodeListNode[],
   requiredCommands: string[],
 ): NodeTargetOption[] {
   const list: NodeTargetOption[] = [];
 
   for (const node of nodes) {
-    const commands = Array.isArray(node.commands) ? node.commands : [];
-    const advertised = new Set(commands.map(String));
-    const supports = requiredCommands.every((command) => advertised.has(command));
-    if (!supports) {
+    if (!requiredCommands.every((command) => node.commands?.includes(command))) {
       continue;
     }
 
-    const nodeId = normalizeOptionalString(node.nodeId) ?? "";
-    if (!nodeId) {
-      continue;
-    }
+    const nodeId = node.nodeId;
     const displayName = normalizeOptionalString(node.displayName) ?? nodeId;
     list.push({
       id: nodeId,

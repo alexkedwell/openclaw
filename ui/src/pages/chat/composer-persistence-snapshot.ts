@@ -116,8 +116,8 @@ export function captureChatComposerDraftSnapshot(
   const durableScope = replaced ? (previous.durable?.scope ?? null) : candidateDurableScope;
   const scope = resolveUiConversationIdentity(state, state.sessionKey);
   const text = normalizeChatComposerDraft(state.chatMessage);
-  const goalMode = state.chatGoalDraftMode ?? undefined;
-  const replyTarget = state.chatReplyTarget ?? undefined;
+  const goalMode = state.chatGoalDraftMode;
+  const replyTarget = state.chatReplyTarget;
   const mentions = readHumanMentions(state.chatMessage, state.chatMentions);
   const attachments = state.chatAttachments ?? [];
   const durable = durableScope

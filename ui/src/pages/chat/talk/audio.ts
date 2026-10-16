@@ -274,7 +274,9 @@ export class RealtimeTalkPcmOutputQueue {
     for (const source of sources) {
       try {
         source.stop();
-      } catch {}
+      } catch {
+        // A source whose start failed has no playback left to stop.
+      }
     }
   }
 }

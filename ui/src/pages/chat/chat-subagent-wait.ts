@@ -77,18 +77,14 @@ export function projectSubagentStatus(
     eligible && !input.runActive && !input.runWorking && !isSessionRunActive(session);
   const endedAt = session?.endedAt;
   const waitStartedAt =
-    parentIdle &&
-    typeof endedAt === "number" &&
-    Number.isFinite(endedAt) &&
-    endedAt > 0 &&
-    endedAt >= (session?.startedAt ?? 0)
+    parentIdle && endedAt != null && endedAt > 0 && endedAt >= (session?.startedAt ?? 0)
       ? endedAt
       : null;
   const pending = waitStartedAt !== null ? pendingSessionsYield(input.messages) : null;
   const yieldedAt = pending?.timestamp ?? null;
   const handoffRunId =
     yieldedAt !== null &&
-    typeof session?.startedAt === "number" &&
+    session?.startedAt != null &&
     yieldedAt > session.startedAt &&
     waitStartedAt !== null &&
     yieldedAt <= waitStartedAt

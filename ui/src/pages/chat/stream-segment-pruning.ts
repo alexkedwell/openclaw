@@ -69,7 +69,7 @@ export function pruneHistoryReplacedStreamSegments(
     isHiddenStreamText: StreamVisibility;
   },
 ): boolean {
-  if (!Array.isArray(state.chatStreamSegments)) {
+  if (!state.chatStreamSegments) {
     return false;
   }
   const replacedIndexes = new Set<number>();
@@ -112,17 +112,13 @@ export function prunePersistedToolStreamMessages(
     return;
   }
   const liveToolRefs = resolveLiveToolStreamRefs(state);
-  if (state.toolStreamById instanceof Map) {
-    for (const id of persistedToolIds) {
-      state.toolStreamById.delete(id);
-    }
+  for (const id of persistedToolIds) {
+    state.toolStreamById?.delete(id);
   }
-  if (Array.isArray(state.toolStreamOrder)) {
-    state.toolStreamOrder = state.toolStreamOrder.filter(
-      (id): id is string => typeof id === "string" && !persistedToolIds.has(id),
-    );
+  if (state.toolStreamOrder) {
+    state.toolStreamOrder = state.toolStreamOrder.filter((id) => !persistedToolIds.has(id));
   }
-  if (Array.isArray(state.chatToolMessages)) {
+  if (state.chatToolMessages) {
     state.chatToolMessages = state.chatToolMessages.filter((message) => {
       const refs = extractToolMessageRefs(message);
       return refs.every((ref) => {
@@ -131,7 +127,7 @@ export function prunePersistedToolStreamMessages(
       });
     });
   }
-  if (!Array.isArray(state.chatStreamSegments)) {
+  if (!state.chatStreamSegments) {
     return;
   }
   let toolIndexedSegmentIndex = 0;

@@ -552,8 +552,7 @@ export async function deliverChatQueueItem(
   const storageMode = options.storageMode ?? "durable";
   const routingSessionKey = options.routingSessionKey ?? sessionKey;
   const deliveryConnectionIsCurrent = captureChatConnectionOwner(host, false);
-  const deliveryAgentId =
-    item.agentId ?? scopedAgentIdForSession(host, routingSessionKey) ?? undefined;
+  const deliveryAgentId = item.agentId ?? scopedAgentIdForSession(host, routingSessionKey);
   const sendOptions = { ...options, routingSessionKey, storageMode };
   let result: QueuedChatSendResult;
   if (storageMode === "memory") {

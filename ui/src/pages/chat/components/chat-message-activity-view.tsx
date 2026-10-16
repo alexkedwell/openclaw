@@ -228,7 +228,7 @@ function ActivityGroupBody(props: {
           "is-open": !soleStep() && state().activityExpanded,
         },
       ]}
-      data-file-session-key={state().firstGroup.senderSession?.sessionKey ?? undefined}
+      data-file-session-key={state().firstGroup.senderSession?.sessionKey}
     >
       <Show when={!soleStep()}>
         <button

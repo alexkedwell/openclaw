@@ -706,7 +706,7 @@ export class ChatSessionVirtualizerHost implements SolidControllerHost, ChatTran
 
   private syncRows(nextKeys: readonly string[]): void {
     const virtualizer = this.virtualizer;
-    this.rowKeys = Object.freeze(nextKeys);
+    this.rowKeys = nextKeys;
     const rowIndexesByKey = new Map(this.rowKeys.map((key, index) => [key, index]));
     this.rowIndexesByKey = rowIndexesByKey;
     // The header margin must land in the same setOptions as the key change:

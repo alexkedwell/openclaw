@@ -423,8 +423,7 @@ export abstract class ChatPaneHistory extends ChatPaneReplyNavigation {
           return false;
         }
         const requestedOffset = pagination.nextOffset;
-        const expectedSessionId =
-          typeof state.currentSessionId === "string" ? state.currentSessionId.trim() : "";
+        const expectedSessionId = state.currentSessionId?.trim() ?? "";
         let result = this.takeStagedOlderPage(state);
         if (!result && this.stagedOlder.load) {
           // Join the in-flight prefetch instead of issuing a duplicate request.

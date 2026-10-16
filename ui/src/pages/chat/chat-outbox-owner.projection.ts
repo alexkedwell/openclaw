@@ -35,7 +35,7 @@ export function projectChatOutboxItem(item: ChatQueueItem, local: ChatQueueItem)
     );
   }
   for (const key of ["sendSubmittedAtMs", "sendRequestStartedAtMs"] as const) {
-    if (typeof local[key] === "number") {
+    if (local[key] !== undefined) {
       projected[key] = local[key];
     }
   }

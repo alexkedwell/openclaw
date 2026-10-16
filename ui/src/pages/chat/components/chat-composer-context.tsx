@@ -84,8 +84,8 @@ export function getContextNoticeViewModel(session: GatewaySessionRow | undefined
   // compaction decisions because the session may already have compacted.
   const warning = !approximate && ratio >= CONTEXT_NOTICE_RATIO;
   // Session rows expose the latest run snapshot; totalTokens is the separate context snapshot.
-  const input = Number.isFinite(session?.inputTokens) ? (session?.inputTokens ?? null) : null;
-  const output = Number.isFinite(session?.outputTokens) ? (session?.outputTokens ?? null) : null;
+  const input = session?.inputTokens ?? null;
+  const output = session?.outputTokens ?? null;
   const cost = asNonNegativeFiniteNumber(session?.estimatedCostUsd) ?? null;
   let color = "var(--muted)";
   let bg = "color-mix(in srgb, var(--muted) 8%, transparent)";

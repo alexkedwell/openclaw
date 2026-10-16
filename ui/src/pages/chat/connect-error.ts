@@ -18,7 +18,7 @@ function normalizeErrorMessage(message: unknown): string {
   if (typeof message === "string") {
     return message;
   }
-  if (message instanceof Error && typeof message.message === "string") {
+  if (message instanceof Error) {
     return message.message;
   }
   return "unknown error";

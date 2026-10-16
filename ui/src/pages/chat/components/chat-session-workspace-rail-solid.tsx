@@ -23,7 +23,7 @@ const SESSION_KIND_LABELS = {
 } as const;
 
 function formatWorkspaceFileSize(size: number | undefined): string {
-  return typeof size !== "number" || !Number.isFinite(size) || size < 0
+  return size === undefined
     ? ""
     : formatByteSize(size, {
         style: "legacy-binary",

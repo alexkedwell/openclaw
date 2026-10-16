@@ -359,10 +359,10 @@ function PullRequestRow(props: {
           `${props.pullRequest.owner}/${props.pullRequest.repo}`,
           props.pullRequest.branch,
           t(STATE_LABEL_KEYS[props.pullRequest.state]),
-          typeof props.pullRequest.additions === "number"
+          props.pullRequest.additions !== undefined
             ? `+${props.pullRequest.additions.toLocaleString()}`
             : null,
-          typeof props.pullRequest.deletions === "number"
+          props.pullRequest.deletions !== undefined
             ? `−${props.pullRequest.deletions.toLocaleString()}`
             : null,
         ]

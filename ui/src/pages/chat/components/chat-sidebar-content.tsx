@@ -5,17 +5,7 @@ import { isStaleChunkImportError } from "../../../app/stale-chunk-reload.ts";
 import type { ImageLightboxItem } from "../../../components/image-lightbox.types.ts";
 import { handleMarkdownCodeBlockClick } from "../../../components/markdown-code-blocks.ts";
 import { markdownBlocksRef } from "../../../components/markdown-element-refs-solid.ts";
-import {
-  markdownFileLinkFromEvent,
-  markdownFileLinkFromKeyboardEvent,
-  type MarkdownFileLinkTarget,
-} from "../../../components/markdown-file-links.ts";
 import type { MarkdownRenderOptions } from "../../../components/markdown-render-options.ts";
-import {
-  markdownSessionLinkFromEvent,
-  markdownSessionLinkFromKeyboardEvent,
-  type SessionLinkTarget,
-} from "../../../components/markdown-session-links.ts";
 import { CopyButton } from "../../../components/solid/copy-button.tsx";
 import { Icon } from "../../../components/solid/icon.tsx";
 import { LazyViewError } from "../../../components/solid/lazy-view-error.tsx";
@@ -29,7 +19,6 @@ import {
   type EmbedSandboxMode,
 } from "../../../lib/chat/tool-display.ts";
 import { isSvgImageMediaPath } from "../../../lib/media-file-extension.ts";
-import { shouldHandleNavigationClick } from "../../../lib/navigation-click.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
 import {
@@ -47,6 +36,11 @@ import "./chat-audio-player.tsx";
 import { FileDownloadButton } from "./chat-file-download-button.tsx";
 import "./chat-video-player.tsx";
 import { openInlineChatImage } from "./chat-image-lightbox.ts";
+import {
+  handleChatMarkdownLinkClick,
+  handleChatMarkdownLinkKeydown,
+  type ChatMarkdownNavigationCallbacks,
+} from "./chat-markdown-navigation.ts";
 import { openResolvedImage } from "./chat-message-image-open.ts";
 import { ChatPdfPreview, isPdfAttachment } from "./chat-pdf-preview.tsx";
 import type {
@@ -657,11 +651,8 @@ export function SidebarPanel(props: SidebarPanelProps) {
   );
 }
 
-type SidebarNavigationCallbacks = {
-  basePath: string;
+type SidebarNavigationCallbacks = ChatMarkdownNavigationCallbacks & {
   onOpenImage?: ((item: ImageLightboxItem) => void) | null;
-  onOpenSessionLink?: ((target: SessionLinkTarget) => void) | null;
-  onOpenWorkspaceFile?: ((target: MarkdownFileLinkTarget) => void) | null;
 };
 
 export function handleSidebarClick(event: MouseEvent, callbacks: SidebarNavigationCallbacks) {
@@ -669,26 +660,9 @@ export function handleSidebarClick(event: MouseEvent, callbacks: SidebarNavigati
     return;
   }
   handleMarkdownCodeBlockClick(event);
-  const target = markdownFileLinkFromEvent(event);
-  if (target) {
-    callbacks.onOpenWorkspaceFile?.(target);
-    return;
-  }
-  const sessionTarget = markdownSessionLinkFromEvent(event, callbacks.basePath);
-  if (sessionTarget && shouldHandleNavigationClick(event)) {
-    event.preventDefault();
-    callbacks.onOpenSessionLink?.(sessionTarget);
-  }
+  handleChatMarkdownLinkClick(event, callbacks);
 }
 
 export function handleSidebarKeydown(event: KeyboardEvent, callbacks: SidebarNavigationCallbacks) {
-  const target = markdownFileLinkFromKeyboardEvent(event);
-  if (target) {
-    callbacks.onOpenWorkspaceFile?.(target);
-    return;
-  }
-  const sessionTarget = markdownSessionLinkFromKeyboardEvent(event, callbacks.basePath);
-  if (sessionTarget) {
-    callbacks.onOpenSessionLink?.(sessionTarget);
-  }
+  handleChatMarkdownLinkKeydown(event, callbacks);
 }

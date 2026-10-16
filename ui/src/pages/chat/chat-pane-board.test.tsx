@@ -35,14 +35,6 @@ import {
   sidebarMainPanel,
 } from "./sidebar-layout.ts";
 
-// mock-isolation: isolate board data and presentation without registering the real board renderer.
-vi.mock("../../components/board/board-view.ts", () => {
-  if (!customElements.get("openclaw-board-view")) {
-    customElements.define("openclaw-board-view", class extends HTMLElement {});
-  }
-  return {};
-});
-
 const swarmModuleImport = await vi.hoisted(async () => {
   const { createDeferred } = await import("../../../../test/helpers/promise.js");
   const started = createDeferred();

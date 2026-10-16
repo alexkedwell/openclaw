@@ -165,7 +165,7 @@ export function adoptStartedChatRun(
   }
   reduceChatSessionProjection(host, { type: "runDelta", runId });
   const adopted = host.chatRunId === runId;
-  const adoptedStream = adopted && typeof host.chatStream === "string";
+  const adoptedStream = adopted && host.chatStream != null;
   if (!adopted) {
     // Session-scoped activity can arrive before adoption. Retire only the prior
     // owner so the incoming run keeps its already accepted tools and approvals.

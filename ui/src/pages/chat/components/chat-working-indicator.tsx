@@ -250,7 +250,7 @@ export function TurnRecapRow(props: {
           <BrandGlyph branding={branding.read()} claw="claw" />
         </span>
       </Show>
-      <Show when={typeof props.recap.outputTokens === "number"}>
+      <Show when={props.recap.outputTokens !== undefined}>
         <span>{outputTokensLabel(props.recap.outputTokens!)}</span>{" "}
         <span class="chat-turn-recap__sep" aria-hidden="true">
           ·

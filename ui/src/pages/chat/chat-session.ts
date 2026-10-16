@@ -269,10 +269,9 @@ export function switchChatSetting(
   const previousThinkingLevel = captured.settings.thinkingLevel;
   const normalizedNext =
     (normalizeThinkLevel(selection.value) ?? selection.value.trim()) || undefined;
-  const normalizedPrev =
-    typeof previousThinkingLevel === "string" && previousThinkingLevel.trim()
-      ? (normalizeThinkLevel(previousThinkingLevel) ?? previousThinkingLevel.trim())
-      : undefined;
+  const normalizedPrev = previousThinkingLevel?.trim()
+    ? (normalizeThinkLevel(previousThinkingLevel) ?? previousThinkingLevel.trim())
+    : undefined;
   if ((normalizedPrev ?? "") === (normalizedNext ?? "")) {
     return Promise.resolve(true);
   }

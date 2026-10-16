@@ -74,9 +74,7 @@ export function maybeResetToolStream(
   if (!canResetToolStream(state)) {
     return;
   }
-  const preservedStreamSegments = opts?.preserveStreamSegments
-    ? [...state.chatStreamSegments]
-    : null;
+  const preservedStreamSegments = opts?.preserveStreamSegments ? state.chatStreamSegments : null;
   resetToolStream(state);
   if (preservedStreamSegments) {
     state.chatStreamSegments = preservedStreamSegments;
@@ -90,9 +88,7 @@ export function maybeResetToolStreamRun(state: StreamReconciliationState, runId:
 }
 
 export function clearToolStreamSegments(state: StreamReconciliationState) {
-  if (Array.isArray(state.chatStreamSegments)) {
-    state.chatStreamSegments = [];
-  }
+  state.chatStreamSegments = [];
 }
 
 function streamFallbackMetadata(message: unknown): Record<string, unknown> | null {
@@ -142,7 +138,7 @@ export function appendTerminalAssistantMessage(messages: unknown[], message: unk
   }
   // Removals were recorded in transcript order, so none precede the insertion point.
   const insertIndex = removedIndexes.values().next().value ?? interval.end;
-  const retained = Array.from(messages).filter((_, index) => !removedIndexes.has(index));
+  const retained = messages.filter((_, index) => !removedIndexes.has(index));
   retained.splice(insertIndex, 0, message);
   return retained;
 }
@@ -164,16 +160,12 @@ export function visibleAssistantStreamParts(
   const liveToolRefs = resolveLiveToolStreamRefs(state);
   const parts: VisibleAssistantStreamPart[] = [];
   let previousText: string | null = null;
-  const segments = Array.isArray(state.chatStreamSegments) ? state.chatStreamSegments : [];
+  const segments = state.chatStreamSegments ?? [];
   let toolIndexedSegmentIndex = 0;
   for (const [segmentIndex, segment] of segments.entries()) {
-    if (!segment || typeof segment.text !== "string") {
-      continue;
-    }
     const explicitToolCallId = normalizeOptionalString(segment.toolCallId);
     const usesItemId = streamSegmentHasItemId(segment);
-    const itemId =
-      usesItemId && typeof segment.itemId === "string" ? segment.itemId.trim() : undefined;
+    const itemId = usesItemId ? segment.itemId?.trim() : undefined;
     const indexedToolRef = usesItemId ? undefined : liveToolRefs[toolIndexedSegmentIndex];
     const segmentRunId = normalizeOptionalString(segment.runId) ?? indexedToolRef?.runId;
     if (!usesItemId && segment.persisted !== true) {
@@ -201,7 +193,7 @@ export function visibleAssistantStreamParts(
       previousText = advanceAccumulatedStreamText(previousText, segment.text);
     }
   }
-  if (opts.includeCurrent !== false && typeof state.chatStream === "string") {
+  if (opts.includeCurrent !== false && state.chatStream !== null) {
     const visible = visibleAssistantStreamText(
       trimAccumulatedStreamPrefix(state.chatStream, previousText),
       opts.isHiddenStreamText,
@@ -223,10 +215,10 @@ export function visibleCurrentAssistantStreamTail(
   state: StreamReconciliationState,
   isHiddenStreamText: StreamVisibility,
 ): string | null {
-  if (typeof state.chatStream !== "string") {
+  if (state.chatStream === null) {
     return null;
   }
-  const segments = Array.isArray(state.chatStreamSegments) ? state.chatStreamSegments : [];
+  const segments = state.chatStreamSegments ?? [];
   const previousText = accumulatedStreamText(segments);
   return visibleAssistantStreamText(
     trimAccumulatedStreamPrefix(state.chatStream, previousText),
@@ -446,7 +438,7 @@ export function materializeVisibleStreamState(
     const afterSequence = nextMessages
       .slice(0, insertIndex)
       .map((message) => readSessionMessageIdentity(message)?.sequence)
-      .findLast((sequence): sequence is number => typeof sequence === "number");
+      .findLast((sequence) => sequence != null);
     const streamMessage = {
       role: "assistant",
       content: [{ type: "text", text: part.text }],

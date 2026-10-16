@@ -10,11 +10,7 @@ export function safeNormalizeMessage(message: unknown): NormalizedMessage | null
   if (!asRecord(message)) {
     return null;
   }
-  try {
-    return normalizeMessage(message);
-  } catch {
-    return null;
-  }
+  return normalizeMessage(message);
 }
 
 export function readAutomationRun(message: unknown) {

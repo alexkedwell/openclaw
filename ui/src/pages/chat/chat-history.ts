@@ -202,10 +202,9 @@ export function applyChatAgentsList(
   }
   state.agentsList = agentsList;
   state.agentsError = null;
-  const selectedId =
-    typeof state.agentsSelectedId === "string" && state.agentsSelectedId.trim()
-      ? normalizeAgentId(state.agentsSelectedId)
-      : undefined;
+  const selectedId = state.agentsSelectedId?.trim()
+    ? normalizeAgentId(state.agentsSelectedId)
+    : undefined;
   if (selectedId && agentsList.agents.some((entry) => normalizeAgentId(entry.id) === selectedId)) {
     return;
   }

@@ -238,7 +238,6 @@ export async function patchMcpServers(
         error: runtimeConfig.state.lastError ?? t("mcpServers.configUnavailable"),
       };
     }
-    await runtimeConfig.refresh();
     return { ok: true };
   } catch (error) {
     return { ok: false, error: formatUiError(error) };

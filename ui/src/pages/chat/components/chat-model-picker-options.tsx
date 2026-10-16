@@ -90,7 +90,7 @@ function ModelOptionButton(
         },
       ]}
       data-chat-model-option={props.entry.value}
-      data-chat-model-runtime={props.entry.agentRuntime ?? undefined}
+      data-chat-model-runtime={props.entry.agentRuntime}
       data-chat-model-default={props.entry.isDefault ? "true" : undefined}
       data-chat-model-index={props.index}
       data-chat-model-keywords={[

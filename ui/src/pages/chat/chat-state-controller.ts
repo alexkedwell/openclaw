@@ -514,7 +514,7 @@ export class ChatStateController<TState extends ChatPageHost> implements SolidCo
     const streamChanged = this.previousChatStream !== state.chatStream;
     const loadingChanged = this.previousChatLoading !== state.chatLoading;
     const loadFinished = this.previousChatLoading && !state.chatLoading;
-    const streamStarted = this.previousChatStream == null && typeof state.chatStream === "string";
+    const streamStarted = this.previousChatStream == null && state.chatStream !== null;
     this.previousTranscriptSources = sources;
     this.previousChatLoading = state.chatLoading;
     this.previousChatStream = state.chatStream;

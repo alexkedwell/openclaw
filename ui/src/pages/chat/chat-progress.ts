@@ -148,7 +148,7 @@ function queuedSendStarted(item: ChatQueueItem): boolean {
   // Submitting offline records timing without attempting delivery.
   return (
     (item.sendAttempts ?? 0) > 0 ||
-    (item.sendState !== "waiting-reconnect" && typeof item.sendSubmittedAtMs === "number")
+    (item.sendState !== "waiting-reconnect" && item.sendSubmittedAtMs !== undefined)
   );
 }
 
@@ -191,9 +191,7 @@ export function resolveWorkingProgress(
   const queuedRunId = queuedProgress?.sendRunId ?? queuedProgress?.pendingRunId;
   const segmentRunId = streamSegments
     .map((segment) => segment.runId)
-    .findLast(
-      (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
-    );
+    .findLast((candidate): candidate is string => candidate !== undefined && candidate.length > 0);
   const toolProgress = toolMessages.map(asRecord);
   const toolRunId = toolProgress
     .map((message) => message?.runId)
@@ -336,11 +334,11 @@ export function resolveTurnRecap(
     : (sumRunOutputTokens(usageByRun, runIds) ?? watch.recap?.outputTokens ?? null);
   if (row?.lastRunId === watch.runId) {
     const runtimeMs = row.runtimeMs;
-    if (row.status === "done" && typeof runtimeMs === "number" && Number.isFinite(runtimeMs)) {
+    if (row.status === "done" && runtimeMs != null) {
       // A resumed answer reports the whole request, the wait included. Both
       // ends are on the Gateway's clock; it never reports less than its last run.
       const sinceRequest =
-        watch.request && typeof row.endedAt === "number" ? row.endedAt - watch.request.askedAt : 0;
+        watch.request && row.endedAt != null ? row.endedAt - watch.request.askedAt : 0;
       watch.recap = { runtimeMs: Math.max(runtimeMs, sinceRequest), outputTokens };
     } else if (row.status && row.status !== "done") {
       watch.recap = null;

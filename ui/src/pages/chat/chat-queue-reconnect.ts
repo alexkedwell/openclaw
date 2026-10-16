@@ -96,16 +96,15 @@ function historyIdleProofIsStaleForSelectedRow(
   if (!selectedRow || !isSessionRunActive(selectedRow) || isSessionRunActive(historySessionInfo)) {
     return false;
   }
-  const historyUpdatedAt =
-    typeof historySessionInfo.updatedAt === "number" ? historySessionInfo.updatedAt : null;
+  const historyUpdatedAt = historySessionInfo.updatedAt;
   if (historyUpdatedAt == null) {
     return true;
   }
-  const selectedUpdatedAt = typeof selectedRow.updatedAt === "number" ? selectedRow.updatedAt : 0;
+  const selectedUpdatedAt = selectedRow.updatedAt ?? 0;
   if (selectedUpdatedAt >= historyUpdatedAt) {
     return true;
   }
-  const selectedStartedAt = typeof selectedRow.startedAt === "number" ? selectedRow.startedAt : 0;
+  const selectedStartedAt = selectedRow.startedAt ?? 0;
   return selectedStartedAt >= historyUpdatedAt;
 }
 

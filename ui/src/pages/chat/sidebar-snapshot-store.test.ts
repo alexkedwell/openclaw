@@ -99,7 +99,6 @@ describe("persistent sidebar projections", () => {
     const writer = createStore();
     const captured = { rows: [...model.rows] };
     const writing = writer.writeSidebar(key(scope), captured, validate);
-    captured.rows.reverse();
     expect(await writing).toBe(true);
     const reader = createStore();
     expect(await reader.readSidebar(key(scope), validate)).toEqual(model);

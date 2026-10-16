@@ -214,7 +214,9 @@ export function openChatRewindConfirmation(btn: HTMLElement, action: () => void)
     if (check.checked) {
       try {
         getSafeLocalStorage()?.setItem(SKIP_REWIND_CONFIRM_PREFERENCE, "1");
-      } catch {}
+      } catch {
+        // Storage may be unavailable; confirmation still performs the requested action.
+      }
     }
     dismissPopover();
     action();

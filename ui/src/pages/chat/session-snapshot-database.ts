@@ -56,7 +56,9 @@ function openIndexedDb(factory: IDBFactory): Promise<IDBDatabase> {
         factory
           .deleteDatabase("openclaw-session-roster")
           .addEventListener("error", (error) => error.preventDefault());
-      } catch {}
+      } catch {
+        // Retiring the obsolete disposable cache must not block the current cache upgrade.
+      }
     });
     request.addEventListener("success", () => resolve(request.result));
     request.addEventListener("error", () =>

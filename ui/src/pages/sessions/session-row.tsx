@@ -89,7 +89,7 @@ const CONTEXT_METER_DANGER_PERCENT = 85;
 
 function renderTokensCell(row: GatewaySessionRow) {
   const total = row.totalTokens;
-  if (typeof total !== "number" || !Number.isFinite(total)) {
+  if (total === undefined) {
     return <span class="muted">{t("common.na")}</span>;
   }
   // Stale snapshots (post-compaction, incomplete usage reporting) stay visible
@@ -135,7 +135,7 @@ function renderTokensCell(row: GatewaySessionRow) {
 }
 
 function formatRuntimeMs(runtimeMs: number | undefined): string | null {
-  if (typeof runtimeMs !== "number" || !Number.isFinite(runtimeMs) || runtimeMs < 0) {
+  if (runtimeMs === undefined || runtimeMs < 0) {
     return null;
   }
   return formatDurationCompact(runtimeMs) ?? "0ms";

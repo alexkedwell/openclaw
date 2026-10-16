@@ -103,7 +103,7 @@ export function captureDurableChatAttachments(
       mimeType: attachment.mimeType,
       ...(attachment.origin ? { origin: attachment.origin } : {}),
       ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
-      ...(typeof attachment.sizeBytes === "number" ? { sizeBytes: attachment.sizeBytes } : {}),
+      ...(attachment.sizeBytes !== undefined ? { sizeBytes: attachment.sizeBytes } : {}),
       ...(attachment.browserAnnotation ? { browserAnnotation: attachment.browserAnnotation } : {}),
       ...(attachment.selectionAnnotation
         ? { selectionAnnotation: attachment.selectionAnnotation }

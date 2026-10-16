@@ -57,7 +57,9 @@ function parseSnapshotInvalidation(value: string): SnapshotInvalidation {
           : {}),
       };
     }
-  } catch {}
+  } catch {
+    // Malformed cross-tab notices conservatively invalidate every display snapshot.
+  }
   // Counter values from older tabs carried no scope, so they still retire every snapshot.
   return {};
 }
@@ -67,7 +69,9 @@ export function publishSnapshotInvalidation(invalidation: SnapshotInvalidation):
   try {
     localStorage.setItem(SNAPSHOT_INVALIDATION_STORAGE_KEY, JSON.stringify(invalidation));
     localStorage.removeItem(SNAPSHOT_INVALIDATION_STORAGE_KEY);
-  } catch {}
+  } catch {
+    // Storage may be disabled; same-tab invalidation has already been delivered.
+  }
   return notified;
 }
 

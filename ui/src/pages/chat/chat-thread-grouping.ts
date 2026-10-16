@@ -656,8 +656,7 @@ export function collapseCompletedTurnWork(
       terminalReply.runId !== undefined &&
       session.lastRunId === terminalReply.runId &&
       TERMINAL_WORK_STATUSES.has(session.status ?? "") &&
-      typeof runtimeMs === "number" &&
-      Number.isFinite(runtimeMs) &&
+      runtimeMs != null &&
       runtimeMs >= 0
         ? runtimeMs
         : null;

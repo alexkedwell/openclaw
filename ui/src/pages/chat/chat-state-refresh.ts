@@ -163,7 +163,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
   if (!client || !host.connected) {
     return undefined;
   }
-  const scope = { agentId: resolveChatAgentId(host) ?? undefined, sessionKey: host.sessionKey };
+  const scope = { agentId: resolveChatAgentId(host), sessionKey: host.sessionKey };
   const epoch = host.connectionEpoch;
   const binding: ChatMetadataBinding = {
     client,
@@ -178,7 +178,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
       host.sessions === binding.sessions &&
       host.connectionEpoch === epoch &&
       host.sessionKey === scope.sessionKey &&
-      (resolveChatAgentId(host) ?? undefined) === scope.agentId,
+      resolveChatAgentId(host) === scope.agentId,
     unsubscribe: subscribeChatMetadata(
       client,
       scope,

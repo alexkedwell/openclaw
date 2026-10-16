@@ -124,7 +124,7 @@ export function ensureSidebarConversation(layout: SidebarLayout): SidebarLayout 
 export function promoteSidebarPanel(layout: SidebarLayout, panelId: string): SidebarLayout {
   const target = layout.columns[0]?.panels.find((panel) => panel.id === panelId);
   if (!target || sidebarMainPanel(layout)?.id === panelId) {
-    return structuredClone(layout);
+    return layout;
   }
   const next = ensureSidebarConversation(layout);
   const previousMainId = next.mainPanelId!;
@@ -244,7 +244,7 @@ export function setSidebarOpen(layout: SidebarLayout, open: boolean): SidebarLay
 
 export function setSidebarExpanded(layout: SidebarLayout, expanded: boolean): SidebarLayout {
   // Restore split must reveal the side even when focus began with that panel closed.
-  const next = structuredClone(layout);
+  const next = { ...layout };
   delete next.expandedSide;
   return { ...next, expanded, ...(expanded ? { open: true } : {}) };
 }
@@ -252,7 +252,7 @@ export function setSidebarExpanded(layout: SidebarLayout, expanded: boolean): Si
 /** Focus in place: restoring must not leave the main and side views swapped. */
 export function toggleSidebarPanelExpanded(layout: SidebarLayout, panelId: string): SidebarLayout {
   if (!sidebarSidePanels(layout).some((panel) => panel.id === panelId)) {
-    return structuredClone(layout);
+    return layout;
   }
   if (layout.expanded && layout.expandedSide && sidebarActivePanel(layout)?.id === panelId) {
     return setSidebarExpanded(layout, false);
@@ -291,7 +291,7 @@ export function presentNarrowSidebarLayout(
 }
 
 export function setSidebarDock(layout: SidebarLayout, dock: SidebarDock): SidebarLayout {
-  return { ...structuredClone(layout), dock };
+  return { ...layout, dock };
 }
 
 export function resizeSidebarPanel(

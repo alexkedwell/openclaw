@@ -139,20 +139,17 @@ export function setPaneSession(
   paneId: string,
   sessionKey: string,
 ): ChatSplitLayout {
-  const next = structuredClone(layout);
-  const pane = findPane(next, paneId)?.pane;
-  if (pane) {
-    pane.sessionKey = sessionKey;
-  }
-  return next;
+  return {
+    ...layout,
+    columns: layout.columns.map((column) => ({
+      ...column,
+      panes: column.panes.map((pane) => (pane.id === paneId ? { ...pane, sessionKey } : pane)),
+    })),
+  };
 }
 
 export function setActivePane(layout: ChatSplitLayout, paneId: string): ChatSplitLayout {
-  const next = structuredClone(layout);
-  if (findPane(layout, paneId)) {
-    next.activePaneId = paneId;
-  }
-  return next;
+  return findPane(layout, paneId) ? { ...layout, activePaneId: paneId } : layout;
 }
 
 type UiSplitLayoutCommand = Extract<UiCommand, { kind: "split" | "focus" }>;
@@ -202,9 +199,7 @@ export function resizeColumns(
   boundaryIndex: number,
   pairRatio: number,
 ): ChatSplitLayout {
-  const next = structuredClone(layout);
-  next.columnWeights = resizePair(next.columnWeights, boundaryIndex, pairRatio);
-  return next;
+  return { ...layout, columnWeights: resizePair(layout.columnWeights, boundaryIndex, pairRatio) };
 }
 
 export function resizePanes(
@@ -213,10 +208,12 @@ export function resizePanes(
   boundaryIndex: number,
   pairRatio: number,
 ): ChatSplitLayout {
-  const next = structuredClone(layout);
-  const column = next.columns.find((entry) => entry.id === columnId);
-  if (column) {
-    column.paneWeights = resizePair(column.paneWeights, boundaryIndex, pairRatio);
-  }
-  return next;
+  return {
+    ...layout,
+    columns: layout.columns.map((column) =>
+      column.id === columnId
+        ? { ...column, paneWeights: resizePair(column.paneWeights, boundaryIndex, pairRatio) }
+        : column,
+    ),
+  };
 }

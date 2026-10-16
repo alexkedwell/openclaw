@@ -10,16 +10,14 @@ import { configFieldId, schemaType } from "./config-form.shared.ts";
 export function ConfigStructuredDraft(
   props: ConfigFormStructuredDraftProps & { class?: string },
 ): SolidJSX.Element {
-  const [draftValue, setDraftValue] = createSignal(
-    untrack(() => structuredClone(props.initialValue)),
-  );
+  const [draftValue, setDraftValue] = createSignal(untrack(() => props.initialValue));
   const [error, setError] = createSignal("");
   let previous = untrack(() => [props.identity, props.sourceIdentity] as const);
   createEffect(
     () => [props.identity, props.sourceIdentity, props.initialValue] as const,
     (next) => {
       if (previous[0] !== next[0] || !Object.is(previous[1], next[1])) {
-        setDraftValue(structuredClone(next[2]));
+        setDraftValue(next[2]);
         setError("");
       }
       previous = [next[0], next[1]];

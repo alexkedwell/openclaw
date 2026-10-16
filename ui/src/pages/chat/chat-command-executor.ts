@@ -431,14 +431,12 @@ async function executeUsage(
       return { content: t("chat.commandResults.usage.noActiveThread") };
     }
     const usageAvailable = session.usageReport?.state !== "unavailable";
-    const hasInputTokens = usageAvailable && Number.isFinite(session.inputTokens);
-    const hasOutputTokens = usageAvailable && Number.isFinite(session.outputTokens);
+    const hasInputTokens = usageAvailable && session.inputTokens != null;
+    const hasOutputTokens = usageAvailable && session.outputTokens != null;
     const input = hasInputTokens ? (session.inputTokens ?? 0) : 0;
     const output = hasOutputTokens ? (session.outputTokens ?? 0) : 0;
     const cumulativeTotal = hasInputTokens || hasOutputTokens ? input + output : null;
-    const contextSnapshotTotal = Number.isFinite(session.totalTokens)
-      ? (session.totalTokens ?? null)
-      : cumulativeTotal;
+    const contextSnapshotTotal = session.totalTokens ?? cumulativeTotal;
     const totalTokensFresh = session.totalTokensFresh !== false;
     const limit = resolveSessionContextLimit(session);
     const ctx = limit.tokens;

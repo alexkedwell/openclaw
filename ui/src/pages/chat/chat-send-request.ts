@@ -50,10 +50,9 @@ export async function requestChatSend(
     (!isUiGlobalSessionKey(sessionKey) ||
       (selectedAgentId !== undefined &&
         selectedAgentId === resolveUiSelectedSessionAgentId(state)));
-  const routingSessionId =
-    canReuseCurrentSessionId && typeof currentSessionId === "string" && currentSessionId.trim()
-      ? currentSessionId.trim()
-      : undefined;
+  const routingSessionId = canReuseCurrentSessionId
+    ? currentSessionId?.trim() || undefined
+    : undefined;
   if (chatProviderReviewRow(state, sessionKey, selectedAgentId)?.providerReview) {
     throw new Error(t("chat.providerReview.pausedBody"));
   }

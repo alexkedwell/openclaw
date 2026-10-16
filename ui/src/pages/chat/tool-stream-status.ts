@@ -2,6 +2,7 @@ import { asNullableObjectRecord as readRecord } from "@openclaw/normalization-co
 import {
   normalizeNullableString as toTrimmedString,
   normalizeLowercaseStringOrEmpty,
+  normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { SessionOperationEvent } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
@@ -205,7 +206,7 @@ export function handleSessionOperationEvent(
     return;
   }
   const sessionKey = toTrimmedString(payload.sessionKey);
-  const agentId = toTrimmedString(payload.agentId) ?? undefined;
+  const agentId = normalizeOptionalString(payload.agentId);
   if (!sessionKey || !uiSessionEventMatches(host, sessionKey, agentId)) {
     return;
   }
@@ -235,7 +236,7 @@ function handleCompactionEvent(host: ToolStreamHost, payload: AgentEventPayload)
   const data = payload.data ?? {};
   const phase = typeof data.phase === "string" ? data.phase : "";
   const completed = data.completed === true;
-  const itemId = toTrimmedString(data.itemId) ?? undefined;
+  const itemId = normalizeOptionalString(data.itemId);
 
   clearCompactionTimer(host);
 
@@ -317,7 +318,7 @@ function handleLifecycleFallbackEvent(host: ToolStreamHost, payload: AgentEventP
   }
 
   const rawReason = toTrimmedString(data.reasonSummary) ?? toTrimmedString(data.reason);
-  const reason = rawReason ? formatUiError(rawReason) : null;
+  const reason = rawReason ? formatUiError(rawReason) : undefined;
   const attempts = parseFallbackAttemptSummaries(data.attemptSummaries, data.attempts);
 
   if (host.fallbackClearTimer != null) {
@@ -332,7 +333,7 @@ function handleLifecycleFallbackEvent(host: ToolStreamHost, payload: AgentEventP
       phase === "fallback_cleared"
         ? (previous ?? (active !== selected ? active : undefined))
         : undefined,
-    reason: reason ?? undefined,
+    reason,
     attempts,
     occurredAt: Date.now(),
   };

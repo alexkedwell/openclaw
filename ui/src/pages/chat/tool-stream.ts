@@ -1,5 +1,8 @@
 import { asNullableObjectRecord as readRecord } from "@openclaw/normalization-core/record-coerce";
-import { normalizeNullableString as toTrimmedString } from "@openclaw/normalization-core/string-coerce";
+import {
+  normalizeNullableString as toTrimmedString,
+  normalizeOptionalString,
+} from "@openclaw/normalization-core/string-coerce";
 import { Value } from "typebox/value";
 import { readNodePermissionRequest } from "../../../../packages/gateway-protocol/src/node-permissions.js";
 import { AgentActivityItemSchema } from "../../../../packages/gateway-protocol/src/schema/logs-chat.js";
@@ -598,7 +601,7 @@ export function handleAgentEvent(
     reconcileChatRunStartup(host, { state: "activity", runId: payload.runId, seq: payload.seq });
   }
   const args = phase === "start" ? data.args : undefined;
-  const parentToolCallId = toTrimmedString(data.parentToolCallId) ?? undefined;
+  const parentToolCallId = normalizeOptionalString(data.parentToolCallId);
   const output =
     phase === "update"
       ? formatToolOutput(data.partialResult)

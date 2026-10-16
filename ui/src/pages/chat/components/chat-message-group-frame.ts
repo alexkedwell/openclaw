@@ -254,7 +254,7 @@ export function prepareMessageGroupFrame(
       },
     ],
     style: senderHue === null ? undefined : `--chat-sender-hue: ${senderHue}`,
-    sessionKey: sourceSessionKey ?? undefined,
+    sessionKey: sourceSessionKey,
   };
 }
 

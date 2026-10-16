@@ -492,19 +492,19 @@ export function createPageState(
       transientResources.clear();
       transientResourceScope = scope;
     }
-    const normalized = normalizeSidebarLayout(layout);
+    const nextLayout = { ...layout };
     const previous = state.sidebarLayout;
     const includesResource = (value: SidebarLayout, slot: "desktop" | "browser") =>
       value.columns.some((column) => column.panels.some((panel) => panel.slot === slot));
     if (
       options?.automaticResource &&
       !includesResource(previous, options.automaticResource) &&
-      includesResource(normalized, options.automaticResource)
+      includesResource(nextLayout, options.automaticResource)
     ) {
       transientResources.add(options.automaticResource);
     }
     for (const resource of transientResources) {
-      const panel = normalized.columns
+      const panel = nextLayout.columns
         .flatMap((column) => column.panels)
         .find((entry) => entry.slot === resource);
       // Explicit targets are saved choices, even when discovery first opened the tab.
@@ -515,37 +515,37 @@ export function createPageState(
     if (
       previous.resourceAutoOpenDismissed ||
       (options?.persist !== false &&
-        ((previous.open && !normalized.open) ||
-          (includesResource(previous, "desktop") && !includesResource(normalized, "desktop")) ||
-          (includesResource(previous, "browser") && !includesResource(normalized, "browser"))))
+        ((previous.open && !nextLayout.open) ||
+          (includesResource(previous, "desktop") && !includesResource(nextLayout, "desktop")) ||
+          (includesResource(previous, "browser") && !includesResource(nextLayout, "browser"))))
     ) {
-      normalized.resourceAutoOpenDismissed = true;
+      nextLayout.resourceAutoOpenDismissed = true;
     }
     const presentation =
       options?.dashboardPresentation === "personal"
-        ? sidebarDashboardPresentation(normalized)
+        ? sidebarDashboardPresentation(nextLayout)
         : undefined;
     if (presentation) {
       const row = selectedChatSessionRow(state);
       // Unknown metadata cannot establish that the user chose the shared default.
-      normalized.dashboardPresentationOverride =
+      nextLayout.dashboardPresentationOverride =
         row && presentation === (row.boardPresentation ?? "split") ? null : presentation;
     }
     // Every close route commits here; tab switches retain the pending selection.
     if (
       (state.sidebarContent?.kind === "loading" || state.sidebarContent?.kind === "unavailable") &&
-      !normalized.columns.some((column) => column.panels.some((panel) => panel.slot === "detail"))
+      !nextLayout.columns.some((column) => column.panels.some((panel) => panel.slot === "detail"))
     ) {
       state.sidebarContent = null;
     }
-    state.sidebarLayout = normalized;
+    state.sidebarLayout = nextLayout;
     if (options?.persist === false) {
       renderLifecycle.invalidate();
       return;
     }
     // Other layout edits cannot persist an automatically discovered target before
     // ownership is checked again on reload. Dashboard restoration has its own policy.
-    let persisted = normalized;
+    let persisted = nextLayout;
     for (const resource of transientResources) {
       persisted = closeSlot(persisted, resource);
     }
@@ -557,12 +557,12 @@ export function createPageState(
         {
           geometryOnly: options?.geometryOnly,
           dashboardPresentationOverride: presentation
-            ? normalized.dashboardPresentationOverride
+            ? nextLayout.dashboardPresentationOverride
             : undefined,
         },
       ),
     });
-    normalized.dashboardPresentationOverride =
+    nextLayout.dashboardPresentationOverride =
       state.settings.sidebarSessionLayouts?.[layoutKey]?.dashboardPresentationOverride;
     renderLifecycle.invalidate();
   };

@@ -13,10 +13,10 @@ type ToolStreamState = Pick<
 
 export function canResetToolStream(host: Partial<ToolStreamState>): host is ToolStreamState {
   return (
-    host.toolStreamById instanceof Map &&
-    Array.isArray(host.toolStreamOrder) &&
-    Array.isArray(host.chatToolMessages) &&
-    Array.isArray(host.chatStreamSegments)
+    host.toolStreamById !== undefined &&
+    host.toolStreamOrder !== undefined &&
+    host.chatToolMessages !== undefined &&
+    host.chatStreamSegments !== undefined
   );
 }
 
