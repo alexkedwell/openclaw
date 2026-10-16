@@ -2544,7 +2544,6 @@ ui/src/app/native-web-chrome.ts	2
 ui/src/app/overlays.ts	1
 ui/src/app/server-prefs-state.ts	1
 ui/src/app/settings.ts	2
-ui/src/app/stale-chunk-reload.ts	1
 ui/src/app/startup-settings.ts	1
 ui/src/app/user-profile.ts	2
 ui/src/app/web-push.runtime.ts	1

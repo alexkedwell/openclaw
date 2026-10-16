@@ -232,123 +232,126 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
     };
     const options = { agentId: target.agentId };
     const database = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
-    assert(isPostgresSqlConnection(database.db));
-    const facts = getPostgresPhysicalFacts(database.db);
-    assert(facts);
-    withEngineStoreAdmission(() =>
-      owners.runOpenClawAgentWriteTransaction(({ db }) => {
-        db.prepare(`INSERT INTO memory_entry_origins
-          (entry_key, agent_id, session_id, session_key, origin_class, observed_at)
-          VALUES (?, ?, ?, ?, 'agent', 1)`).run(
-          "retained-memory",
-          target.agentId,
-          target.sessionId,
-          target.sessionKey,
-        );
-        db.prepare(`INSERT INTO memory_index_chunks
-          (chunk_rowid, id, path, start_line, end_line, hash, model, text, embedding, updated_at)
-          VALUES (1, 'migration-memory', 'memory/migration.md', 1, 1, 'migration-hash',
-            'text-only', 'café optional memory', ?, 1)`).run(new Uint8Array());
-      }, options),
-    );
-    withEngineStoreAdmission(() => {
-      owners.admitAgentEngineSearchExtensions(
-        database.db,
-        { "memory.text": memorySearch },
-        () => undefined,
+    try {
+      assert(isPostgresSqlConnection(database.db));
+      const facts = getPostgresPhysicalFacts(database.db);
+      assert(facts);
+      withEngineStoreAdmission(() =>
+        owners.runOpenClawAgentWriteTransaction(({ db }) => {
+          db.prepare(`INSERT INTO memory_entry_origins
+            (entry_key, agent_id, session_id, session_key, origin_class, observed_at)
+            VALUES (?, ?, ?, ?, 'agent', 1)`).run(
+            "retained-memory",
+            target.agentId,
+            target.sessionId,
+            target.sessionKey,
+          );
+          db.prepare(`INSERT INTO memory_index_chunks
+            (chunk_rowid, id, path, start_line, end_line, hash, model, text, embedding, updated_at)
+            VALUES (1, 'migration-memory', 'memory/migration.md', 1, 1, 'migration-hash',
+              'text-only', 'café optional memory', ?, 1)`).run(new Uint8Array());
+        }, options),
       );
-      assertMemorySearch(database.db);
-    });
-    await owners.upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
-    await owners.appendTranscriptMessage(target, {
-      eventId: "migration-user",
-      parentId: null,
-      message: { role: "user", content: "migration searchable archive" },
-    });
-    await owners.appendTranscriptMessage(target, {
-      eventId: "migration-reply",
-      parentId: "migration-user",
-      message: { role: "assistant", content: "migration retained reply" },
-    });
-    const retained = await client.query(
-      `SELECT session_id, event_id, parent_id FROM "${facts.namespace}".transcript_event_identities ORDER BY seq`,
-    );
-    withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(database.path));
-    await owners.closeOpenClawAgentDatabaseByPathAsync(database.path);
-    await owners.cleanupSessionStateForTest({ stateDir: root });
-    retireSqliteDatabaseAdmissionForPath(database.path);
-    // Restore the historical catalog under exclusive fixture custody, including an unsealed marker.
-    await client.query(`BEGIN;
-      SET LOCAL search_path TO "${facts.namespace}";
-      DROP INDEX idx_agent_session_windows_conversation;
-      CREATE INDEX idx_agent_session_windows_conversation
-        ON session_windows(primary_conversation_id ASC NULLS FIRST,
-          updated_at DESC NULLS LAST, session_id ASC NULLS FIRST)
-        WHERE primary_conversation_id IS NOT NULL;
-      CREATE INDEX idx_agent_transcript_event_parent
-        ON transcript_event_identities(session_id ASC NULLS FIRST, parent_id ASC NULLS FIRST)
-        WHERE parent_id IS NOT NULL;
-      UPDATE schema_meta SET schema_version = 27;
-      UPDATE openclaw_schema_meta
-        SET version = 27, fingerprint = NULL, ddl_hash = NULL, server_major = NULL;
-      COMMIT;`);
-    const upgraded = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
-    assert(isPostgresSqlConnection(upgraded.db));
-    expect(getPostgresPhysicalFacts(upgraded.db)?.version).toBe(28);
-    withEngineStoreAdmission(() => {
-      assertMemorySearch(upgraded.db);
-      expect(
-        upgraded.db
-          .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
-          .get(),
-      ).toEqual({ schema_version: 28 });
-      expect(
-        upgraded.db
-          .prepare("SELECT version, fingerprint, ddl_hash, server_major FROM openclaw_schema_meta")
-          .get(),
-      ).toEqual({
-        version: 28,
-        fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
-        ddl_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
-        server_major: facts.capabilities.serverMajor,
+      withEngineStoreAdmission(() => {
+        owners.admitAgentEngineSearchExtensions(
+          database.db,
+          { "memory.text": memorySearch },
+          () => undefined,
+        );
+        assertMemorySearch(database.db);
       });
-    });
-    const indexes = await client.query(
-      `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1
-        AND indexname IN ('idx_agent_session_windows_conversation', 'idx_agent_transcript_event_parent')`,
-      [facts.namespace],
-    );
-    expect(indexes.rows).toEqual([
-      {
-        indexname: "idx_agent_session_windows_conversation",
-        indexdef: `CREATE INDEX idx_agent_session_windows_conversation ON ${facts.namespace}.session_windows USING btree (primary_conversation_id NULLS FIRST) WHERE (primary_conversation_id IS NOT NULL)`,
-      },
-    ]);
-    expect(
-      (
-        await client.query(
-          `SELECT session_id, event_id, parent_id FROM "${facts.namespace}".transcript_event_identities ORDER BY seq`,
-        )
-      ).rows,
-    ).toEqual(retained.rows);
-    withEngineStoreAdmission(() => {
+      await owners.upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
+      await owners.appendTranscriptMessage(target, {
+        eventId: "migration-user",
+        parentId: null,
+        message: { role: "user", content: "migration searchable archive" },
+      });
+      await owners.appendTranscriptMessage(target, {
+        eventId: "migration-reply",
+        parentId: "migration-user",
+        message: { role: "assistant", content: "migration retained reply" },
+      });
+      const retained = await client.query(
+        `SELECT session_id, event_id, parent_id FROM "${facts.namespace}".transcript_event_identities ORDER BY seq`,
+      );
+      withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(database.path));
+      await owners.closeOpenClawAgentDatabaseByPathAsync(database.path);
+      await owners.cleanupSessionStateForTest({ stateDir: root });
+      retireSqliteDatabaseAdmissionForPath(database.path);
+      // Restore the historical catalog under exclusive fixture custody, including an unsealed marker.
+      await client.query(`BEGIN;
+        SET LOCAL search_path TO "${facts.namespace}";
+        DROP INDEX idx_agent_session_windows_conversation;
+        CREATE INDEX idx_agent_session_windows_conversation
+          ON session_windows(primary_conversation_id ASC NULLS FIRST,
+            updated_at DESC NULLS LAST, session_id ASC NULLS FIRST)
+          WHERE primary_conversation_id IS NOT NULL;
+        CREATE INDEX idx_agent_transcript_event_parent
+          ON transcript_event_identities(session_id ASC NULLS FIRST, parent_id ASC NULLS FIRST)
+          WHERE parent_id IS NOT NULL;
+        UPDATE schema_meta SET schema_version = 27;
+        UPDATE openclaw_schema_meta
+          SET version = 27, fingerprint = NULL, ddl_hash = NULL, server_major = NULL;
+        COMMIT;`);
+      const upgraded = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
+      assert(isPostgresSqlConnection(upgraded.db));
+      expect(getPostgresPhysicalFacts(upgraded.db)?.version).toBe(28);
+      withEngineStoreAdmission(() => {
+        assertMemorySearch(upgraded.db);
+        expect(
+          upgraded.db
+            .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
+            .get(),
+        ).toEqual({ schema_version: 28 });
+        expect(
+          upgraded.db
+            .prepare(
+              "SELECT version, fingerprint, ddl_hash, server_major FROM openclaw_schema_meta",
+            )
+            .get(),
+        ).toEqual({
+          version: 28,
+          fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+          ddl_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+          server_major: facts.capabilities.serverMajor,
+        });
+      });
+      const indexes = await client.query(
+        `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1
+          AND indexname IN ('idx_agent_session_windows_conversation', 'idx_agent_transcript_event_parent')`,
+        [facts.namespace],
+      );
+      expect(indexes.rows).toEqual([
+        {
+          indexname: "idx_agent_session_windows_conversation",
+          indexdef: `CREATE INDEX idx_agent_session_windows_conversation ON ${facts.namespace}.session_windows USING btree (primary_conversation_id NULLS FIRST) WHERE (primary_conversation_id IS NOT NULL)`,
+        },
+      ]);
       expect(
-        upgraded.db.prepare("SELECT entry_key, origin_class FROM memory_entry_origins").all(),
-      ).toEqual([{ entry_key: "retained-memory", origin_class: "agent" }]);
-    });
-    expect(
-      await owners.searchSessionTranscripts({ ...target, query: "archive", env: process.env }),
-    ).toMatchObject({ hits: [expect.objectContaining({ messageId: "migration-user" })] });
-    withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(database.path));
-    await owners.closeOpenClawAgentDatabaseByPathAsync(database.path);
-    retireSqliteDatabaseAdmissionForPath(database.path);
-    const reopened = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
-    expect(getPostgresPhysicalFacts(reopened.db)?.version).toBe(28);
-    withEngineStoreAdmission(() => {
-      assertMemorySearch(reopened.db);
-      owners.closeOpenClawAgentDatabaseByPath(reopened.path);
-    });
-    await owners.closeOpenClawAgentDatabaseByPathAsync(reopened.path);
+        (
+          await client.query(
+            `SELECT session_id, event_id, parent_id FROM "${facts.namespace}".transcript_event_identities ORDER BY seq`,
+          )
+        ).rows,
+      ).toEqual(retained.rows);
+      withEngineStoreAdmission(() => {
+        expect(
+          upgraded.db.prepare("SELECT entry_key, origin_class FROM memory_entry_origins").all(),
+        ).toEqual([{ entry_key: "retained-memory", origin_class: "agent" }]);
+      });
+      expect(
+        await owners.searchSessionTranscripts({ ...target, query: "archive", env: process.env }),
+      ).toMatchObject({ hits: [expect.objectContaining({ messageId: "migration-user" })] });
+      withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(database.path));
+      await owners.closeOpenClawAgentDatabaseByPathAsync(database.path);
+      retireSqliteDatabaseAdmissionForPath(database.path);
+      const reopened = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
+      expect(getPostgresPhysicalFacts(reopened.db)?.version).toBe(28);
+      withEngineStoreAdmission(() => assertMemorySearch(reopened.db));
+    } finally {
+      withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(database.path));
+      await owners.closeOpenClawAgentDatabaseByPathAsync(database.path);
+    }
   });
 
   it("discovers a cold explicit store owner through the selected reader worker", async () => {
