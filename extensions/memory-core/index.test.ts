@@ -75,6 +75,26 @@ function registerMemoryCoreRuntime(): MemoryPluginRuntime {
   return runtime;
 }
 
+// Captures only the prompt builder, which stays registered when memory tools are disabled.
+function captureMemoryPromptBuilder(config: OpenClawConfig) {
+  let promptBuilder:
+    | NonNullable<Parameters<OpenClawPluginApi["registerMemoryCapability"]>[0]["promptBuilder"]>
+    | undefined;
+  plugin.register(
+    createTestPluginApi({
+      config,
+      runtime: hostRuntimeWithConfig(() => config),
+      registerMemoryCapability(capability) {
+        promptBuilder = capability.promptBuilder;
+      },
+    }),
+  );
+  if (!promptBuilder) {
+    throw new Error("expected memory prompt builder");
+  }
+  return promptBuilder;
+}
+
 function captureMemoryModelContract(initialConfig: OpenClawConfig) {
   let promptBuilder:
     | NonNullable<Parameters<OpenClawPluginApi["registerMemoryCapability"]>[0]["promptBuilder"]>
@@ -170,6 +190,23 @@ describe("buildPromptSection", () => {
         projectKey: "path:/tmp/unsafe-->note",
       }),
     ).toStrictEqual([]);
+  });
+
+  it.each([
+    ["globally", { memory: { search: { enabled: false } }, agents: { entries: { main: {} } } }],
+    [
+      "for the agent",
+      { agents: { entries: { main: { memory: { search: { enabled: false } } } } } },
+    ],
+  ])("keeps project write guidance when memory search is disabled %s", (_scope, config) => {
+    const prompt = captureMemoryPromptBuilder(config as OpenClawConfig)({
+      availableTools: new Set(["memory_search", "memory_get"]),
+      agentId: "main",
+      projectKey: "github.com/OpenClaw/OpenClaw",
+    });
+
+    expect(prompt).not.toContain("## Memory Recall");
+    expect(prompt.join("\n")).toContain("<!-- project: github.com/OpenClaw/OpenClaw -->");
   });
 
   it("describes the two-step flow when both memory tools are available", () => {

@@ -312,14 +312,13 @@ export default definePluginEntry({
       deterministicRecallToolName: "memory_search",
       supportsPrivateTranscriptRecall: true,
       promptBuilder: (params) => {
+        // Curated writes use file tools, so project guidance is independent of recall availability.
         const projectInstruction = buildProjectMemoryWriteInstruction(params.projectKey);
-        // Curated writes need project guidance even when recall tools are filtered out.
         if (
           !params.availableTools.has("memory_search") &&
-          !params.availableTools.has("memory_get") &&
-          projectInstruction.length === 0
+          !params.availableTools.has("memory_get")
         ) {
-          return [];
+          return projectInstruction;
         }
         const liveConfig = api.runtime.config?.current ? api.runtime.config.current() : api.config;
         const context = resolveMemoryToolContext({
@@ -328,7 +327,7 @@ export default definePluginEntry({
           agentId: params.agentId,
           agentSessionKey: params.agentSessionKey,
         });
-        return context ? [...buildMemoryPromptSection(params), ...projectInstruction] : [];
+        return [...(context ? buildMemoryPromptSection(params) : []), ...projectInstruction];
       },
       flushPlanResolver: buildMemoryFlushPlan,
       runtime: memoryRuntime,
