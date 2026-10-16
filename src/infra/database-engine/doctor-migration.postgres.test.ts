@@ -354,7 +354,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       closeOpenClawStateDatabaseForTest();
       const configPath = path.join(env.OPENCLAW_STATE_DIR!, "openclaw.json");
       fs.writeFileSync(configPath, JSON.stringify(config));
-      const updateEnv = { ...env, OPENCLAW_CONFIG_PATH: configPath };
+      const updateEnv: NodeJS.ProcessEnv = { ...env, OPENCLAW_CONFIG_PATH: configPath };
       vi.stubEnv("OPENCLAW_STATE_DIR", updateEnv.OPENCLAW_STATE_DIR);
       vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath);
       withEngineStoreAdmission(() =>

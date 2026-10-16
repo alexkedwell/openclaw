@@ -233,24 +233,14 @@ export function createUpdateDoctorDatabaseWriteCapture(
         {
           expected: (pathname) => expectedGenerations?.[pathname],
           assertCurrent: () => options.assertCurrent?.(),
-          accept(before, after) {
+          accept(pathname, before, after) {
             options.assertCurrent?.();
             const expected = expectedGenerations;
-            if (
-              !expected ||
-              Object.entries(before).some(
-                ([pathname, generation]) =>
-                  expected[pathname] !== generation || after[pathname] === undefined,
-              )
-            ) {
+            if (!expected || expected[pathname] !== before) {
               unchanged = false;
               return;
             }
-            for (const [pathname, generation] of Object.entries(after)) {
-              if (Object.hasOwn(before, pathname)) {
-                expected[pathname] = generation;
-              }
-            }
+            expected[pathname] = after;
           },
           refuse(message) {
             unchanged = false;

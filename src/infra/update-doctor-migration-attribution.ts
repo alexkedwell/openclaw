@@ -1,12 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { getOpenClawDatabaseMaintenanceScope } from "../state/openclaw-state-maintenance-context.js";
 import type { PostgresSyncConnection } from "./postgres-sync/connection.js";
-import type { UpdateDatabaseGenerations } from "./update-database-generations.js";
 
 export type UpdateDoctorMigrationCapture = {
   expected(pathname: string): string | null | undefined;
   assertCurrent(): void;
-  accept(before: UpdateDatabaseGenerations, after: UpdateDatabaseGenerations): void;
+  accept(pathname: string, before: string, after: string): void;
   refuse(message: string): void;
 };
 
@@ -50,7 +49,7 @@ export function beginUpdatePostgresMigration(db: PostgresSyncConnection) {
     beforeCommit() {
       assertCurrent();
       const after = db.readRecoveryGeneration();
-      publish = () => capture.accept({ [pathname]: before }, { [pathname]: after });
+      publish = () => capture.accept(pathname, before, after);
       assertCurrent();
     },
     committed() {
