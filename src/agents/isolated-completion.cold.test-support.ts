@@ -125,14 +125,14 @@ export function traceIsolatedCompletionColdStart(
         ...options,
         onStage: (stage) => {
           options?.onStage?.(stage);
-          const label = [
+          const stageLabel = [
             "workspace plugins",
             "static provider catalog",
             "ambient credentials",
             "agent facts",
             "configured model projection",
           ].find((label) => stage === label || stage.startsWith(`${label};`));
-          record("build-stage", { stage: label ?? "other" });
+          record("build-stage", { stage: stageLabel ?? "other" });
         },
       };
       return workspaceBuild(...args);
@@ -186,7 +186,10 @@ export function traceIsolatedCompletionColdStart(
   );
   record("fixture-start");
   return {
-    mark(event: "fixture-ready" | "provider-arrival" | "provider-auth" | "probe-start", id = 0) {
+    mark: (
+      event: "fixture-ready" | "provider-arrival" | "provider-auth" | "probe-start",
+      id = 0,
+    ) => {
       record(event, { id });
     },
     async [Symbol.asyncDispose]() {

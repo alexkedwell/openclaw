@@ -9,10 +9,12 @@ const completeWithPreparedSimpleCompletionModel = vi.hoisted(() =>
   })),
 );
 
+// mock-isolation: Loading the real runner would erase the cold-import boundary under test.
 vi.mock("../embedded-agent-runner/run/attempt.js", () => {
   loadEmbeddedAttempt();
   return { runEmbeddedAttempt: vi.fn() };
 });
+// mock-isolation: Observe the isolated handoff without dispatching a provider request.
 vi.mock("../simple-completion-execution.js", () => ({ completeWithPreparedSimpleCompletionModel }));
 
 import { createOpenClawAgentHarness } from "./builtin-openclaw.js";
