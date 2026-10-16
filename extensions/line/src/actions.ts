@@ -301,7 +301,7 @@ export function normalizeLineMessage(message: Message): Message {
       video: videoResult?.video,
     };
   } else {
-    normalized = message;
+    normalized = { ...message };
   }
 
   if (message.quickReply) {
