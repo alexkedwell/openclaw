@@ -61,6 +61,8 @@ total latency distributions, raw Event Timing entries, native input delays, and
 overlapping LoAF scripts. Event Timing omits durations below 16 ms and rounds to
 8 ms; paging measures keyboard-to-paint rather than smooth-scroll completion.
 LoAF overlap identifies candidate blockers, not exclusive causal attribution.
+History placement settles before live traffic starts; transcript focus happens
+before each paging checkpoint, outside the measured native key interaction.
 Compare at least seven interleaved baseline/candidate pairs on one quiet machine,
 with the same bundle settings, Chromium, latency, and rig probes. Use `--untraced`
 for those comparisons and retain all interaction counts and tail results.

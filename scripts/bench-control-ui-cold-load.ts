@@ -441,6 +441,22 @@ try {
       content: `;(() => { const __name = (fn) => fn; (${installInteractionLatencyProbe.toString()})(); })();`,
     });
   }
+  async function waitForIdle() {
+    await page.waitForFunction(
+      (eventCount) => {
+        const state = Reflect.get(window, "__coldLoad")?.read();
+        return (
+          state &&
+          state.sentEvents === eventCount &&
+          !state.pending &&
+          !state.queued &&
+          state.idleMs > 750
+        );
+      },
+      fixture.events.length,
+      { timeout: 30_000 },
+    );
+  }
   async function settle() {
     try {
       await page
@@ -465,20 +481,7 @@ try {
         .frameLocator("iframe")
         .getByText("Team metric 12", { exact: true })
         .waitFor();
-      await page.waitForFunction(
-        (eventCount) => {
-          const state = Reflect.get(window, "__coldLoad")?.read();
-          return (
-            state &&
-            state.sentEvents === eventCount &&
-            !state.pending &&
-            !state.queued &&
-            state.idleMs > 750
-          );
-        },
-        fixture.events.length,
-        { timeout: 30_000 },
-      );
+      await waitForIdle();
     } catch (error) {
       const diagnostics = await page.evaluate(() => Reflect.get(window, "__coldLoad")?.read());
       await writeFile(
@@ -689,17 +692,21 @@ try {
       if (!values.untraced) {
         await cdp.send("Profiler.start");
       }
-      interactions = await runInteractionLatencyScenario(page, {
-        selectedSessionKey: fixture.selectedSessionKey,
-        teamEventCount: fixture.liveEvents.filter((item) => item.event !== "chat").length,
-        otherSessionKey: fixture.sidebarEntries
-          .find(
-            (entry) =>
-              entry.startsWith("session:") && entry !== `session:${fixture.selectedSessionKey}`,
-          )!
-          .slice("session:".length),
-        stream: { ...streamingReply!, runId: fixture.liveHistory!.inFlightRun.runId },
-      }).catch(async (error: unknown) => {
+      interactions = await runInteractionLatencyScenario(
+        page,
+        {
+          selectedSessionKey: fixture.selectedSessionKey,
+          teamEventCount: fixture.liveEvents.filter((item) => item.event !== "chat").length,
+          otherSessionKey: fixture.sidebarEntries
+            .find(
+              (entry) =>
+                entry.startsWith("session:") && entry !== `session:${fixture.selectedSessionKey}`,
+            )!
+            .slice("session:".length),
+          stream: { ...streamingReply!, runId: fixture.liveHistory!.inFlightRun.runId },
+        },
+        waitForIdle,
+      ).catch(async (error: unknown) => {
         await writeFile(
           path.join(artifactDir, `run-${run + 1}.interactions-failure.json`),
           JSON.stringify(

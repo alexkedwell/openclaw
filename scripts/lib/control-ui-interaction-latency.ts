@@ -170,9 +170,11 @@ export async function runInteractionLatencyScenario(
     teamEventCount: number;
     stream: { deltas: string[]; deltasPerSecond: number; runId: string };
   },
+  waitForIdle: () => Promise<void>,
 ) {
   const active = page.locator(".chat-pane-cache__pane--active");
   const composer = active.locator(".agent-chat__composer-combobox textarea");
+  const thread = active.locator(".chat-thread");
   const frame = () =>
     page.evaluate(
       () =>
@@ -190,7 +192,14 @@ export async function runInteractionLatencyScenario(
     await page.evaluate(() => Reflect.get(window, "__interactionLatency").end());
   };
   await composer.fill("");
+  await thread.focus();
+  // Establish the reader's history position before live traffic and native input.
+  await thread.evaluate((element) => {
+    element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
+  });
+  await frame();
   await composer.focus();
+  await waitForIdle();
   await page.evaluate((scenario) => {
     Reflect.get(window, "__streamingReply").start({
       ...scenario.stream,
@@ -216,11 +225,7 @@ export async function runInteractionLatencyScenario(
     if ((await composer.inputValue()) !== "abcdefghij".repeat(round + 1)) {
       throw new Error("Native composer input was lost during live traffic");
     }
-    const thread = active.locator(".chat-thread");
-    // Read existing history away from the growing reply's moving end.
-    await thread.evaluate((element) => {
-      element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
-    });
+    await thread.focus();
     await frame();
     const beforeScroll = await thread.evaluate((element) => element.scrollTop);
     if (beforeScroll <= 0) {
@@ -236,7 +241,7 @@ export async function runInteractionLatencyScenario(
       }
       return { index: Number(row.dataset.index), top: row.getBoundingClientRect().top };
     });
-    await step("scroll", () => thread.press("PageUp"));
+    await step("scroll", () => page.keyboard.press("PageUp"));
     // Virtualizer measurement can rebase scrollTop while the reader moves upward.
     await page.waitForFunction((before) => {
       const transcript = document.querySelector(".chat-pane-cache__pane--active .chat-thread");
@@ -254,7 +259,7 @@ export async function runInteractionLatencyScenario(
             row.getBoundingClientRect().top > before.top))
       );
     }, beforeRow);
-    await step("scroll", () => thread.press("PageDown"));
+    await step("scroll", () => page.keyboard.press("PageDown"));
     await step("menu", async () => {
       await active.locator(".chat-header-session-menu__trigger").click();
       await active
