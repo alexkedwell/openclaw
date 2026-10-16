@@ -81,7 +81,8 @@ The supported PostgreSQL families are:
   requests fail with `DATABASE_SEARCH_CAPABILITY_UNAVAILABLE`.
   Existing SQLite agent stores cannot switch engines; agent ports and backup
   providers are not available yet. PostgreSQL agent schemas support current-version
-  bootstrap only and reject schema drift before exposing the store.
+  bootstrap and the schema 27 to 28 forward migration, and reject schema drift
+  before exposing the store.
 - **Workboard:** runtime storage, bidirectional database ports, and matched backups.
 - **Logbook:** runtime frames, batches, observations, cards, and standups;
   bidirectional database ports; and matched backups. Frame images remain local

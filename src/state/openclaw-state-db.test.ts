@@ -2144,6 +2144,7 @@ describe("openclaw state database", () => {
       { kind: "portable-identity-columns-v22", path: seeded.databasePath },
       { kind: "meeting-transcript-start-time", path: seeded.databasePath },
       { kind: "task-run-indexes-v24", path: seeded.databasePath },
+      { kind: "session-state-head-layout-v25", path: seeded.databasePath },
       { kind: "session-watch-cursor-provenance-v4", path: seeded.databasePath },
     ]);
     expect(repairOpenClawStateDatabaseSchema(options)).toEqual({

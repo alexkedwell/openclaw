@@ -54,6 +54,13 @@ Cron history indexes. Rows and history ordering are unchanged. Builds supporting
 only schema 23 or earlier refuse it; binary rollback requires the verified
 pre-upgrade backup and its matching build.
 
+Agent [schema 28](/reference/database-schemas/agent-schema-history#agent-schema-28)
+and shared-state [schema 25](/reference/database-schemas/state-schema-history#state-schema-25)
+reduce index and table write amplification without changing logical rows or
+keys. Their SQLite rebuilds and PostgreSQL forward steps advance schema metadata
+atomically. These versions are bundled for one upgrade; older binaries require
+the verified pre-upgrade backup for rollback.
+
 Target-release checks distinguish the target's schema support from the running
 inspector's capabilities. When shared state is too new for the target but still
 readable by the inspector, preflight continues checking agent stores and reports

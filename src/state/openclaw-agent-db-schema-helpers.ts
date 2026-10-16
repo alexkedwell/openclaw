@@ -34,6 +34,7 @@ import {
   AGENT_STORAGE_SCHEMA_VERSION,
   AGENT_JSON_PREDICATE_SCHEMA_VERSION,
   AGENT_OUTBOX_SEQUENCE_SCHEMA_VERSION,
+  AGENT_WRITE_LAYOUT_SCHEMA_VERSION,
 } from "./openclaw-agent-db-contract.js";
 import { persistAgentSchemaMetadata } from "./openclaw-agent-db-metadata-write.js";
 import { AGENT_SCHEMA_COMPATIBILITY } from "./openclaw-agent-db-schema-compatibility.js";
@@ -68,6 +69,7 @@ import {
   withoutSessionEntrySnapshotsSchema,
 } from "./openclaw-agent-session-snapshots-schema.js";
 import { withLegacyAgentStorageSchema } from "./openclaw-agent-storage-schema.js";
+import { withLegacyAgentWriteLayout } from "./openclaw-agent-write-layout-migration.js";
 import { tableExists } from "./openclaw-state-db-schema-helpers.js";
 
 export {
@@ -80,10 +82,14 @@ export {
 
 /** Compare historical migration targets against only the representation they support. */
 export function getOpenClawAgentMigrationSchema(targetVersion: number): string {
+  const layoutSchemaSql =
+    targetVersion < AGENT_WRITE_LAYOUT_SCHEMA_VERSION
+      ? withLegacyAgentWriteLayout(OPENCLAW_AGENT_SCHEMA_SQL)
+      : OPENCLAW_AGENT_SCHEMA_SQL;
   const sequenceSchemaSql =
     targetVersion < AGENT_OUTBOX_SEQUENCE_SCHEMA_VERSION
-      ? withoutOutboxEnqueueSequence(OPENCLAW_AGENT_SCHEMA_SQL)
-      : OPENCLAW_AGENT_SCHEMA_SQL;
+      ? withoutOutboxEnqueueSequence(layoutSchemaSql)
+      : layoutSchemaSql;
   const predicateSchemaSql =
     targetVersion < AGENT_JSON_PREDICATE_SCHEMA_VERSION
       ? withoutAgentJsonPredicateColumns(sequenceSchemaSql)

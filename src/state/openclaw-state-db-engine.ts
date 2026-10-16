@@ -124,10 +124,7 @@ export function admitStatePostgres(db: PostgresSqlConnection, fresh: boolean): v
   publishStateRuntimeSchemaAdmission(db, true);
 }
 
-export const stateEngineSchema = {
-  id: "state",
-  version: OPENCLAW_STATE_SCHEMA_VERSION,
-  sqlite: "",
+const statePostgresSchema = {
   postgres: runtime.eagerSql,
   postgresFragments: runtime.fragments.map((fragment): PostgresSchemaFragment => {
     const { activation } = fragment;
@@ -142,6 +139,31 @@ export const stateEngineSchema = {
       activation,
     };
   }),
+};
+
+export const stateEngineSchema = {
+  id: "state",
+  version: OPENCLAW_STATE_SCHEMA_VERSION,
+  sqlite: "",
+  ...statePostgresSchema,
+  postgresMigrations: [
+    {
+      version: 25,
+      // WITHOUT ROWID only changes SQLite storage; PostgreSQL keeps the same catalog.
+      fromSchema: statePostgresSchema,
+      schema: statePostgresSchema,
+      sql: `UPDATE schema_meta
+        SET schema_version = 25,
+          app_version = '${VERSION.replaceAll("'", "''")}',
+          updated_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS bigint)
+        WHERE meta_key = 'primary';
+        INSERT INTO config_machine_state (state_key, value_json, updated_at_ms)
+        VALUES ('state.schema.contentVersion', '25',
+          CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS bigint))
+        ON CONFLICT (state_key) DO UPDATE
+          SET value_json = EXCLUDED.value_json, updated_at_ms = EXCLUDED.updated_at_ms;`,
+    },
+  ],
 };
 
 export function ensureStatePostgresFragment(db: PostgresSqlConnection, table: string): void {
