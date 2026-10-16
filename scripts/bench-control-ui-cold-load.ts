@@ -175,7 +175,6 @@ const { values } = parseArgs({
   options: {
     "warm-reload": { type: "boolean", default: false },
     "overlay-probe": { type: "boolean", default: false },
-    "restore-dashboard": { type: "boolean", default: false },
     untraced: { type: "boolean", default: false },
     "probe-dir": { type: "string" },
     "live-events": { type: "boolean", default: false },
@@ -263,7 +262,6 @@ const fixture = createControlUiTeamScaleFixture({
   sidebarListChurn: values["sidebar-list-churn"],
   sidebarLiveChurn: values["sidebar-live-churn"],
   duplicateBootReads: values["duplicate-boot-reads"],
-  restoreDashboard: values["restore-dashboard"],
 });
 const streamingReply = values["streaming-reply"] ? createControlUiStreamingReply() : undefined;
 const extraInitScripts = await Promise.all(
@@ -929,7 +927,6 @@ try {
         bundleDir,
         fixture: fixture.counts,
         sidebarView,
-        restoreDashboard: values["restore-dashboard"],
         streamingReply: values["streaming-reply"],
         sidebarListChurn: values["sidebar-list-churn"],
         sidebarLiveChurn: fixture.sidebarLiveChurn,

@@ -22,7 +22,6 @@ suite.define(() => {
     const fixture = createControlUiTeamScaleFixture({
       baseUrl: suite.server.baseUrl,
       ...sandbox(""),
-      restoreDashboard: true,
     });
     await suite.withPage(
       {

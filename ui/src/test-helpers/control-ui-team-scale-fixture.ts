@@ -53,7 +53,6 @@ type FixtureOptions = {
   sidebarListChurn?: boolean;
   sidebarLiveChurn?: boolean;
   duplicateBootReads?: boolean;
-  restoreDashboard?: boolean;
 };
 
 function personId(index: number) {
@@ -65,16 +64,6 @@ function widgetHtml(index: number) {
 <style>:root{color-scheme:dark light;font-family:system-ui}body{margin:0;padding:20px}h2{font-size:18px}progress{width:100%}</style></head>
 <body><h2>Team metric ${index + 1}</h2><p>Synthetic completed work: ${60 + index}%</p>
 <progress value="${60 + index}" max="100"></progress><p>All fixture systems are available.</p></body></html>`;
-}
-
-// Boot data and live replay require independent run snapshots.
-function createLiveRunSnapshot(startedAt: number) {
-  return {
-    runId: TEAM_SCALE_LIVE_RUN_ID,
-    text: "Synthetic streaming progress 0",
-    startedAt,
-    events: [],
-  };
 }
 
 /** One deterministic inventory shared by browser benchmarks and focused UI proofs. */
@@ -135,9 +124,6 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
       sessionId: `team-session-${index + 1}`,
       agentId: "main",
       kind: "direct",
-      ...(options.restoreDashboard
-        ? { visibility: "shared" as const, sharingRole: "admin" as const }
-        : {}),
       label: pinned ? `Project dashboard ${index - 269}` : `Project discussion ${index + 1}`,
       displayName: pinned ? `Project dashboard ${index - 269}` : `Project discussion ${index + 1}`,
       updatedAt: now - index * 1_000,
@@ -256,9 +242,6 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
   const historyMessages = messageIds.map((id, index) => ({
     role: index % 2 ? "assistant" : "user",
     __openclaw: { id, seq: index + 1 },
-    ...(options.restoreDashboard && index % 2
-      ? { usage: { input: 12_000, output: 600, cacheRead: 8_000, totalTokens: 20_600 } }
-      : {}),
     timestamp: now - (counts.transcriptMessages - index) * 60_000,
     content: [
       ...(options.duplicateBootReads && index === counts.transcriptMessages - 1
@@ -426,7 +409,16 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
         ]),
       ),
     },
-    ...(options.liveRun ? { inFlightRun: createLiveRunSnapshot(now) } : {}),
+    ...(options.liveRun
+      ? {
+          inFlightRun: {
+            runId: TEAM_SCALE_LIVE_RUN_ID,
+            text: "Synthetic streaming progress 0",
+            startedAt: now,
+            events: [],
+          },
+        }
+      : {}),
     featureMethods: [
       ...defaultControlUiFeatureMethods,
       "sessions.list",
@@ -722,7 +714,12 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
           sessionId: pinnedRows[0]!.sessionId,
           sessionInfo: pinnedRows[0]!,
           messages: historyMessages,
-          inFlightRun: createLiveRunSnapshot(now),
+          inFlightRun: {
+            runId: TEAM_SCALE_LIVE_RUN_ID,
+            text: "Synthetic streaming progress 0",
+            startedAt: now,
+            events: [],
+          },
         }
       : undefined,
     counts,
