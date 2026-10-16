@@ -23,7 +23,7 @@ const CHAT_ID = -1001234;
 const FILE_NAME = "qa-empty-response-side-effect.txt";
 const FILE_CONTENT = "side effect completed once\n";
 const RECOVERY_INSTRUCTION =
-  "The previous assistant turn completed its tool calls but did not produce a user-visible answer.";
+  "Do not repeat completed tool calls or restart from scratch. Tools are unavailable in this step:";
 
 async function readRequest(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
