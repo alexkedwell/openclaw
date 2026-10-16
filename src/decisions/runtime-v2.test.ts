@@ -21,6 +21,7 @@ import { answer, batch, config, options, registered } from "./runtime.test-suppo
 import type { DecisionEvaluateOptionsV2, DecisionProviderV2 } from "./types-v2.js";
 import type { DecisionProviderV1 } from "./types.js";
 
+// mock-isolation: Keep model preparation and credential discovery outside decision host contract tests.
 vi.mock("../agents/decision-inference.js", () => ({
   executePreparedDecision: (params: {
     provider: DecisionProviderV2;

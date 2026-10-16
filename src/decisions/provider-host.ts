@@ -252,7 +252,7 @@ export class DecisionProviderHost {
       1,
       consumerId,
       isAdmissible,
-    ) as Promise<DecisionOutcome>;
+    ) as Promise<DecisionOutcome>; // SAFETY: Version 1 dispatch pairs this V1 batch with a V1 outcome.
   }
 
   evaluateV2(
@@ -275,7 +275,7 @@ export class DecisionProviderHost {
       consumerId,
       isAdmissible,
       onPreparedBilling,
-    ) as Promise<DecisionOutcomeV2>;
+    ) as Promise<DecisionOutcomeV2>; // SAFETY: Version 2 dispatch pairs this V2 batch with a V2 outcome.
   }
 
   private async evaluateVersion(
@@ -424,12 +424,16 @@ export class DecisionProviderHost {
       let outcome;
       const v1Batch =
         version === 1
-          ? (submitted as DecisionBatch)
-          : decisionBatchV2ToV1(submitted as DecisionBatchV2);
+          ? (submitted as DecisionBatch) // SAFETY: The V1 entry point supplies a V1 batch for version 1.
+          : decisionBatchV2ToV1(
+              submitted as DecisionBatchV2, // SAFETY: The V2 entry point supplies a V2 batch for version 2.
+            );
       const v2Batch =
         version === 2
-          ? (submitted as DecisionBatchV2)
-          : decisionBatchV1ToV2(submitted as DecisionBatch);
+          ? (submitted as DecisionBatchV2) // SAFETY: The V2 entry point supplies a V2 batch for version 2.
+          : decisionBatchV1ToV2(
+              submitted as DecisionBatch, // SAFETY: The V1 entry point supplies a V1 batch for version 1.
+            );
       const provider = this.provider;
       if (
         (provider.contractVersion === 1 &&
@@ -512,11 +516,11 @@ export class DecisionProviderHost {
             : version === 1
               ? decisionResultV2ToV1(
                   offeredV2!,
-                  nativeResult as import("./types-v2.js").DecisionBatchResultV2,
+                  nativeResult as import("./types-v2.js").DecisionBatchResultV2, // SAFETY: The provider V2 branch validated this native result against offeredV2.
                 )
               : decisionResultV1ToV2(
                   offeredV1!,
-                  nativeResult as import("./types.js").DecisionBatchResult,
+                  nativeResult as import("./types.js").DecisionBatchResult, // SAFETY: The provider V1 branch validated this native result against offeredV1.
                 );
         // V1 narrowing must be lossless: explicit abstention or provider units cannot be fabricated away.
         if (!result) {
