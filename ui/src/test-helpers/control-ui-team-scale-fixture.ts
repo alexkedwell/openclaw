@@ -533,6 +533,7 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     ...Array<string>(2).fill("run-state.unrelated"),
   ];
   const livePresence = presenceEntries.map((entry) => Object.assign({}, entry));
+  let messageSequence = counts.transcriptMessages;
   const liveCount = Math.ceil((options.liveDurationMs ?? 20_000) / 160);
   const liveEvents: TeamScaleLiveEvent[] = Array.from({ length: liveCount }, (_, index) => {
     const kind = liveKinds[index % liveKinds.length]!;
@@ -583,18 +584,19 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
       };
     } else if (kind === "session.message.open") {
       event = "session.message";
+      const messageSeq = ++messageSequence;
       const message = {
         role: "user",
         content: [{ type: "text", text: `Synthetic live checkpoint ${index + 1}` }],
         timestamp: ts,
-        __openclaw: { id: `team-scale-live-message-${index}` },
+        __openclaw: { id: `team-scale-live-message-${index}`, seq: messageSeq },
       };
       history = { message };
       payload = {
         sessionKey: selectedSessionKey,
         clientRunId: runId,
         messageId: `team-scale-live-message-${index}`,
-        messageSeq: counts.transcriptMessages + index + 1,
+        messageSeq,
         activeRunIds: [runId],
         hasActiveRun: true,
         message,

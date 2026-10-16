@@ -217,9 +217,9 @@ export async function runInteractionLatencyScenario(
       throw new Error("Native composer input was lost during live traffic");
     }
     const thread = active.locator(".chat-thread");
-    // Session handoffs retain reading position; give each upward action room to scroll.
+    // Read existing history away from the growing reply's moving end.
     await thread.evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
+      element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
     });
     await frame();
     const beforeScroll = await thread.evaluate((element) => element.scrollTop);
