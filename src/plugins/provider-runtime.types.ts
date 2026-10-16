@@ -108,7 +108,8 @@ export type ProviderPrepareRuntimeAuthContext = ProviderPreferRuntimeResolvedMod
  * `apiKey` is required and becomes the runtime credential stored in auth
  * storage. `baseUrl` is optional and lets providers like GitHub Copilot swap to
  * an entitlement-specific endpoint at request time. `expiresAt` enables generic
- * background refresh in long-running turns.
+ * background refresh in long-running turns. Credentials belong in `apiKey` or
+ * `request.auth`, which are sentineled; `request.headers` are not secret.
  */
 export type ProviderPreparedRuntimeAuth = {
   apiKey: string;

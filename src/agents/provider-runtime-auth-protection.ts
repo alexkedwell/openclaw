@@ -3,7 +3,11 @@ import type { ProviderPreparedRuntimeAuth } from "../plugins/provider-runtime.ty
 import { looksLikeSecretSentinel, mintSecretSentinel } from "../secrets/sentinel.js";
 import { isNonSecretApiKeyMarker } from "./model-auth-markers.js";
 
-/** Re-sentinels credentials returned by a provider auth exchange. */
+/**
+ * Re-sentinels credentials returned by a provider auth exchange. Only `apiKey`
+ * and `request.auth` carry credentials; `request.headers` are plain identity
+ * headers and stay unregistered so egress redaction does not mask them.
+ */
 export function protectPreparedProviderRuntimeAuth(params: {
   provider: string;
   preparedAuth: ProviderPreparedRuntimeAuth | null | undefined;
@@ -17,14 +21,6 @@ export function protectPreparedProviderRuntimeAuth(params: {
       ? value
       : mintSecretSentinel(value, { label: `model-auth:${params.provider}:${label}` });
   const request = preparedAuth.request;
-  const headers = request?.headers
-    ? Object.fromEntries(
-        Object.entries(request.headers).map(([name, value]) => [
-          name,
-          protect(value, `runtime-header:${name.toLowerCase()}`),
-        ]),
-      )
-    : undefined;
   const auth = request?.auth;
   const protectedAuth =
     auth?.mode === "authorization-bearer"
@@ -42,7 +38,6 @@ export function protectPreparedProviderRuntimeAuth(params: {
       ? {
           request: {
             ...request,
-            ...(headers ? { headers } : {}),
             ...(protectedAuth ? { auth: protectedAuth } : {}),
           },
         }

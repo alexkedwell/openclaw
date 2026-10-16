@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { redactSecrets } from "../logging/redact.js";
 import { isSecretValueRegisteredForRedaction } from "../logging/secret-redaction-registry.js";
-import { looksLikeSecretSentinel, mintSecretSentinel } from "../secrets/sentinel.js";
+import {
+  looksLikeSecretSentinel,
+  mintSecretSentinel,
+  resolveSecretSentinel,
+} from "../secrets/sentinel.js";
 import {
   attachModelProviderRequestTransport,
   getModelProviderRequestTransport,
@@ -27,6 +32,30 @@ describe("protectPreparedProviderRuntimeAuth", () => {
     const bearerToken = auth?.mode === "authorization-bearer" ? auth.token : "";
     expect(looksLikeSecretSentinel(bearerToken)).toBe(true);
     expect(isSecretValueRegisteredForRedaction(runtimeToken)).toBe(true);
+  });
+
+  it("protects header-mode auth but leaves identity headers visible to egress redaction", () => {
+    const headerAuth = "runtime-header-auth-credential";
+    const identityHeaders = {
+      "Openai-Organization": "github-copilot",
+      "Copilot-Integration-Id": "copilot-developer-cli",
+    };
+    const result = protectPreparedProviderRuntimeAuth({
+      provider: "github-copilot",
+      preparedAuth: {
+        apiKey: "runtime-api-key-credential",
+        request: {
+          headers: identityHeaders,
+          auth: { mode: "header", headerName: "api-key", value: headerAuth },
+        },
+      },
+    });
+
+    expect(result?.request?.headers).toEqual(identityHeaders);
+    expect(redactSecrets({ provider: "github-copilot" })).toEqual({ provider: "github-copilot" });
+    const auth = result?.request?.auth;
+    expect(resolveSecretSentinel(auth?.mode === "header" ? auth.value : "")).toBe(headerAuth);
+    expect(isSecretValueRegisteredForRedaction(headerAuth)).toBe(true);
   });
 
   it("leaves non-secret auth markers untouched", () => {
