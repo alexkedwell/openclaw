@@ -113,7 +113,7 @@ export function controlUiPluginDistributionsPlugin(repoRoot: string, inputs: Set
           bundledDistribution: { packageName: pkg.name, packageVersion: pkg.version },
         };
         modules.push(
-          `{...${JSON.stringify(metadata)},entry:${urls.get(build.entryName)},styles:[${build.styles.map((name) => urls.get(name)).join(",")}],imports:[]}`,
+          `{...${JSON.stringify({ ...metadata, activation: controlUi.activation, settingsViews: controlUi.settingsViews })},entry:${urls.get(build.entryName)},styles:[${build.styles.map((name) => urls.get(name)).join(",")}],imports:[]}`,
         );
         captured.add(id);
       }
