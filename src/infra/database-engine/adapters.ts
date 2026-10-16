@@ -21,7 +21,9 @@ import {
   verifyAndRecordPostgresSchema,
   readPostgresSchema,
   verifyPostgresSchema,
+  withPostgresSearchExtensions,
 } from "./postgres-schema.js";
+import { admitStoreSearchExtension } from "./search-extension.js";
 import { bindStoreSearch } from "./search.js";
 import type { DatabaseEngineInput } from "./types.js";
 
@@ -132,16 +134,18 @@ export const databaseEngineAdapters: {
               `Missing PostgreSQL ${store.schema.id} migration to version ${version}; use a compatible binary or restore a matching backup.`,
             );
           }
+          const snapshot = readPostgresSchema(db, store.namespace!, store.schema.id);
+          const schema = withPostgresSearchExtensions(store.schema, snapshot);
           verifyPostgresSchema(
             db,
             store.namespace!,
             {
-              ...store.schema,
+              ...schema,
               version: version - 1,
               postgres: migration.fromSchema.postgres,
               postgresFragments: migration.fromSchema.postgresFragments,
             },
-            readPostgresSchema(db, store.namespace!, store.schema.id),
+            snapshot,
           );
           db.exec(migration.sql);
           db.prepare("UPDATE openclaw_schema_meta SET version = ? WHERE store = ?").run(
@@ -149,7 +153,7 @@ export const databaseEngineAdapters: {
             store.schema.id,
           );
           verifyAndRecordPostgresSchema(db, store.namespace!, {
-            ...store.schema,
+            ...schema,
             version,
             postgres: migration.schema.postgres,
             postgresFragments: migration.schema.postgresFragments,
@@ -162,7 +166,17 @@ export const databaseEngineAdapters: {
 };
 
 /** @experimental Select the admitted engine once and bind its declared search indexes. */
-export function admitStoreSearch(store: SearchStore, schema: SearchSchema) {
+export function admitStoreSearch(
+  store: SearchStore,
+  schema: SearchSchema,
+  options?: { extension: string },
+) {
+  if (options) {
+    if ("databasePath" in store) {
+      throw new Error("Search extension admission requires the owner's connection");
+    }
+    return admitStoreSearchExtension(store, options.extension, schema);
+  }
   const postgres =
     "databasePath" in store ? store.input !== undefined : isPostgresSqlConnection(store);
   return databaseEngineAdapters[postgres ? "postgres" : "sqlite"].search(store, schema);

@@ -11,9 +11,10 @@ import type { ContextEngine } from "../context-engine/types.js";
 import { withEngineStoreAdmission } from "../infra/database-engine/admission-scope.js";
 import { installDatabaseEngineSelection } from "../infra/database-engine/context.js";
 import { resetDatabaseEngineSelectionForTest } from "../infra/database-engine/context.test-support.js";
+import type { SearchSchema } from "../infra/database-engine/contract.js";
 import { getPostgresPhysicalFacts } from "../infra/database-engine/physical-facts.js";
 import { resolveDatabaseFamilyEngines } from "../infra/database-engine/registry.js";
-import { isPostgresSqlConnection } from "../infra/sql-connection.js";
+import { isPostgresSqlConnection, type EngineConnection } from "../infra/sql-connection.js";
 import { retireSqliteDatabaseAdmissionForPath } from "../infra/sqlite-database-admission.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
 import { readOpenClawAgentDatabaseIdentity } from "./openclaw-agent-db-identity.js";
@@ -37,6 +38,7 @@ async function loadOwners() {
     authOwnership,
     reconcile,
     lifecycle,
+    engine,
   ] = await Promise.all([
     import("./openclaw-agent-db.js"),
     import("./openclaw-agent-db-readonly.js"),
@@ -55,6 +57,7 @@ async function loadOwners() {
     import("../agents/auth-profiles/path-resolve.js"),
     import("../config/sessions/session-transcript-reconcile.js"),
     import("../config/sessions/session-accessor.sqlite-lifecycle.js"),
+    import("./openclaw-agent-db-engine.js"),
   ]);
   return {
     openOpenClawAgentDatabase: database.openOpenClawAgentDatabase,
@@ -80,6 +83,7 @@ async function loadOwners() {
     waitForSessionTranscriptIndexReconcile: reconcile.waitForSessionTranscriptIndexReconcile,
     reconcileSessionTranscriptIndexes: reconcile.reconcileSessionTranscriptIndexes,
     deleteSessionEntryLifecycle: lifecycle.deleteSessionEntryLifecycle,
+    admitAgentEngineSearchExtensions: engine.admitAgentEngineSearchExtensions,
   };
 }
 
@@ -212,6 +216,31 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
       parentId: "migration-user",
       message: { role: "assistant", content: "migration retained reply" },
     });
+    const memorySearch: SearchSchema = {
+      text: {
+        body: {
+          table: "memory_index_chunks",
+          fields: ["text"],
+          postgres: { identity: "chunk_rowid" },
+        },
+      },
+    };
+    const assertMemorySearch = (db: EngineConnection) => {
+      expect(
+        JSON.parse(
+          String(
+            db.prepare("SELECT search_extensions FROM openclaw_schema_meta").get()
+              ?.search_extensions,
+          ),
+        ),
+      ).toEqual({ "memory.text": memorySearch });
+      expect(
+        db
+          .prepare(`SELECT id, text FROM memory_index_chunks
+            WHERE openclaw_search @@ plainto_tsquery('openclaw_simple_unaccent', 'cafe')`)
+          .all(),
+      ).toEqual([{ id: "migration-memory", text: "café optional memory" }]);
+    };
     const options = { agentId: target.agentId };
     const database = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
     assert(isPostgresSqlConnection(database.db));
@@ -227,8 +256,20 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
           target.sessionId,
           target.sessionKey,
         );
+        db.prepare(`INSERT INTO memory_index_chunks
+          (chunk_rowid, id, path, start_line, end_line, hash, model, text, embedding, updated_at)
+          VALUES (1, 'migration-memory', 'memory/migration.md', 1, 1, 'migration-hash',
+            'text-only', 'café optional memory', ?, 1)`).run(new Uint8Array());
       }, options),
     );
+    withEngineStoreAdmission(() => {
+      owners.admitAgentEngineSearchExtensions(
+        database.db,
+        { "memory.text": memorySearch },
+        () => undefined,
+      );
+      assertMemorySearch(database.db);
+    });
     const retained = await client.query(
       `SELECT session_id, event_id, parent_id FROM "${facts.namespace}".transcript_event_identities ORDER BY seq`,
     );
@@ -255,6 +296,7 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
     assert(isPostgresSqlConnection(upgraded.db));
     expect(getPostgresPhysicalFacts(upgraded.db)?.version).toBe(28);
     withEngineStoreAdmission(() => {
+      assertMemorySearch(upgraded.db);
       expect(
         upgraded.db
           .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
@@ -302,7 +344,10 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
     retireSqliteDatabaseAdmissionForPath(database.path);
     const reopened = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
     expect(getPostgresPhysicalFacts(reopened.db)?.version).toBe(28);
-    withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(reopened.path));
+    withEngineStoreAdmission(() => {
+      assertMemorySearch(reopened.db);
+      owners.closeOpenClawAgentDatabaseByPath(reopened.path);
+    });
     await owners.closeOpenClawAgentDatabaseByPathAsync(reopened.path);
   });
 
