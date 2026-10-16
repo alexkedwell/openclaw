@@ -51,6 +51,7 @@ import {
   type ResolvedPluginHarnessToolPolicies,
 } from "./execution-environment.js";
 import { createAgentHarnessHostCapabilities } from "./host-capability.js";
+import { bindHarnessSettledTurnCallback } from "./host-source-authority.js";
 import {
   runAgentHarnessLifecycleAttempt,
   runAgentHarnessLifecycleFinalization,
@@ -623,7 +624,15 @@ function withoutInternalHarnessAuthority(
       })(),
   });
   return {
-    params: { ...pluginParams, hostCapabilities: host.capabilities },
+    params: {
+      ...pluginParams,
+      hostCapabilities: host.capabilities,
+      onSettledTurn: bindHarnessSettledTurnCallback(
+        params.onSettledTurn,
+        host.capabilities.assertActive,
+        params.abortSignal,
+      ),
+    },
     closeHostCapabilities: host.close,
     setInputAttachmentReadAllowed: host.setInputAttachmentReadAllowed,
     runWithHostScope: host.runWithScope,

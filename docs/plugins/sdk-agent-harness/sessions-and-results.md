@@ -329,6 +329,11 @@ that result on `settledAttempt.settledTurnFinalizationContext` for the later,
 tool-free finalization operation. An eligible attempt may initially mark the
 context `source: "unavailable"`; this records eligibility without reading history.
 
+The callback shares the attempt's revocable host capability scope. Calls after
+the attempt closes, aborts, or loses its admitted lifecycle are rejected before
+core observes delivery or changes the result. Context capture that finishes
+after revocation is also rejected before its result is stored.
+
 The capture function belongs only to this awaited callback. It must check the
 original attempt's live binding and model authority, honor cancellation, and
 finish identity and source-evidence verification before returning frozen,
