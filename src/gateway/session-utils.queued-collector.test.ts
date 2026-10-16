@@ -487,15 +487,8 @@ describe("queued collector session projection", () => {
           // Real cancellation is complete; an awaited consumer can now observe
           // another owner before it consumes the predecessor's result.
           await releaseSubagentRun(entry.runId);
-          {
-            reserveSwarmRun({
-              runId: entry.runId,
-              groupId: entry.groupId!,
-              maxConcurrent: 1,
-              activeRunIds: [],
-            });
-            await registerSubagentRun(registration);
-          }
+          reserveAgain(entry);
+          await registerSubagentRun(registration);
           return result;
         });
       try {
@@ -503,12 +496,10 @@ describe("queued collector session projection", () => {
         await entered.promise;
         expect(context.broadcastToConnIds).not.toHaveBeenCalled();
         expectAborted(respond, entry.runId);
-        {
-          const successor = subagentRuns.get(entry.runId);
-          expect(successor).not.toBe(entry);
-          expect(isSubagentRunQueued(successor)).toBe(true);
-          expect(successor?.execution.endedAt).toBeUndefined();
-        }
+        const successor = subagentRuns.get(entry.runId);
+        expect(successor).not.toBe(entry);
+        expect(isSubagentRunQueued(successor)).toBe(true);
+        expect(successor?.execution.endedAt).toBeUndefined();
         expect(launchedRunIds).toEqual([]);
         release.resolve();
         await flushPendingSessionsChangedEvents(context);
