@@ -205,17 +205,6 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
       sessionKey: "agent:migration:main",
       storePath: path.join(root, "agents", "migration", "sessions", "sessions.json"),
     };
-    await owners.upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
-    await owners.appendTranscriptMessage(target, {
-      eventId: "migration-user",
-      parentId: null,
-      message: { role: "user", content: "migration searchable archive" },
-    });
-    await owners.appendTranscriptMessage(target, {
-      eventId: "migration-reply",
-      parentId: "migration-user",
-      message: { role: "assistant", content: "migration retained reply" },
-    });
     const memorySearch: SearchSchema = {
       text: {
         body: {
@@ -269,6 +258,17 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
         () => undefined,
       );
       assertMemorySearch(database.db);
+    });
+    await owners.upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
+    await owners.appendTranscriptMessage(target, {
+      eventId: "migration-user",
+      parentId: null,
+      message: { role: "user", content: "migration searchable archive" },
+    });
+    await owners.appendTranscriptMessage(target, {
+      eventId: "migration-reply",
+      parentId: "migration-user",
+      message: { role: "assistant", content: "migration retained reply" },
     });
     const retained = await client.query(
       `SELECT session_id, event_id, parent_id FROM "${facts.namespace}".transcript_event_identities ORDER BY seq`,
