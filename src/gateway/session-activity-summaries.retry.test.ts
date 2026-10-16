@@ -1,4 +1,3 @@
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred, withinTest } from "../../test/helpers/promise.js";
 import { observeSqliteReadSql } from "../../test/helpers/sqlite-statement-execution-counter.js";
@@ -145,7 +144,7 @@ describe("Activity recap admission, refresh, and provider recovery", () => {
     await testState.cleanup();
   });
 
-  it("uses the patch watermark for concurrent messages and rereads a foreign rewrite on the next request", async ({
+  it("refreshes a recap dirtied by an in-process append without a post-write watermark read", async ({
     signal,
   }) => {
     const target = await addSession(1);
@@ -154,6 +153,7 @@ describe("Activity recap admission, refresh, and provider recovery", () => {
     const readWatermark = vi.spyOn(transcriptWatermark, "readSessionTranscriptWatermarkAsync");
     complete.mockImplementationOnce(async () => {
       await appendWork(target);
+      service.handleTranscript({ target: transcript });
       return { ...result, text: "Only the first message was summarized." };
     });
     const firstPublication = createDeferred();
@@ -181,22 +181,6 @@ describe("Activity recap admission, refresh, and provider recovery", () => {
     await awaitCurrent();
     expect(complete).toHaveBeenCalledTimes(2);
     expect(read()?.activitySummary).toMatchObject({ coveredMessages: 2, totalMessages: 2 });
-    const database = openOpenClawAgentDatabase({ agentId: target.agentId, env: testState.env });
-    const foreign = new DatabaseSync(database.path);
-    try {
-      foreign
-        .prepare("UPDATE transcript_rewrite_watermarks SET generation = ? WHERE session_id = ?")
-        .run("foreign-recap-generation", transcript.sessionId);
-    } finally {
-      foreign.close();
-    }
-    await awaitCurrent();
-    expect(complete).toHaveBeenCalledTimes(3);
-    expect(read()?.activitySummary).toMatchObject({ generation: "foreign-recap-generation" });
-    expect(JSON.parse(complete.mock.calls[2]![0].prompt).messages).toEqual([
-      "user: Request 1",
-      "assistant: Verified additional work.",
-    ]);
   });
 
   it("refreshes the bounded recap source after a committed append", async () => {

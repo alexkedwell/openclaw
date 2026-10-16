@@ -16,7 +16,6 @@ import {
   type SessionActivitySummary,
 } from "../config/sessions/activity-summary.js";
 import { applySessionEntryOperation } from "../config/sessions/session-accessor.sqlite-entry.js";
-import type { SessionEntryPatchCommitted } from "../config/sessions/session-entry-patch.types.js";
 import { readSessionEntryReadOnlyInWorker } from "../config/sessions/session-entry-read-runtime.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -39,6 +38,11 @@ import {
 } from "../sessions/session-lifecycle-events.js";
 import type { InternalSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { runInDetachedAsyncContext } from "../shared/detached-async-context.js";
+import {
+  beginActivitySummaryCompletion,
+  type PendingSessionActivitySummaryCompletion,
+  type SessionActivitySummaryCompletion,
+} from "./session-activity-summary-completion.js";
 import {
   projectActivitySummaryEntry,
   subscribeActivitySummaryEntryReceipts,
@@ -96,6 +100,7 @@ type Tracked = ActivitySummaryTarget & {
   retryAt: number;
   windowStart: number;
   calls: number;
+  completion?: PendingSessionActivitySummaryCompletion;
 };
 class ActivitySummaryCancelledError extends Error {
   constructor() {
@@ -104,6 +109,10 @@ class ActivitySummaryCancelledError extends Error {
 }
 
 export type SessionActivitySummaryService = {
+  beginCompletion(
+    target: { key: string; agentId?: string; storePath: string },
+    entry: SessionEntry | undefined,
+  ): SessionActivitySummaryCompletion | undefined;
   ensure: (
     target: ActivitySummaryTarget,
     entry: SessionEntry | undefined,
@@ -166,6 +175,7 @@ export function createSessionActivitySummaries(deps: {
   };
   const drop = (state: Tracked) => {
     state.controller?.abort(new ActivitySummaryCancelledError());
+    state.completion?.release();
     states.delete(activitySummaryScope(state));
     const index = queue.indexOf(state);
     if (index >= 0) {
@@ -412,7 +422,6 @@ export function createSessionActivitySummaries(deps: {
           clearTimeout(timer);
         }
       }
-      assertCurrentOwner(state, ref);
       if (omitted && text && !text.endsWith(OMISSION_NOTICE)) {
         text = `${truncateUtf16Safe(text, 449 - OMISSION_NOTICE.length)} ${OMISSION_NOTICE}`;
       }
@@ -430,46 +439,30 @@ export function createSessionActivitySummaries(deps: {
         totalMessages: snapshot.totalMessages,
         omittedContent: omitted,
       };
-      let committedTranscript: SessionEntryPatchCommitted["transcriptPredicate"];
-      const committed = await applySessionEntryOperation(
-        scope(state),
-        { kind: "activity-summary", summary, sessionKey: state.key },
-        {
-          preserveActivity: true,
-          onCommitted: (_entry, transcriptPredicate) => {
-            committedTranscript = transcriptPredicate;
-          },
-          workerGuard: {
-            assertCurrent: () => assertCurrentOwner(state, ref),
-            shouldCommitIf: {
-              kind: "transcript",
-              sessionId: state.sessionId,
-              generation: summary.generation,
-              leafEntryId: summary.leafEntryId,
+      const committed =
+        (await state.completion?.offer(summary)) ??
+        (await applySessionEntryOperation(
+          scope(state),
+          { kind: "activity-summary", summary, sessionKey: state.key },
+          {
+            preserveActivity: true,
+            workerGuard: {
+              assertCurrent: () => assertCurrentOwner(state, ref),
             },
           },
-        },
-      );
+        ));
       if (!committed || !current(state)) {
         state.dirty = true;
         return;
       }
-      if (!committedTranscript) {
-        throw new ActivitySummaryCancelledError();
-      }
       state.entry = { ...state.entry, activitySummary: committed.activitySummary };
-      assertCurrentOwner(state, ref);
-      if (committedTranscript?.sessionId !== state.sessionId) {
-        throw new Error("Activity recap patch omitted its transcript predicate receipt");
-      }
-      // This source-free field patch cannot change the transcript after its transaction guard.
-      const latest = committedTranscript.watermark;
       state.failures = 0;
       if (modelBackoffs.get(ref) === priorBackoff) {
         modelBackoffs.delete(ref);
       }
       partial = summary.coveredMessages < summary.totalMessages;
-      state.dirty ||= latest.generation !== summary.generation || latest.maxSeq !== summary.maxSeq;
+      // Transcript events mark this job dirty; a concurrent rewrite can leave a stale
+      // optional recap until refresh. Readers compare its saved source watermark.
       publish(state, partial || state.dirty ? "updating" : "current", true);
     } catch (error) {
       if (current(state)) {
@@ -645,6 +638,11 @@ export function createSessionActivitySummaries(deps: {
     });
   };
   return {
+    beginCompletion(requested, entry) {
+      const target = eventTarget(requested.key, requested.agentId);
+      const state = target && admit(target, entry, requested.storePath);
+      return state ? beginActivitySummaryCompletion(state) : undefined;
+    },
     ensure,
     handleTranscript(event) {
       const target = eventTarget(
@@ -677,6 +675,10 @@ export function createSessionActivitySummaries(deps: {
         event.agentId ?? runContext?.agentId,
       );
       if (target) {
+        const completion = states.get(activitySummaryScope(target))?.completion;
+        if (completion) {
+          completion.terminal = true;
+        }
         requestInBackground(target);
       }
     },
