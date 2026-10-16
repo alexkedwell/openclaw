@@ -36,6 +36,7 @@ import { resolveUserPath } from "../../utils.js";
 import { reviveAgentDatabasesAfterConfigCommit } from "../server-reload-agent-databases.js";
 import { SessionMutationAuthorizationChangedError } from "../session-mutation-authorization-error.js";
 import { captureGatewayClientUploadCommitGuard } from "../upload-policy.js";
+import { agentAvatarGenerateHandler } from "./agents-avatar.js";
 import {
   AgentConfigPreconditionError,
   AgentModelSelectionError,
@@ -93,6 +94,7 @@ function createAgentConfigApplication(respond: RespondFn) {
 }
 
 export const agentsHandlers: GatewayRequestHandlers = {
+  "agents.avatar.generate": agentAvatarGenerateHandler,
   "agents.list": agentListHandler,
   "agents.create": async (options) => {
     const { params, respond, client, context } = options;
