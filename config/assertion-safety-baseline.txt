@@ -903,7 +903,7 @@ extensions/whatsapp/src/agent-tools-login.ts	6
 extensions/whatsapp/src/approval-handler.runtime.ts	1
 extensions/whatsapp/src/auth-store.ts	1
 extensions/whatsapp/src/auto-reply/monitor.ts	2
-extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.ts	2
+extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.ts	1
 extensions/whatsapp/src/channel-outbound.ts	1
 extensions/whatsapp/src/connection-controller-runtime-context.ts	1
 extensions/whatsapp/src/connection-controller.ts	2

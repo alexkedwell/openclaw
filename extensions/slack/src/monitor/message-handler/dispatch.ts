@@ -1,7 +1,6 @@
 import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
 import {
   dispatchChannelInboundTurn,
-  resolveInboundReplyDispatchCounts,
   readAgentRunTerminalOutcome,
   hasVisibleInboundReplyDispatch,
 } from "openclaw/plugin-sdk/channel-inbound";
@@ -17,7 +16,7 @@ import {
   resolveSendableOutboundReplyParts,
 } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload, ReplyDispatchRuntimeInfo } from "openclaw/plugin-sdk/reply-runtime";
-import { danger, logVerbose, shouldLogVerbose } from "openclaw/plugin-sdk/runtime-env";
+import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { formatSlackError } from "../../errors.js";
 import { normalizeSlackOutboundText } from "../../format.js";
 import { SLACK_EDIT_TEXT_MAX_BYTES } from "../../limits.js";
@@ -573,12 +572,5 @@ async function dispatchSlackMessageWithSetup(
       await draftStream?.clear();
     }
     return;
-  }
-
-  if (shouldLogVerbose()) {
-    const finalCount = resolveInboundReplyDispatchCounts(settledDispatchResult).final;
-    logVerbose(
-      `slack: delivered ${finalCount} repl${finalCount === 1 ? "y" : "ies"} to ${prepared.replyTarget}`,
-    );
   }
 }

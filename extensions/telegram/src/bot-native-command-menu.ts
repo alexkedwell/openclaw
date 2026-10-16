@@ -421,7 +421,6 @@ export async function syncTelegramMenuCommands(params: {
     const currentHash = hashCommandList(commandsToRegister);
     const cachedHash = syncedCommandHashes.get(owner.hashKey);
     if (cachedHash === currentHash) {
-      logVerbose("telegram: command menu unchanged; skipping sync");
       return;
     }
 
