@@ -775,7 +775,7 @@ struct GatewayProcessManagerTests {
                 at: plist.deletingLastPathComponent(),
                 withIntermediateDirectories: true)
             let prefix = definition == "unsupported-command"
-                ? [state.appendingPathComponent("bin/openclaw").path]
+                ? [state.appendingPathComponent("bin/unsupported-cli").path]
                 : [
                     state.appendingPathComponent("tools/node-version/bin/node").path,
                     definition.hasSuffix("runtime-intent")
