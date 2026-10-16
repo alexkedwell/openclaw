@@ -262,12 +262,13 @@ const address = sandbox.address();
 if (!address || typeof address === "string") {
   throw new Error("Sandbox did not bind");
 }
+const interactionDurationMs = 90_000;
 const fixture = createControlUiTeamScaleFixture({
   baseUrl: server.baseUrl,
   sandboxUrl: buildSandboxHostPath({ blockDescendantFrames: true }),
   sandboxPort: address.port,
   liveRun: values["live-events"] || values["streaming-reply"] || values["interaction-latency"],
-  liveDurationMs: values["interaction-latency"] ? 60_000 : undefined,
+  liveDurationMs: values["interaction-latency"] ? interactionDurationMs : undefined,
   sidebarListChurn: values["sidebar-list-churn"],
   sidebarLiveChurn: values["sidebar-live-churn"],
   duplicateBootReads: values["duplicate-boot-reads"],
@@ -278,8 +279,12 @@ const streamingReply =
     : undefined;
 if (values["interaction-latency"]) {
   // One event/history owner keeps the long answer coherent across session switches.
-  streamingReply!.deltas = Array.from({ length: 1800 }, (_, index) =>
-    streamingReply!.text.slice(0, Math.ceil(((index + 1) * streamingReply!.text.length) / 1800)),
+  const deltaCount = (interactionDurationMs / 1000) * streamingReply!.deltasPerSecond;
+  streamingReply!.deltas = Array.from({ length: deltaCount }, (_, index) =>
+    streamingReply!.text.slice(
+      0,
+      Math.ceil(((index + 1) * streamingReply!.text.length) / deltaCount),
+    ),
   );
   fixture.liveEvents = [
     ...fixture.liveEvents.filter((item) => item.event !== "chat"),
