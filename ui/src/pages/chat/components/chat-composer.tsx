@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, onCleanup, onSettled, untrack }
 import { listen } from "../../../lib/reactive/listener.ts";
 import { createChatComposerContext } from "./chat-composer-frame.ts";
 import { createComposerPrediction } from "./chat-composer-prediction.ts";
+import { createComposerQuestionPanel } from "./chat-composer-question.tsx";
 import { getChatComposerState, isChatRunWorking } from "./chat-composer-state.ts";
 import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { renderChatComposerView } from "./chat-composer-view.tsx";
@@ -77,13 +78,14 @@ export function ChatComposer(props: ChatComposerInput) {
       idle: !isChatRunWorking(currentProps) && !currentProps.sending && !currentProps.queue.length,
     };
   });
+  const questionPanel = createComposerQuestionPanel(() => currentProps, state);
   const context = createMemo(() => {
     revision();
     // Lit owners can change local state without changing a prop's identity.
     void props.renderRevision;
     computingFrame = true;
     try {
-      return createChatComposerContext(currentProps, prediction);
+      return createChatComposerContext(currentProps, prediction, questionPanel());
     } finally {
       computingFrame = false;
     }
@@ -110,6 +112,17 @@ export function ChatComposer(props: ChatComposerInput) {
     state.textareaRef?.();
     state.composerInputRef?.();
   });
+  createEffect(
+    () => [context().clearSlashMenu, context().clearSkillMenu] as const,
+    ([slash, skill]) => {
+      if (slash) {
+        getChatComposerState(props.paneId).slashMenu.reset();
+      }
+      if (skill) {
+        getChatComposerState(props.paneId).skillMenu.reset();
+      }
+    },
+  );
   const fields = new Map(
     Object.keys(untrack(context)).map((key) => [
       key,
