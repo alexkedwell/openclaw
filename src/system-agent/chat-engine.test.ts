@@ -7,8 +7,8 @@ import {
 import type { PreparedModelRuntimePluginGeneration } from "../agents/prepared-model-runtime.types.js";
 import type { SystemAgentSession } from "./agent-turn.js";
 import type { SystemAgentTurnDeps } from "./agent-turn.test-support.js";
-import { operationMocks } from "./chat-engine.mocks.test-support.js";
 import {
+  operationMocks,
   createSystemAgentVerifiedInferenceTestFixture,
   fakeOverviewLoader,
   useTempStateDir,

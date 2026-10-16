@@ -1,7 +1,7 @@
 import "./chat-engine.mocks.test-support.js";
 import { describe, expect, it, vi } from "vitest";
-import { operationMocks } from "./chat-engine.mocks.test-support.js";
 import {
+  operationMocks,
   fakeOverviewLoader,
   classifySystemAgentApprovalText,
   useTempStateDir,

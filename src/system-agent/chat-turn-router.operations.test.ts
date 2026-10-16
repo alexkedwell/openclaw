@@ -4,8 +4,8 @@ import { extractToolResultText } from "../agents/embedded-agent-tool-results.js"
 import { createSystemAgentTool } from "../agents/tools/system-agent-tool.js";
 import { ConfigWritePostCommitError } from "../config/io.write-errors.js";
 import type { SystemAgentTurnRunner } from "./agent-turn.js";
-import { operationMocks } from "./chat-engine.mocks.test-support.js";
 import {
+  operationMocks,
   fakeOverviewLoader,
   sharedVerifiedInference,
   sharedVerifiedInferenceConfig,

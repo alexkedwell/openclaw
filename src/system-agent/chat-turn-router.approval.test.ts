@@ -1,8 +1,8 @@
 import "./chat-engine.mocks.test-support.js";
 import { describe, expect, it, vi } from "vitest";
 import type { SystemAgentTurnRunner } from "./agent-turn.js";
-import { operationMocks } from "./chat-engine.mocks.test-support.js";
 import {
+  operationMocks,
   fakeOverviewLoader,
   sharedVerifiedInference,
   classifySystemAgentApprovalText,
