@@ -148,7 +148,9 @@ export function installInteractionLatencyProbe() {
     },
     end() {
       const step = steps.at(-1);
-      if (step) step.end = performance.now();
+      if (step) {
+        step.end = performance.now();
+      }
     },
     read() {
       for (const entry of observer.takeRecords()) {
@@ -179,31 +181,36 @@ export async function runInteractionLatencyScenario(
         }),
     );
   const step = async (kind: string, act: () => Promise<void>) => {
-    await page.evaluate((kind) => Reflect.get(window, "__interactionLatency").begin(kind), kind);
+    await page.evaluate(
+      (interactionKind) => Reflect.get(window, "__interactionLatency").begin(interactionKind),
+      kind,
+    );
     await act();
     await frame();
     await page.evaluate(() => Reflect.get(window, "__interactionLatency").end());
   };
   await composer.fill("");
   await composer.focus();
-  await page.evaluate((input) => {
+  await page.evaluate((scenario) => {
     Reflect.get(window, "__streamingReply").start({
-      ...input.stream,
+      ...scenario.stream,
       deltas: [],
-      sessionKey: input.selectedSessionKey,
+      sessionKey: scenario.selectedSessionKey,
     });
     Reflect.get(window, "__coldLoad").startLive(false);
   }, input);
   const started = Date.now();
   for (let round = 0; round < 7; round++) {
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.max(0, started + round * 8000 - Date.now())),
-    );
+    await new Promise((resolve) => {
+      setTimeout(resolve, Math.max(0, started + round * 8000 - Date.now()));
+    });
     await composer.focus();
     await step("typing", async () => {
       for (const key of "abcdefghij") {
         await page.keyboard.press(key);
-        await new Promise((resolve) => setTimeout(resolve, 60));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 60);
+        });
       }
     });
     if ((await composer.inputValue()) !== "abcdefghij".repeat(round + 1)) {
@@ -221,8 +228,8 @@ export async function runInteractionLatencyScenario(
     }
     await step("scroll", () => thread.press("PageUp"));
     await page.waitForFunction((before) => {
-      const thread = document.querySelector(".chat-pane-cache__pane--active .chat-thread");
-      return thread && thread.scrollTop < before;
+      const transcript = document.querySelector(".chat-pane-cache__pane--active .chat-thread");
+      return transcript && transcript.scrollTop < before;
     }, beforeScroll);
     await step("scroll", () => thread.press("PageDown"));
     await step("menu", async () => {
@@ -236,10 +243,12 @@ export async function runInteractionLatencyScenario(
     for (const key of [input.otherSessionKey, input.selectedSessionKey]) {
       await step("switch-session", async () => {
         await page.locator(`.sidebar-rail [data-sidebar-entry="session:${key}"]`).click();
-        await page.waitForFunction((key) => {
+        await page.waitForFunction((sessionKey) => {
           const pane = document.querySelector(".chat-pane-cache__pane--active");
           return (
-            pane && Reflect.get(pane, "sessionKey") === key && Reflect.get(pane, "transcriptReady")
+            pane &&
+            Reflect.get(pane, "sessionKey") === sessionKey &&
+            Reflect.get(pane, "transcriptReady")
           );
         }, key);
         await composer.waitFor();
@@ -262,7 +271,9 @@ export async function runInteractionLatencyScenario(
     return text && ["h2", "pre", "table"].every((tag) => text.querySelectorAll(tag).length === 24);
   });
   // Event Timing entries are published asynchronously after paint (up to 104 ms).
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 150);
+  });
   const probe: InteractionCapture = await page.evaluate(() =>
     Reflect.get(window, "__interactionLatency").read(),
   );
@@ -277,8 +288,9 @@ export async function runInteractionLatencyScenario(
   }
   if (
     probe.steps.some(
-      (step) =>
-        step.streamDeltas >= input.stream.deltas.length || step.teamEvents >= input.teamEventCount,
+      (interaction) =>
+        interaction.streamDeltas >= input.stream.deltas.length ||
+        interaction.teamEvents >= input.teamEventCount,
     )
   ) {
     throw new Error("Interaction scenario outlasted its simultaneous reply/Team traffic");
@@ -290,5 +302,6 @@ export async function runInteractionLatencyScenario(
       "Trusted native keyboard typing, PageUp/PageDown scrolling, session-menu clicks and pinned-session switches during a 30 Hz cumulative answer plus the Team live-event mix (excluding competing chat deltas). Event Timing is censored below 16 ms and rounded to 8 ms; reported event distributions include only observed interactions, grouped by interactionId using the longest event. Native capture-listener input delay includes fast events. PageUp/PageDown Event Timing measures keyboard-to-paint, not completion of smooth scrolling. Overlapping LoAFs identify candidate blockers, not exclusive causal attribution.",
     stream,
     live: await page.evaluate(() => Reflect.get(window, "__coldLoad").readLive()),
+    rig: await page.evaluate(() => Reflect.get(window, "__readColdLoadRigProbes")?.()),
   };
 }

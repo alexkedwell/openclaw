@@ -730,7 +730,10 @@ try {
       await page
         .locator(".chat-pane-cache__pane--active .chat-header-session-menu__trigger")
         .click();
-      await page.screenshot({ path: path.join(artifactDir, `run-${run + 1}.interactions.png`) });
+      await page.screenshot({
+        path: path.join(artifactDir, `run-${run + 1}.interactions.png`),
+        animations: "disabled",
+      });
       await page.keyboard.press("Escape");
     }
     if (streamingReply && !values["interaction-latency"]) {
