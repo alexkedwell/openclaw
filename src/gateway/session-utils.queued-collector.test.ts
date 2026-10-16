@@ -15,7 +15,6 @@ import {
   releaseSubagentRun,
   releaseSubagentRunKillClaim,
 } from "../agents/subagents/registry/subagent-registry.test-helpers.js";
-import { isSameSubagentRunOwner } from "../agents/subagents/registry/subagent-run-generation.js";
 import * as nativeSpawn from "../agents/subagents/spawn/subagent-spawn.js";
 import {
   activateSwarmRun,
@@ -37,6 +36,7 @@ import { handleChatAbortRequest } from "./server-methods/chat-abort-handler.js";
 import { handleChatSend } from "./server-methods/chat-send-handler.js";
 import { prepareAndAdmitChatSend } from "./server-methods/chat-send-setup.js";
 import { resolveVisibleActiveSessionRunState } from "./server-methods/session-active-runs.js";
+import { flushPendingSessionsChangedEvents } from "./server-methods/session-change-event.js";
 import { sessionAbortHandlers } from "./server-methods/sessions-abort.js";
 import { sessionMutationHandlers } from "./server-methods/sessions-mutations.js";
 import { createLifecycleEventBroadcastHandler } from "./server-session-events.js";
@@ -460,40 +460,90 @@ describe("queued collector session projection", () => {
     expect(launchedRunIds).toEqual([]);
   });
 
-  it("publishes queued Stop before its kill result allows replacement", async () => {
-    const { entry, registration } = await createQueuedReservation();
-    const context = requestContext();
-    const order: string[] = [];
-    vi.mocked(context.broadcastToConnIds).mockImplementation(() => {
-      expect(isSameSubagentRunOwner(subagentRuns.get(entry.runId), entry)).toBe(true);
-      expect(subagentRuns.get(entry.runId)?.collectorCompletion?.status).toBe("killed");
-      order.push("published");
-    });
-    const kill = subagentKill.killSubagentRunAdmin;
-    using _ = vi.spyOn(subagentKill, "killSubagentRunAdmin").mockImplementation(async (...args) => {
-      const result = await kill(...args);
-      // Real cancellation is complete; an awaited consumer can now observe
-      // another owner before it consumes the predecessor's result.
-      await releaseSubagentRun(entry.runId);
-      reserveAgain(entry);
-      await registerSubagentRun(registration);
-      order.push("replacement");
-      return result;
-    });
-    const respond = await abortCollector({ key: entry.childSessionKey }, context);
-    expect(order).toEqual(["published", "replacement"]);
-    expectAborted(respond, entry.runId);
-    expect(context.broadcastToConnIds).toHaveBeenCalledWith(
-      "sessions.changed",
-      expect.objectContaining({ status: "killed", hasActiveRun: false, activeRunIds: [] }),
-      new Set(["observer"]),
-      expect.any(Object),
-    );
-    const successor = subagentRuns.get(entry.runId);
-    expect(successor).not.toBe(entry);
-    expect(isSubagentRunQueued(successor)).toBe(true);
-    expect(successor?.execution.endedAt).toBeUndefined();
-  });
+  it.each(["held", "failed"] as const)(
+    "keeps queued Stop independent of %s display preparation",
+    async (preparation) => {
+      const { entry, registration } = await createQueuedReservation();
+      const context = requestContext();
+      const projection = expectDefined(getSessionRowProjection(context), "queued row owner");
+      const entered = createDeferred();
+      const release = createDeferred();
+      const prepareRows = projection.withPreparedExactRows.bind(projection);
+      const display = vi
+        .spyOn(projection, "withPreparedExactRows")
+        .mockImplementation(async (queries, consume, options) => {
+          entered.resolve();
+          await release.promise;
+          if (preparation === "failed") {
+            throw new Error("queued Stop display preparation failed");
+          }
+          return prepareRows(queries, consume, options);
+        });
+      const kill = subagentKill.killSubagentRunAdmin;
+      const spy = vi
+        .spyOn(subagentKill, "killSubagentRunAdmin")
+        .mockImplementation(async (...args) => {
+          const result = await kill(...args);
+          // Real cancellation is complete; an awaited consumer can now observe
+          // another owner before it consumes the predecessor's result.
+          await releaseSubagentRun(entry.runId);
+          {
+            reserveSwarmRun({
+              runId: entry.runId,
+              groupId: entry.groupId!,
+              maxConcurrent: 1,
+              activeRunIds: [],
+            });
+            await registerSubagentRun(registration);
+          }
+          return result;
+        });
+      try {
+        const respond = await abortCollector({ key: entry.childSessionKey }, context);
+        await entered.promise;
+        expect(context.broadcastToConnIds).not.toHaveBeenCalled();
+        expectAborted(respond, entry.runId);
+        {
+          const successor = subagentRuns.get(entry.runId);
+          expect(successor).not.toBe(entry);
+          expect(isSubagentRunQueued(successor)).toBe(true);
+          expect(successor?.execution.endedAt).toBeUndefined();
+        }
+        expect(launchedRunIds).toEqual([]);
+        release.resolve();
+        await flushPendingSessionsChangedEvents(context);
+        expect(context.broadcastToConnIds).toHaveBeenCalledWith(
+          "sessions.changed",
+          expect.objectContaining({ sessionKey: entry.childSessionKey, reason: "abort" }),
+          new Set(["observer"]),
+          expect.any(Object),
+        );
+        expect(context.broadcastToConnIds).not.toHaveBeenCalledWith(
+          "sessions.changed",
+          expect.objectContaining({ status: "killed" }),
+          expect.anything(),
+          expect.anything(),
+        );
+        if (preparation === "held") {
+          expect(context.broadcastToConnIds).toHaveBeenCalledWith(
+            "sessions.changed",
+            expect.objectContaining({
+              status: "queued",
+              hasActiveRun: true,
+              activeRunIds: [entry.runId],
+            }),
+            new Set(["observer"]),
+            expect.any(Object),
+          );
+        }
+      } finally {
+        release.resolve();
+        await flushPendingSessionsChangedEvents(context);
+        display.mockRestore();
+        spy.mockRestore();
+      }
+    },
+  );
 
   it.each([
     ["foreign requester", false],

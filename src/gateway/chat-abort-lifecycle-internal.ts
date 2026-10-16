@@ -184,29 +184,40 @@ export function markChatAbortTerminalPersistenceError(entry: object, error: unkn
   terminalPersistenceErrorByEntry.set(entry, error);
 }
 
-/** Cancellation joins terminal dispatch before inspecting its write or intentional no-write. */
+/** An accepted write owns cancellation's outcome; dispatch only resolves no-write cases. */
 export async function waitForChatAbortTerminalPersistence(entry: {
   projectSessionTerminalPending?: boolean;
   projectSessionTerminalPersistence?: Promise<void>;
+  projectSessionTerminalPersisted?: boolean;
 }): Promise<void> {
-  const dispatch = terminalDispatchByEntry.get(entry);
   const preparedPersistence = entry.projectSessionTerminalPersistence;
+  if (preparedPersistence) {
+    await preparedPersistence;
+    return;
+  }
+  if (entry.projectSessionTerminalPersisted) {
+    return;
+  }
+  const dispatch = terminalDispatchByEntry.get(entry);
   if (dispatch) {
     await dispatch.settled;
   }
-  // Dispatch can attach persistence lazily. Retain an already accepted write
-  // even if a later terminal event replaces it while this dispatch is pending.
-  const persistence = preparedPersistence ?? entry.projectSessionTerminalPersistence;
+  // Missing-key preparation may attach the actual write during dispatch.
+  const persistence = entry.projectSessionTerminalPersistence;
   if (persistence) {
     await persistence;
+    return;
   }
-  if (!persistence && terminalPersistenceErrorByEntry.has(entry)) {
+  if (entry.projectSessionTerminalPersisted) {
+    return;
+  }
+  if (terminalPersistenceErrorByEntry.has(entry)) {
     throw terminalPersistenceErrorByEntry.get(entry);
   }
   if (dispatch?.failure) {
     throw dispatch.failure.error;
   }
-  if (!persistence && entry.projectSessionTerminalPending === true) {
+  if (entry.projectSessionTerminalPending === true) {
     throw new Error("Session cancellation has no terminal persistence owner");
   }
 }

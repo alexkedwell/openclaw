@@ -14,7 +14,6 @@ import {
   type KillTree,
   type KillScope,
   type KillSelection,
-  type KillPublicationPreparation,
 } from "./subagent-control-kill-scope.js";
 import {
   getLatestOwnedSubagentRun,
@@ -598,7 +597,7 @@ export async function killSubagentRunAdmin(
     assertCurrent: () => void;
     prepareRead?: () => Promise<void> | undefined;
     beforeSessionKill?: () => boolean | Promise<boolean>;
-    preparePublication?: KillPublicationPreparation<SubagentAdminKillResult>;
+    onSnapshot?: (result: SubagentAdminKillResult) => void;
   },
 ): Promise<SubagentAdminKillResult> {
   const publish = (result: SubagentAdminKillResult): SubagentAdminKillResult => {
@@ -725,7 +724,7 @@ export async function killSubagentRunAdmin(
         ...(errors.length > 0 ? { error: errors.join("; ") } : {}),
       };
     },
-    control?.preparePublication,
+    control?.onSnapshot,
     publish,
   );
 }

@@ -1,6 +1,10 @@
 // Tests for gateway runtime subscription wiring.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { awaitGateBeforeSettlement, createDeferred } from "../../test/helpers/promise.js";
+import {
+  awaitGateBeforeSettlement,
+  createDeferred,
+  withinTest,
+} from "../../test/helpers/promise.js";
 import { configureExecutionIdentityAdmissionSink } from "../audit/execution-identity-admission.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -725,7 +729,7 @@ describe("startGatewayEventSubscriptions", () => {
     },
   );
 
-  it.each([
+  it.for([
     { result: "visible persistence", hidden: false, dispatchFails: false, persistenceFails: false },
     { result: "hidden no-write", hidden: true, dispatchFails: false, persistenceFails: false },
     {
@@ -754,8 +758,8 @@ describe("startGatewayEventSubscriptions", () => {
       persistenceFails: true,
     },
   ])(
-    "joins accepted terminal dispatch before settling $result",
-    async ({ hidden, projectSessionLifecycle, dispatchFails, persistenceFails }) => {
+    "uses durable terminal outcome or resolves dispatch's no-write outcome for $result",
+    async ({ hidden, projectSessionLifecycle, dispatchFails, persistenceFails }, { signal }) => {
       const actual = await vi.importActual<typeof import("./server-chat.js")>("./server-chat.js");
       const runId = "run-abort-persistence-bridge";
       const sessionKey = "agent:main:main";
@@ -790,6 +794,7 @@ describe("startGatewayEventSubscriptions", () => {
       const releaseDispatch = createDeferred();
       const dispatchFinished = createDeferred();
       const terminalPersistence = createDeferred();
+      let dispatchCompleted = false;
       const dispatchFailure = new Error("accepted terminal dispatch failed");
       const persistenceFailure = new Error("accepted terminal write failed");
       agentEventHandlerMocks.persistLifecycle.mockReturnValue(terminalPersistence.promise);
@@ -805,6 +810,7 @@ describe("startGatewayEventSubscriptions", () => {
               }
               await handler(event);
             } finally {
+              dispatchCompleted = true;
               dispatchFinished.resolve();
             }
           },
@@ -846,8 +852,6 @@ describe("startGatewayEventSubscriptions", () => {
         } else {
           expect(entry.projectSessionTerminalPersistence).toBeInstanceOf(Promise);
         }
-        releaseDispatch.resolve();
-        await dispatchFinished.promise;
         if (!hidden && projectSessionLifecycle !== false) {
           expect(settled).toBe(false);
           expect(params.chatAbortControllers.get(runId)).toBe(entry);
@@ -856,11 +860,16 @@ describe("startGatewayEventSubscriptions", () => {
           } else {
             terminalPersistence.resolve();
           }
+          await withinTest(waiter, signal);
+          expect(dispatchCompleted).toBe(false);
         }
+        releaseDispatch.resolve();
+        await dispatchFinished.promise;
+        await unsubs.agentUnsub();
         const outcome = await waiter;
         const failure = persistenceFails
           ? persistenceFailure
-          : dispatchFails
+          : dispatchFails && (hidden || projectSessionLifecycle === false)
             ? dispatchFailure
             : undefined;
         expect(outcome).toEqual(failure ? { ok: false, error: failure } : { ok: true });

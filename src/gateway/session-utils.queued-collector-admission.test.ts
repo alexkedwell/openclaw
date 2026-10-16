@@ -32,63 +32,31 @@ import { loadGatewaySessionEntryReadOnlyAsync } from "./session-utils.js";
 const { parentKey, requestContext, operatorClient } = useQueuedCollectorFixture();
 
 describe("queued collector native admission", () => {
-  it.each([
-    [false, false],
-    [true, false],
-    [false, true],
-  ])(
-    "cancels real preaccept admission and joins cleanup (exact=%s, publicationFailure=%s)",
-    async (exact, publicationFailure) => {
+  it.each([false, true])(
+    "cancels real preaccept admission and joins cleanup (exact=%s)",
+    async (exact) => {
       const context = requestContext();
       const entered = createDeferred();
       const dispatched = createDeferred();
-      const publicationEntered = createDeferred();
-      const releasePublication = createDeferred();
-      const cleanupWaiting = createDeferred();
       const order: string[] = [];
       let nativeRunId: string | undefined;
       let stopping: Promise<void> | undefined;
       const agentResponse = vi.fn();
       const registration = vi.spyOn(subagentRegistry, "startQueuedSubagentRun");
-      const waitForPublication = registryMemory.waitForSubagentRetirementPublication;
-      const publicationWait = vi
-        .spyOn(registryMemory, "waitForSubagentRetirementPublication")
-        .mockImplementation((entry) => {
-          const pending = waitForPublication(entry);
-          if (entry.runId === nativeRunId && pending) {
-            cleanupWaiting.resolve();
-          }
-          return pending;
-        });
       const kill = killControl.killSubagentRunAdmin;
       const killGate = vi
         .spyOn(killControl, "killSubagentRunAdmin")
         .mockImplementation((params, control) => {
           const currentControl = expectDefined(control, "native cancellation control");
-          const preparation = expectDefined(
-            currentControl.preparePublication,
-            "native publication preparation",
-          );
-          const publishSnapshot = expectDefined(
-            preparation.publishSnapshot,
+          const onSnapshot = expectDefined(
+            currentControl.onSnapshot,
             "native cancellation snapshot publication",
           );
           return kill(params, {
             ...currentControl,
-            preparePublication: {
-              ...preparation,
-              publishSnapshot: (result) => {
-                publishSnapshot(result);
-                order.push("published");
-              },
-              prepare: async (publishPrepared) => {
-                publicationEntered.resolve();
-                await releasePublication.promise;
-                if (publicationFailure) {
-                  throw new Error("publication preparation failed");
-                }
-                return await preparation.prepare(publishPrepared);
-              },
+            onSnapshot: (result) => {
+              onSnapshot(result);
+              order.push("published");
             },
           });
         });
@@ -225,26 +193,9 @@ describe("queued collector native admission", () => {
             isWebchatConnect: () => false,
           }),
         );
-        await Promise.race([
-          Promise.all([dispatched.promise, publicationEntered.promise, cleanupWaiting.promise]),
-          stopping.then(() => {
-            throw new Error(
-              `Stop settled before held publication: ${JSON.stringify(respond.mock.calls)}`,
-            );
-          }),
-        ]);
-        expect(order).toEqual([]);
+        await dispatched.promise;
         expect(registration).toHaveBeenCalledOnce();
         await expect(registration.mock.results[0]?.value).resolves.toBe(false);
-        expect(
-          (await loadGatewaySessionEntryReadOnlyAsync(entry.childSessionKey)).entry,
-        ).toBeDefined();
-        const interrupted = expectDefined(
-          registryMemory.getCurrentSubagentRunOwner(registryMemory.subagentRuns, entry),
-          "cancelled native collector before publication",
-        );
-        expect(interrupted.execution.startedAt).toBeUndefined();
-        releasePublication.resolve();
         await stopping;
         await dispatched.promise;
         // This unadopted launch still owns its provisional session; join its real cleanup.
@@ -255,28 +206,20 @@ describe("queued collector native admission", () => {
         );
         expect(stopped.collectorCompletion?.status).toBe("killed");
         expect(respond).toHaveBeenCalledOnce();
-        if (publicationFailure) {
-          expect(respond.mock.calls[0]?.[0]).toBe(false);
-          expect(respond.mock.calls[0]?.[2]).toMatchObject({
-            message: expect.stringContaining("publication preparation failed"),
-          });
-        } else {
-          expect
-            .soft(respond.mock.calls[0]?.slice(0, 2), JSON.stringify(respond.mock.calls[0]?.[2]))
-            .toEqual([true, { ok: true, status: "aborted", abortedRunId: entry.runId }]);
-        }
+        expect
+          .soft(respond.mock.calls[0]?.slice(0, 2), JSON.stringify(respond.mock.calls[0]?.[2]))
+          .toEqual([true, { ok: true, status: "aborted", abortedRunId: entry.runId }]);
         expect.soft(context.chatRunState.hasAbortMarker(entry.runId)).toBe(true);
         expect.soft(admission.abortStopReason).toBe("rpc");
         expect.soft(stopped.execution.startedAt).toBeUndefined();
         expect.soft(stopped.sessionStartedAt).toBeUndefined();
         expect(context.chatAbortControllers.has(entry.runId)).toBe(false);
-        expect(order[0]).toBe(publicationFailure ? "deleting" : "published");
+        expect(order[0]).toBe("published");
         expect(order).toContain("deleted");
         expect(
           (await loadGatewaySessionEntryReadOnlyAsync(entry.childSessionKey)).entry,
         ).toBeUndefined();
       } finally {
-        releasePublication.resolve();
         if (nativeRunId) {
           context.chatAbortControllers.get(nativeRunId)?.controller.abort();
           await dispatched.promise;
@@ -286,7 +229,6 @@ describe("queued collector native admission", () => {
         killGate.mockRestore();
         runtimeGate.mockRestore();
         registration.mockRestore();
-        publicationWait.mockRestore();
       }
     },
   );

@@ -255,12 +255,10 @@ async function verifyOverlappingRetainedWork(createRecoveryFixture: RecoveryFixt
   assert(instance);
   const consumer = instance.retainConsumer();
   const consumerDrainEntered = createDeferredCore();
-  const waitForWork = instance.waitForRetainedWork.bind(instance);
-  const observation = vi.spyOn(instance, "waitForRetainedWork").mockImplementation((...args) => {
-    const draining = waitForWork(...args);
-    if (args[1]) {
-      consumerDrainEntered.resolve();
-    }
+  const waitForIdle = instance.waitForIdle.bind(instance);
+  const observation = vi.spyOn(instance, "waitForIdle").mockImplementation((...args) => {
+    const draining = waitForIdle(...args);
+    consumerDrainEntered.resolve();
     return draining;
   });
   const first = retainRuntimePluginWork([old]);

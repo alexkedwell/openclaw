@@ -83,7 +83,6 @@ describe("retained chat work admission", () => {
               },
         );
         expect(release).toHaveBeenCalledOnce();
-        expect(guard).toThrow("Chat settlement admission was released");
       } finally {
         resume.resolve();
         await observed;

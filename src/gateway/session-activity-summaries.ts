@@ -321,7 +321,6 @@ export function createSessionActivitySummaries(deps: {
         publish(state, "unavailable");
         return;
       }
-      assertCurrentOwner(state, ref);
       const entry = state.entry;
       const transcriptScope = { ...scope(state), sessionId: state.sessionId };
       const source = await readActivitySummarySource({
@@ -412,7 +411,6 @@ export function createSessionActivitySummaries(deps: {
           clearTimeout(timer);
         }
       }
-      assertCurrentOwner(state, ref);
       if (omitted && text && !text.endsWith(OMISSION_NOTICE)) {
         text = `${truncateUtf16Safe(text, 449 - OMISSION_NOTICE.length)} ${OMISSION_NOTICE}`;
       }
@@ -458,10 +456,6 @@ export function createSessionActivitySummaries(deps: {
         throw new ActivitySummaryCancelledError();
       }
       state.entry = { ...state.entry, activitySummary: committed.activitySummary };
-      assertCurrentOwner(state, ref);
-      if (committedTranscript?.sessionId !== state.sessionId) {
-        throw new Error("Activity recap patch omitted its transcript predicate receipt");
-      }
       // This source-free field patch cannot change the transcript after its transaction guard.
       const latest = committedTranscript.watermark;
       state.failures = 0;

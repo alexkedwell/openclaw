@@ -78,7 +78,7 @@ import type {
 import type { ToolEventRecipientRegistry } from "./server-chat-tool-recipients.js";
 import { createChatTranscriptPublication } from "./server-chat-transcript-publication.js";
 import { roundedChatSendTimingMs } from "./server-methods/chat-server-timing.js";
-import { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
+import type { SessionLifecyclePersistenceParams } from "./session-lifecycle-persistence-owner.js";
 import { tryResolveSessionCompatibilityOwnerAgentId } from "./session-request-agent.js";
 import type { SessionRowProjection } from "./session-row-projection.js";
 import { resolveSessionSubscriptionKeys } from "./session-subscription-keys.js";
@@ -180,7 +180,9 @@ export type AgentEventHandlerOptions = {
   sessionMessageSubscribers: SessionMessageSubscriberRegistry;
   loadGatewaySessionLifecycleSnapshotForEvent?: SessionEventSnapshotDependencies["loadGatewaySessionLifecycleSnapshotForEvent"];
   getSessionRowProjection?: () => SessionRowProjection | undefined;
-  persistGatewaySessionLifecycleEventForEvent?: typeof persistGatewaySessionLifecycleEvent;
+  persistGatewaySessionLifecycleEventForEvent: (
+    params: SessionLifecyclePersistenceParams,
+  ) => Promise<void>;
   lifecycleErrorRetryGraceMs?: number;
   isChatSendRunActive?: (runId: string) => boolean;
   clearTrackedActiveRun?: (params: {
@@ -248,7 +250,7 @@ export function createAgentEventHandler({
   sessionMessageSubscribers,
   loadGatewaySessionLifecycleSnapshotForEvent = () => ({ row: null }),
   getSessionRowProjection,
-  persistGatewaySessionLifecycleEventForEvent = persistGatewaySessionLifecycleEvent,
+  persistGatewaySessionLifecycleEventForEvent,
   lifecycleErrorRetryGraceMs = AGENT_RUN_TERMINAL_RETRY_GRACE_MS,
   isChatSendRunActive = () => false,
   clearTrackedActiveRun,
@@ -440,15 +442,8 @@ export function createAgentEventHandler({
         ? persistGatewaySessionLifecycleEventForEvent({
             sessionKey,
             agentId: sessionAgentId,
-            event: {
-              ...evt,
-              ...(evt.contextClaimId ? { contextClaimId: evt.contextClaimId } : {}),
-              ...(clientRunId !== evt.runId ? { clientRunId } : {}),
-              ...(evt.lifecycleGeneration ? { lifecycleGeneration: evt.lifecycleGeneration } : {}),
-              ...(evt.mainSessionRestartRecovery === true
-                ? { mainSessionRestartRecovery: true as const }
-                : {}),
-            },
+            event: evt,
+            ...(clientRunId !== evt.runId ? { clientRunId } : {}),
           })
         : undefined;
     // Completion retires the registration even when no visible terminal is published.

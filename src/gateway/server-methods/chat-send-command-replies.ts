@@ -90,9 +90,7 @@ export function replaceChatSendReplyPayload(
 }
 
 function parseReplyInlineDirectives(payload: ReplyPayload) {
-  return typeof payload.text === "string" && payload.text.includes("[[")
-    ? parseInlineDirectives(payload.text)
-    : undefined;
+  return payload.text?.includes("[[") ? parseInlineDirectives(payload.text) : undefined;
 }
 
 function replyMediaDedupeKeys(payload: ReplyPayload): string[] {

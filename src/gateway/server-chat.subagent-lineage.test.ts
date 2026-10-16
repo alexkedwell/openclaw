@@ -43,6 +43,7 @@ function createLineageHarness(projection: SessionRowProjection, key: string) {
     sessionEventSubscribers: createSessionEventSubscriberRegistry(),
     sessionMessageSubscribers: createSessionMessageSubscriberRegistry(),
     getSessionRowProjection: () => projection,
+    persistGatewaySessionLifecycleEventForEvent: vi.fn(async () => {}),
   });
   let seq = 0;
   return {

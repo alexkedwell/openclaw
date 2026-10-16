@@ -22,6 +22,7 @@ import {
   buildAbortedChatSendPayload,
   readPreRegisteredRun,
   resolveChatAbortRequester,
+  type PreRegisteredAgentDedupePayload,
 } from "./chat-abort-authorization.js";
 import { descendantAbortError } from "./chat-abort-descendants.js";
 import { abortChatRunsForSessionKeyWithPartials } from "./chat-abort-runtime.js";
@@ -76,7 +77,7 @@ type ChatSendRetryParams = Pick<
 export function resolveChatSendRequestConflict(
   { request, session, context }: Omit<ChatSendRetryParams, "respond">,
   comparison?: ChatSendRetryComparison,
-  ownPendingAttemptId?: string,
+  ownPendingPayload?: PreRegisteredAgentDedupePayload,
 ) {
   if (request.goalOperation) {
     return undefined;
@@ -117,12 +118,12 @@ export function resolveChatSendRequestConflict(
     return conflict(true);
   }
   const ownsPendingReservation =
-    ownPendingAttemptId !== undefined &&
+    ownPendingPayload !== undefined &&
     readPreRegisteredRun({
       key: session.pendingChatSendKey,
       entry: entries[1],
       keyPrefix: PENDING_CHAT_SEND_DEDUPE_PREFIX,
-    })?.payload.attemptId === ownPendingAttemptId;
+    })?.payload === ownPendingPayload;
   const retryEntries = ownsPendingReservation ? entries.slice(0, 1) : entries;
   if (
     !comparison &&
@@ -147,10 +148,10 @@ export function resolveChatSendRequestConflict(
 
 export function prepareChatSendRetryComparison(
   params: Omit<ChatSendRetryParams, "respond">,
-  ownPendingAttemptId?: string,
+  ownPendingPayload?: PreRegisteredAgentDedupePayload,
 ): Promise<ChatSendRetryComparison> | undefined {
   try {
-    resolveChatSendRequestConflict(params, undefined, ownPendingAttemptId);
+    resolveChatSendRequestConflict(params, undefined, ownPendingPayload);
     return undefined;
   } catch (error) {
     if (!isSessionTranscriptProjectionUnavailableError(error)) {

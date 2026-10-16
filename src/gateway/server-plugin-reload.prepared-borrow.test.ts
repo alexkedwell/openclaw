@@ -57,7 +57,7 @@ import * as bootstrap from "./server-plugin-bootstrap.js";
 import { withOperatorToolGatewayAuthority } from "./server-plugin-in-process-dispatch.js";
 import { createContext } from "./server-plugin-in-process-dispatch.test-support.js";
 import { reloadGatewayPlugins } from "./server-plugin-reload.js";
-import { createGatewayPluginRuntimeGeneration } from "./server-plugin-runtime-generation.js";
+import { createGatewayPluginRuntimeState } from "./server-plugin-runtime-state.js";
 import { refreshModelRuntimeAfterHotReload } from "./server-reload-model-runtime-scope.js";
 import { GatewayRequestEntryLifetime } from "./server-request-entry.js";
 import { createGatewaySidecarStopOwner } from "./server-sidecar-owners.js";
@@ -225,7 +225,7 @@ describe("prepared Gateway plugin borrowing", () => {
           pluginRuntime: registryOwner,
           pluginWorkspaceDir: state.workspaceDir,
           kernel: {
-            pluginRuntimeGeneration: createGatewayPluginRuntimeGeneration({
+            pluginRuntimeState: createGatewayPluginRuntimeState({
               getServices: () => null,
               setServices: () => {},
             }),
@@ -651,7 +651,7 @@ describe("published Gateway plugin services", () => {
           pluginRuntime: registryOwner,
           pluginWorkspaceDir: state.workspaceDir,
           kernel: {
-            pluginRuntimeGeneration: createGatewayPluginRuntimeGeneration({
+            pluginRuntimeState: createGatewayPluginRuntimeState({
               getServices: () => services,
               setServices: (handle) => {
                 services = handle;

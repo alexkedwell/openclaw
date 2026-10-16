@@ -5,6 +5,7 @@ import {
   onAgentRuntimeEvent,
   resetAgentEventsForTest,
   withAgentRunLifecycleGeneration,
+  type AgentEventRuntimePayload,
 } from "../infra/agent-events.js";
 import {
   clearAgentRunContext as clearRegisteredAgentRunContext,
@@ -13,8 +14,14 @@ import {
 import { abortChatRunById, registerChatAbortController } from "./chat-abort.js";
 import { createAgentEventTestHarness } from "./server-chat.agent-events.test-harness.js";
 import { subscribeAgentEvents } from "./server-chat.agent-events.test-helpers.js";
+import { createSessionLifecyclePersistenceOwner } from "./session-lifecycle-persistence-owner.js";
 import type { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
 
+const writeLifecycle = vi.hoisted(() => vi.fn());
+// mock-isolation: Exercise the real persistence handoff without admitting a database.
+vi.mock("./session-lifecycle-state.js", () => ({
+  prepareGatewaySessionLifecycleEvent: (params: unknown) => () => writeLifecycle(params),
+}));
 // mock-isolation: Publication tests use injected persistence without operator config or SQLite.
 vi.mock("../config/io.js", () => ({ getRuntimeConfig: () => ({}) }));
 // mock-isolation: No restart marker exists in this fixture; the real admission owner still orders reads.
@@ -29,6 +36,7 @@ describe("single lifecycle publication", () => {
   beforeEach(() => {
     resetAgentEventsForTest();
     persistGatewaySessionLifecycleEventMock.mockClear();
+    writeLifecycle.mockReset().mockResolvedValue(undefined);
   });
   afterEach(() => resetAgentEventsForTest());
 
@@ -37,6 +45,50 @@ describe("single lifecycle publication", () => {
       persistGatewaySessionLifecycleEventForEvent: persistGatewaySessionLifecycleEventMock,
     });
   }
+
+  it("persists the remapped start and joins its eager terminal write with private metadata", async () => {
+    const sessionKey = "agent:main:handoff";
+    const clientRunId = "client-handoff";
+    const event: AgentEventRuntimePayload = {
+      runId: "provider-handoff",
+      seq: 2,
+      stream: "lifecycle",
+      ts: 2_000,
+      data: { phase: "end", startedAt: 1_000, endedAt: 2_000 },
+    };
+    Object.defineProperty(event, "isHeartbeat", { value: false, enumerable: false });
+    const owner = createSessionLifecyclePersistenceOwner();
+    let joined: Promise<void> | undefined;
+    const h = createAgentEventTestHarness({
+      persistGatewaySessionLifecycleEventForEvent: owner.persist,
+      trackTrackedRunTerminalPersistence: (params) => {
+        joined = params.persistence;
+      },
+    });
+    h.register(event.runId, sessionKey, clientRunId);
+    try {
+      await h.handler({ ...event, seq: 1, data: { phase: "start", startedAt: 1_000 } });
+      const persistence = owner.observe({ sessionKey, event, clientRunId });
+      await persistence;
+      await h.handler(event);
+      expect(joined).toBe(persistence);
+      await joined;
+      expect(writeLifecycle).toHaveBeenCalledTimes(2);
+      expect(writeLifecycle).toHaveBeenNthCalledWith(1, {
+        sessionKey,
+        agentId: undefined,
+        event: expect.objectContaining({ clientRunId, data: { phase: "start", startedAt: 1_000 } }),
+      });
+      expect(writeLifecycle).toHaveBeenNthCalledWith(2, {
+        sessionKey,
+        event: expect.objectContaining({ runId: event.runId, clientRunId, isHeartbeat: false }),
+      });
+      expect(h.chat().map(([, payload]) => payload.runId)).toEqual([clientRunId]);
+    } finally {
+      await h.handler.dispose();
+      await owner.drain();
+    }
+  });
 
   it("reserves the RPC abort terminal before synchronous lifecycle errors", async () => {
     const stopReason = "rpc";

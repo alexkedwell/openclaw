@@ -10,7 +10,7 @@ import { hasSessionChangeReceivers } from "./session-change-receivers.js";
 import { buildGatewaySessionSnapshot } from "./session-event-payload.js";
 import { withPreparedSessionEventRow } from "./session-event-prepared-row.js";
 import { prepareSessionEventProjection } from "./session-event-projection.js";
-import type { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
+import type { SessionLifecyclePersistenceParams } from "./session-lifecycle-persistence-owner.js";
 import type { SessionRowReadView } from "./session-row-prepared-read.js";
 import type { SessionRowProjection } from "./session-row-projection.js";
 import type { GatewaySessionRow } from "./session-utils.js";
@@ -99,7 +99,9 @@ export function createSessionLifecyclePublisher(
     broadcastToConnIds: GatewayBroadcastToConnIdsFn;
     sessionEventSubscribers: SessionEventSubscriberRegistry;
     getSessionRowProjection?: () => SessionRowProjection | undefined;
-    persistGatewaySessionLifecycleEventForEvent: typeof persistGatewaySessionLifecycleEvent;
+    persistGatewaySessionLifecycleEventForEvent: (
+      params: SessionLifecyclePersistenceParams,
+    ) => Promise<void>;
   },
 ) {
   const buildSnapshot = createSessionEventSnapshotBuilder(deps);
@@ -182,10 +184,8 @@ export function createSessionLifecyclePublisher(
             .persistGatewaySessionLifecycleEventForEvent({
               sessionKey,
               agentId,
-              event: {
-                ...event,
-                ...(clientRunId !== event.runId ? { clientRunId } : {}),
-              },
+              event,
+              ...(clientRunId !== event.runId ? { clientRunId } : {}),
             })
             .catch((err: unknown) => {
               logError(

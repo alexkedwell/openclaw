@@ -29,7 +29,6 @@ import type { InternalSessionEntry as SessionEntry } from "../config/sessions/ty
 import { SessionWorkStartChangedError } from "../config/sessions/work-start-error.js";
 import { getAgentRunContext } from "../infra/agent-run-registry.js";
 import { captureAgentRunTerminalPersistence } from "../infra/agent-run-terminal-writes.js";
-import { createTestGatewayScheduler } from "../test-utils/gateway-scheduler-clock.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -112,8 +111,7 @@ async function recoveryFixture(name: string) {
     getAgentRunContext(runId)?.delegatedAuthority,
     "The recovery must hold its admitted source authority",
   );
-  const scheduler = createTestGatewayScheduler();
-  const owner = createSessionLifecyclePersistenceOwner(scheduler);
+  const owner = createSessionLifecyclePersistenceOwner();
   return {
     target,
     entry,
@@ -152,7 +150,6 @@ async function recoveryFixture(name: string) {
     async close() {
       await owner.drain();
       admission.close();
-      await scheduler.stop();
     },
   };
 }

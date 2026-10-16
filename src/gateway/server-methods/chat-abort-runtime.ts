@@ -8,6 +8,10 @@ import {
 import { killSubagentRunAdmin } from "../../agents/subagents/registry/subagent-control-kill.js";
 import { ensureSubagentControllerOwnsRun } from "../../agents/subagents/registry/subagent-control-scope.js";
 import {
+  SUBAGENT_KILL_TASK_ERROR,
+  type SubagentAdminKillResult,
+} from "../../agents/subagents/registry/subagent-control.types.js";
+import {
   getCurrentSubagentRunOwner,
   subagentRuns,
 } from "../../agents/subagents/registry/subagent-registry-memory.js";
@@ -20,14 +24,9 @@ import { captureWorkerInferenceForSession, createChatAbortOps } from "../chat-ab
 import { isChatAbortControllerEntryAbortable } from "../chat-abort.js";
 import { resolveChatRunOwnerAgentId } from "../chat-run-owner.js";
 import { errorShapeFromError } from "../error-shape.js";
-import { getSessionRowProjection } from "../session-row-projection-access.js";
 import { resolveSessionStoreKey } from "../session-utils.js";
 import { canRequesterAbortChatRun } from "./chat-abort-authorization.js";
 import { abortControlledSubagents } from "./chat-abort-descendants.js";
-import {
-  createQueuedCollectorPublication,
-  getQueuedCollectorCancellationRunId,
-} from "./chat-abort-queued-collector-publication.js";
 import type { ChatSessionAbortParams, ChatSessionAbortResult } from "./chat-abort-runtime.types.js";
 import { prepareChatSessionAbort } from "./chat-abort-session-plan.js";
 import {
@@ -36,6 +35,17 @@ import {
   type QueuedCollectorAbortOutcome,
   type ChatAbortSessionSnapshot,
 } from "./chat-aborted-partial.js";
+import { emitSessionsChanged } from "./session-change-event.js";
+
+function getQueuedCollectorCancellationRunId(result: SubagentAdminKillResult): string | undefined {
+  return result.found &&
+    result.killed &&
+    result.targetState?.state === "terminal" &&
+    result.targetState.task.status === "cancelled" &&
+    result.targetState.task.error === SUBAGENT_KILL_TASK_ERROR
+    ? result.runId
+    : undefined;
+}
 
 /** Queued collectors retain scheduler ownership while Gateway admission is still pending. */
 export function abortQueuedCollectorSession(
@@ -115,30 +125,24 @@ export function abortQueuedCollectorSession(
       ),
     };
     let failure: { error: unknown } | undefined;
-    try {
-      assertCurrent();
-      const projection = getSessionRowProjection(params.context);
-      if (projection) {
-        do {
-          await projection.ensureMaterialized();
-        } while (projection.needsMaterialization);
-      }
-      assertCurrent();
-      const publication = createQueuedCollectorPublication({
-        context: params.context,
-        sessionKey: params.sessionKey,
-        agentId: params.agentId,
-        get sessionId() {
-          return params.sessionId;
-        },
-        defaultAgentId: params.defaultAgentId,
-        projection,
-        canPublish: () =>
-          !sessionAbort ||
+    const publishNotice = (result: SubagentAdminKillResult) => {
+      if (
+        getQueuedCollectorCancellationRunId(result) !== undefined &&
+        (!sessionAbort ||
           (sessionAbort.ok &&
             !sessionAbort.value.result.unauthorized &&
-            sessionAbort.value.canCascade),
-      });
+            sessionAbort.value.canCascade))
+      ) {
+        // Display refreshes may coalesce; the Stop result retains exact cancellation identity.
+        emitSessionsChanged(params.context, {
+          sessionKey: params.sessionKey,
+          agentId: params.agentId,
+          reason: "abort",
+        });
+      }
+    };
+    try {
+      assertCurrent();
       let prepared = prepareSession === undefined;
       let preparation: Promise<void> | undefined;
       await killSubagentRunAdmin(
@@ -150,7 +154,7 @@ export function abortQueuedCollectorSession(
           expectedGeneration: entry.generation,
           expectedOwnerKey: entry.requesterSessionKey,
           onResult: (result) => {
-            publication.publishSnapshot(result, true);
+            publishNotice(result);
             if (sessionAbort && !sessionAbort.ok) {
               outcome = sessionAbort;
               return;
@@ -208,7 +212,7 @@ export function abortQueuedCollectorSession(
               prepared = true;
             }));
           },
-          preparePublication: publication,
+          onSnapshot: publishNotice,
           beforeSessionKill: async () => {
             await params.beforeAbort?.();
             assertCurrent();

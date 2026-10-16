@@ -597,7 +597,7 @@ function createDeferredWorkerCancellation() {
 function setPendingRegistrations(
   context: ReturnType<typeof createChatAbortContext>,
   ts = 1,
-  attemptId?: string,
+  reservationId?: string,
 ) {
   for (const prefix of ["agent", "pending-chat"]) {
     context.dedupe.set(`${prefix}:pending`, {
@@ -608,7 +608,7 @@ function setPendingRegistrations(
         status: "accepted",
         sessionKey: "main",
         agentId: "main",
-        ...(attemptId ? { reservationId: attemptId, attemptId } : {}),
+        ...(reservationId && prefix === "agent" ? { reservationId } : {}),
       },
     });
   }

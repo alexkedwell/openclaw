@@ -734,6 +734,7 @@ describe("gateway server chat", () => {
         toolEventRecipients: context.chatRunState.toolEventRecipients,
         sessionEventSubscribers: createSessionEventSubscriberRegistry(),
         sessionMessageSubscribers: createSessionMessageSubscriberRegistry(),
+        persistGatewaySessionLifecycleEventForEvent: vi.fn(async () => {}),
       });
       const handle: EmbeddedAgentQueueHandle = {
         runId: "run-embedded",
@@ -1042,6 +1043,7 @@ describe("gateway server chat", () => {
         toolEventRecipients: context.chatRunState.toolEventRecipients,
         sessionEventSubscribers: createSessionEventSubscriberRegistry(),
         sessionMessageSubscribers: createSessionMessageSubscriberRegistry(),
+        persistGatewaySessionLifecycleEventForEvent: vi.fn(async () => {}),
       });
       try {
         await writeMainSessionStore();

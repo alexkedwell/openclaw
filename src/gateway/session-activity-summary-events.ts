@@ -3,11 +3,10 @@ import { buildGatewaySessionSnapshot } from "./session-event-payload.js";
 import { sessionEventPublicationRows } from "./session-event-prepared-row.js";
 import { prepareSessionEventProjection } from "./session-event-projection.js";
 import type { SessionRowReadView } from "./session-row-prepared-read.js";
-import { identity, type Row } from "./session-row-projection-record.js";
+import { identity } from "./session-row-projection-record.js";
 import type { SessionRowProjection } from "./session-row-projection.js";
 
-type PendingSummary = { captured: Row; work: Promise<void> };
-const pendingSummaries = new WeakMap<SessionRowProjection, Map<string, PendingSummary>>();
+const pendingSummaries = new WeakMap<SessionRowProjection, Map<string, Promise<void>>>();
 
 export async function broadcastSessionActivitySummary(
   target: { key: string; agentId: string; storePath: string },
@@ -21,8 +20,8 @@ export async function broadcastSessionActivitySummary(
   const captured = projection?.capture(query);
   const key = captured ? identity(captured) : undefined;
   const previous = projection && key ? pendingSummaries.get(projection)?.get(key) : undefined;
-  if (previous && projection?.isCurrent(previous.captured)) {
-    return previous.work;
+  if (previous) {
+    return previous;
   }
   let release: (() => void) | undefined;
   const publish = (read?: SessionRowReadView) => {
@@ -63,12 +62,11 @@ export async function broadcastSessionActivitySummary(
       ),
     );
     if (captured && key) {
-      const owner = pendingSummaries.get(projection) ?? new Map<string, PendingSummary>();
+      const owner = pendingSummaries.get(projection) ?? new Map<string, Promise<void>>();
       pendingSummaries.set(projection, owner);
-      const pending = { captured, work };
-      owner.set(key, pending);
+      owner.set(key, work);
       release = () => {
-        if (owner.get(key) === pending) {
+        if (owner.get(key) === work) {
           owner.delete(key);
         }
       };

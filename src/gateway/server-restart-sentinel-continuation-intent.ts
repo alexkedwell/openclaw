@@ -15,9 +15,7 @@ export const RESTART_CONTINUATION_BUSY_RETRY_ERROR =
 type QueuedAgentTurnSessionDelivery = Extract<QueuedSessionDelivery, { kind: "agentTurn" }>;
 
 export function isRestartContinuationBusyPayload(payload: OutboundReplyPayload): boolean {
-  return (
-    typeof payload.text === "string" && payload.text.trim() === REPLY_RUN_STILL_SHUTTING_DOWN_TEXT
-  );
+  return payload.text?.trim() === REPLY_RUN_STILL_SHUTTING_DOWN_TEXT;
 }
 
 export function isRestartContinuationBusyRetry(entry: QueuedSessionDelivery | null): boolean {

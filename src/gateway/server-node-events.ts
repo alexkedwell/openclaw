@@ -309,10 +309,7 @@ function shouldDropDuplicateExecFinished(params: {
 }): boolean {
   const fingerprint = `${params.sessionKey}::${params.runId}`;
   const previousTs = recentExecFinishedRuns.get(fingerprint);
-  if (
-    typeof previousTs === "number" &&
-    params.now - previousTs <= EXEC_FINISHED_RUN_DEDUPE_WINDOW_MS
-  ) {
+  if (previousTs !== undefined && params.now - previousTs <= EXEC_FINISHED_RUN_DEDUPE_WINDOW_MS) {
     return true;
   }
 

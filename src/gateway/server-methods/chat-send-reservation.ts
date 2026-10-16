@@ -13,11 +13,26 @@ import type { GatewayRequestHandlerOptions } from "./types.js";
 export function createPendingChatSendReservationAccess(params: {
   context: GatewayRequestHandlerOptions["context"];
   client: GatewayRequestHandlerOptions["client"];
-  attemptId: string;
   request: NormalizedChatSendRequest;
   session: PreparedChatSendSession;
 }) {
-  const { pendingChatSendKey: key, clientRunId: runId } = params.session;
+  const { pendingChatSendKey: key } = params.session;
+  const { context, request, session } = params;
+  const payload = {
+    runId: session.clientRunId,
+    status: "accepted",
+    sessionKey: session.sessionKey,
+    ...(session.backingSessionId ? { sessionId: session.backingSessionId } : {}),
+    ...(session.rawSessionKey === session.sessionKey
+      ? {}
+      : { sessionKeyAliases: [session.rawSessionKey] }),
+    ...(session.selectedAgent.agentId ? { agentId: session.selectedAgent.agentId } : {}),
+    ownerConnId: normalizeOptionalString(params.client?.connId),
+    ownerDeviceId: normalizeOptionalString(params.client?.connect?.device?.id),
+    expiresAtMs: resolveChatRunExpiresAtMs({ now: session.now, timeoutMs: session.timeoutMs }),
+    turnKind: request.turnKind,
+    ...(request.goalOperation ? { goalFingerprint: request.goalOperation.requestFingerprint } : {}),
+  };
   const read = () =>
     readPreRegisteredRun({
       key,
@@ -25,43 +40,19 @@ export function createPendingChatSendReservationAccess(params: {
       keyPrefix: PENDING_CHAT_SEND_DEDUPE_PREFIX,
     });
   return {
+    payload,
     read,
     reserve: () => {
-      const { context, request, session, attemptId } = params;
       context.dedupe.set(key, {
         ts: session.now,
         ok: true,
         requestIdentity: request.goalOperation?.requestFingerprint ?? request.requestIdentity,
-        payload: {
-          runId: session.clientRunId,
-          attemptId,
-          status: "accepted",
-          sessionKey: session.sessionKey,
-          ...(session.backingSessionId ? { sessionId: session.backingSessionId } : {}),
-          ...(session.rawSessionKey === session.sessionKey
-            ? {}
-            : { sessionKeyAliases: [session.rawSessionKey] }),
-          ...(session.selectedAgent.agentId ? { agentId: session.selectedAgent.agentId } : {}),
-          ownerConnId: normalizeOptionalString(params.client?.connId),
-          ownerDeviceId: normalizeOptionalString(params.client?.connect?.device?.id),
-          expiresAtMs: resolveChatRunExpiresAtMs({
-            now: session.now,
-            timeoutMs: session.timeoutMs,
-          }),
-          turnKind: request.turnKind,
-          ...(request.goalOperation
-            ? { goalFingerprint: request.goalOperation.requestFingerprint }
-            : {}),
-        },
+        payload,
       });
     },
     clear: () => {
-      const pending = read();
-      if (
-        pending?.runId === runId &&
-        normalizeOptionalString(pending.payload.attemptId) === params.attemptId
-      ) {
-        params.context.dedupe.delete(key);
+      if (context.dedupe.get(key)?.payload === payload) {
+        context.dedupe.delete(key);
       }
     },
   };

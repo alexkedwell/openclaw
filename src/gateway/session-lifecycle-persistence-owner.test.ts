@@ -1,10 +1,6 @@
-import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import {
-  createGatewaySchedulerClock,
-  createTestGatewayScheduler,
-} from "../test-utils/gateway-scheduler-clock.js";
 
 const persistLifecycle = vi.hoisted(() => vi.fn());
 const ownerStatus = vi.hoisted(() => vi.fn());
@@ -42,10 +38,7 @@ const terminal = {
 };
 
 function fixture() {
-  const time = createGatewaySchedulerClock();
-  const scheduler = createTestGatewayScheduler(time.clock);
-  onTestFinished(() => scheduler.stop());
-  return { owner: createSessionLifecyclePersistenceOwner(scheduler), scheduler, time };
+  return { owner: createSessionLifecyclePersistenceOwner() };
 }
 
 describe("session lifecycle persistence owner", () => {
@@ -55,7 +48,7 @@ describe("session lifecycle persistence owner", () => {
     ownerStatus.mockReset().mockReturnValue("active");
   });
 
-  it("distinguishes reused run ids by their exact owner claim", async () => {
+  it("distinguishes original events even when their lifecycle fields match", async () => {
     persistLifecycle.mockResolvedValue(undefined);
     const { owner } = fixture();
     const first = {
@@ -64,7 +57,7 @@ describe("session lifecycle persistence owner", () => {
     };
     const successor = {
       ...terminal,
-      event: { ...terminal.event, contextClaimId: "claim-2" },
+      event: { ...first.event },
     };
 
     const firstPrepared = owner.observe(first);
@@ -88,6 +81,7 @@ describe("session lifecycle persistence owner", () => {
       data: { phase: "end", startedAt: 1_000, endedAt: 2_000 },
     } as typeof terminal.event & { mainSessionRestartRecovery?: true };
     Object.defineProperties(event, {
+      contextClaimId: { value: "claim-recovery", enumerable: false },
       lifecycleGeneration: { value: "generation-recovery", enumerable: false },
       mainSessionRestartRecovery: { value: true, enumerable: false },
       controlUiVisible: { value: true, enumerable: false },
@@ -95,17 +89,21 @@ describe("session lifecycle persistence owner", () => {
     });
     const { owner } = fixture();
 
-    await owner.observe({ sessionKey: terminal.sessionKey, event });
+    await owner.observe({ sessionKey: terminal.sessionKey, event, clientRunId: "client-recovery" });
 
     expect(persistLifecycle).toHaveBeenCalledWith({
       sessionKey: terminal.sessionKey,
       event: expect.objectContaining({
+        contextClaimId: "claim-recovery",
+        clientRunId: "client-recovery",
         lifecycleGeneration: "generation-recovery",
         mainSessionRestartRecovery: true,
         controlUiVisible: true,
         isHeartbeat: false,
       }),
     });
+    expect(event).not.toHaveProperty("clientRunId");
+    expect(Object.keys(event)).not.toContain("lifecycleGeneration");
     await owner.drain();
   });
 
@@ -126,7 +124,7 @@ describe("session lifecycle persistence owner", () => {
         }
         phases.push(params.event.data?.phase);
       });
-      const { owner, scheduler } = fixture();
+      const { owner } = fixture();
       const start = owner.persist({
         ...terminal,
         sessionKey: globalAlias ? "agent:research:main" : terminal.sessionKey,
@@ -136,7 +134,6 @@ describe("session lifecycle persistence owner", () => {
         ...terminal,
         ...(globalAlias ? { agentId: "research", sessionKey: "global" } : {}),
       });
-      scheduler.beginClose();
       const draining = owner.drain();
       try {
         expect(persistLifecycle).toHaveBeenCalledOnce();
@@ -151,25 +148,27 @@ describe("session lifecycle persistence owner", () => {
   );
 
   it.each([false, true])(
-    "keeps an expired write available until settlement (consumed while pending: %s)",
-    async (consumeWhilePending) => {
+    "joins the same write before and after settlement (rejected: %s)",
+    async (rejected) => {
       const deferred = createDeferred();
       persistLifecycle.mockReturnValue(deferred.promise);
-      const { owner, time } = fixture();
+      const { owner } = fixture();
       const prepared = owner.observe(terminal);
-      await time.advanceBy(60_000);
-
       expect(owner.observe(terminal)).toBe(prepared);
-      if (consumeWhilePending) {
-        expect(owner.persist(terminal)).toBe(prepared);
+      expect(owner.persist(terminal)).toBe(prepared);
+      expect(owner.persist(terminal)).toBe(prepared);
+      if (rejected) {
+        const failure = new Error("terminal write rejected");
+        const observedFailure = expect(prepared).rejects.toBe(failure);
+        deferred.reject(failure);
+        await observedFailure;
+      } else {
+        deferred.resolve();
+        await prepared;
       }
-      deferred.resolve();
-      await prepared;
-      if (!consumeWhilePending) {
-        await expect(owner.persist(terminal)).rejects.toMatchObject({
-          code: "ERR_STALE_GATEWAY_LIFECYCLE",
-        });
-      }
+      ownerStatus.mockReturnValue(undefined);
+      expect(owner.observe(terminal)).toBe(prepared);
+      expect(owner.persist(terminal)).toBe(prepared);
       expect(persistLifecycle).toHaveBeenCalledOnce();
       await owner.drain();
     },
@@ -188,6 +187,12 @@ describe("session lifecycle persistence owner", () => {
     expect(consumed).toBe(prepared);
     deferred.resolve();
     await Promise.all([consumed, draining]);
+    await expect(owner.persist(terminal)).rejects.toMatchObject({
+      code: "ERR_STALE_GATEWAY_LIFECYCLE",
+    });
+    await expect(owner.observe(terminal)).rejects.toMatchObject({
+      code: "ERR_STALE_GATEWAY_LIFECYCLE",
+    });
   });
 
   it("rejects a terminal write when its exact claim retires before commit", async () => {
@@ -257,16 +262,22 @@ describe("session lifecycle persistence owner", () => {
     { name: "native cancellation", data: { phase: "error", aborted: true, stopReason: "aborted" } },
     { name: "fallback exhaustion", data: { phase: "error", fallbackExhaustedFailure: true } },
     { name: "settled execution failure", data: { phase: "error", executionSettled: true } },
-  ])("does not restart $name after its prepared promise expires", async ({ data }) => {
+  ])("never starts an unobserved $name write", async ({ data }) => {
     persistLifecycle.mockResolvedValue(undefined);
-    const { owner, time } = fixture();
+    const { owner } = fixture();
     const event = { ...terminal, event: { ...terminal.event, data } };
-    await owner.observe(event);
-    await time.advanceBy(60_000);
+    const prepared = owner.observe(event);
+    await prepared;
 
-    await expect(owner.persist(event)).rejects.toMatchObject({
+    expect(owner.persist(event)).toBe(prepared);
+    await expect(owner.persist({ ...event, event: { ...event.event } })).rejects.toMatchObject({
+      code: "ERR_STALE_GATEWAY_LIFECYCLE",
+    });
+    const { seq: _seq, ...withoutSequence } = event.event;
+    await expect(owner.persist({ ...event, event: withoutSequence })).rejects.toMatchObject({
       code: "ERR_STALE_GATEWAY_LIFECYCLE",
     });
     expect(persistLifecycle).toHaveBeenCalledOnce();
+    await owner.drain();
   });
 });

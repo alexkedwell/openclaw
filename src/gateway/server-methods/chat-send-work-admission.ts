@@ -32,7 +32,10 @@ import { resolveOperatorSessionCreation } from "../session-creation-provenance.j
 import { SessionMutationAuthorizationChangedError } from "../session-mutation-authorization-error.js";
 import { captureGatewayClientUploadCommitGuard } from "../upload-policy.js";
 import { formatForLog } from "../ws-log.js";
-import { readPreRegisteredRun } from "./chat-abort-authorization.js";
+import {
+  readPreRegisteredRun,
+  type PreRegisteredAgentDedupePayload,
+} from "./chat-abort-authorization.js";
 import {
   terminalizeRestartSafeChatAdmission,
   type RestartSafeChatTerminalState,
@@ -124,7 +127,7 @@ export async function withCurrentChatSendRetry(
     session: PreparedChatSendSession;
     withPreparedCurrent?: SessionMutationAuthorization["withPreparedCurrent"];
   },
-  ownPendingAttemptId: string,
+  ownPendingPayload: PreRegisteredAgentDedupePayload,
   consume: (
     session: Parameters<Parameters<typeof withCurrentChatSendSession>[0]["consume"]>[0],
     comparison: ChatSendRetryComparison | undefined,
@@ -160,7 +163,7 @@ export async function withCurrentChatSendRetry(
   const pending = await withCurrent((session) => {
     const comparison = prepareChatSendRetryComparison(
       { ...params, session: { ...params.session, entry: session.entry } },
-      ownPendingAttemptId,
+      ownPendingPayload,
     );
     if (comparison) {
       return observeChatSendWork(comparison);
@@ -392,47 +395,6 @@ export function createChatSendWorkAdmission(params: {
     references += 1;
     return hold();
   };
-  const retainSettlement = (assertOwnerCurrent: () => void) => {
-    const releaseSettlement = retain();
-    let active = true;
-    return {
-      assertCurrent() {
-        if (!active || references === 0) {
-          throw new Error("Chat settlement admission was released");
-        }
-        assertOwnerCurrent();
-      },
-      release() {
-        active = false;
-        releaseSettlement();
-      },
-    };
-  };
-  const retainTerminalSettlement = () => {
-    const terminal = params.terminal;
-    if (!terminal || !admittedSource) {
-      return undefined;
-    }
-    return {
-      ...retainSettlement(() => {
-        const registered = terminal.currentRegistration();
-        // Cancellation retires abortability first; retained settlement still owns cleanup.
-        if (!terminal.isActive() || (registered && registered !== terminal.sessionBinding)) {
-          throw new Error("Chat terminal settlement no longer owns its admission");
-        }
-      }),
-      expectedLifecycleRevision: admittedLifecycleRevision,
-      target: {
-        agentId: terminal.target.agentId,
-        storePath: terminal.storePath,
-        readSource: admittedSource,
-        target: {
-          canonicalKey: terminal.target.canonicalKey,
-          storeKeys: [...terminal.target.storeKeys],
-        },
-      },
-    };
-  };
   return {
     acquireInputActor() {
       if (!inputActor) {
@@ -478,19 +440,36 @@ export function createChatSendWorkAdmission(params: {
       state: RestartSafeChatTerminalState & { startedAt: number },
     ): Promise<boolean> {
       const terminal = params.terminal;
-      const settlement = retainTerminalSettlement();
-      if (!terminal || !settlement) {
+      const readSource = admittedSource;
+      if (!terminal || !readSource) {
         return false;
       }
+      const releaseSettlement = retain();
       try {
         return await terminalizeRestartSafeChatAdmission({
           ...state,
-          ...settlement,
+          expectedLifecycleRevision: admittedLifecycleRevision,
+          target: {
+            agentId: terminal.target.agentId,
+            storePath: terminal.storePath,
+            readSource,
+            target: {
+              canonicalKey: terminal.target.canonicalKey,
+              storeKeys: [...terminal.target.storeKeys],
+            },
+          },
+          assertCurrent: () => {
+            const registered = terminal.currentRegistration();
+            // Cancellation retires abortability first; this hold still owns cleanup.
+            if (!terminal.isActive() || (registered && registered !== terminal.sessionBinding)) {
+              throw new Error("Chat terminal settlement no longer owns its admission");
+            }
+          },
           admittedSessionId: terminal.admittedSessionId,
           clientRunId: terminal.runId,
         });
       } finally {
-        settlement.release();
+        releaseSettlement();
       }
     },
     withInputCommitPublication<T>(

@@ -14,19 +14,14 @@ import {
   getActiveSessionWorkAdmissionCount,
 } from "../../../sessions/session-lifecycle-admission.js";
 import type { AgentWaitResult } from "../../run-wait.js";
-import type { KillPublicationPreparation } from "./subagent-control-kill-scope.js";
 import * as killSession from "./subagent-control-session.js";
 import { killSubagentRunAdmin } from "./subagent-control.js";
-import type { SubagentAdminKillResult } from "./subagent-control.types.js";
 import * as completionState from "./subagent-registry-completion.js";
 import * as registryHelpers from "./subagent-registry-helpers.js";
 import { subagentRuns } from "./subagent-registry-memory.js";
 import { subscribeSubagentRunChanges } from "./subagent-registry-publication.js";
 import { registerSubagentRun, replaceSubagentRunAfterSteerCore } from "./subagent-registry.js";
-import {
-  removeSubagentSessionEntry,
-  writeSubagentSessionEntry,
-} from "./subagent-registry.persistence.test-support.js";
+import { writeSubagentSessionEntry } from "./subagent-registry.persistence.test-support.js";
 import { resolveSubagentSessionStatus } from "./subagent-session-metrics.js";
 
 const fixture = useSubagentControlFixture();
@@ -65,60 +60,6 @@ it("does not refresh session metadata when an owned abort marker is already pers
   );
   expect(assertCommitAllowed).toHaveBeenCalled();
   expect(read()).toEqual(before);
-});
-
-it("revalidates the session after held publication preparation permits retirement", async () => {
-  const target = {
-    stateDir: fixture.stateDir,
-    agentId: "main",
-    sessionKey: rootKey,
-    defaultSessionId: "prepared-publication-session",
-    lifecycleRevision: "prepared-publication-revision",
-  };
-  const storePath = await writeSubagentSessionEntry(target);
-  await registerSubagentRun({
-    runId: "prepared-publication",
-    childSessionKey: rootKey,
-    childAgentId: "main",
-    sessionEntry: loadExactSessionEntryReadOnly({ storePath, sessionKey: rootKey })?.entry,
-    requesterSessionKey: "agent:main:main",
-    requesterAgentId: "main",
-    requesterDisplayKey: "main",
-    task: "publication ownership",
-    cleanup: "keep",
-  });
-  const onResult = vi.fn();
-  let transitioned = false;
-  const publishSnapshot = vi.fn();
-  const preparePublication = vi.fn<KillPublicationPreparation<SubagentAdminKillResult>["prepare"]>(
-    async (publish) => {
-      if (!transitioned) {
-        transitioned = true;
-        await removeSubagentSessionEntry(target);
-      }
-      return publish();
-    },
-  );
-  const result = await killSubagentRunAdmin(
-    {
-      cfg: getRuntimeConfig(),
-      sessionKey: rootKey,
-      agentId: "main",
-      expectedRunId: "prepared-publication",
-      onResult,
-    },
-    {
-      assertCurrent: () => {},
-      preparePublication: { prepare: preparePublication, publishSnapshot },
-    },
-  );
-  expect(publishSnapshot).toHaveBeenCalledExactlyOnceWith(result);
-  expect(onResult).toHaveBeenCalledExactlyOnceWith(result);
-  expect(result).toMatchObject({
-    found: true,
-    error: expect.stringContaining("ownership changed"),
-  });
-  expect(result).not.toHaveProperty("targetState");
 });
 
 it.each([

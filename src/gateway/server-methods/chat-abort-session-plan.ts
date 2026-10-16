@@ -339,10 +339,7 @@ export function prepareChatSessionAbort(
         const written =
           kind === "agent"
             ? writePreRegisteredAgentAbort({ ...abort, sessionKey, payload })
-            : writePreRegisteredChatAbort({
-                ...abort,
-                attemptId: normalizeOptionalString(payload.attemptId),
-              });
+            : writePreRegisteredChatAbort(abort);
         if (written) {
           recordRun(runId);
         }

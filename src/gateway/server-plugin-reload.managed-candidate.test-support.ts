@@ -202,7 +202,7 @@ export async function verifyPendingServiceCleanupRetry(
     registry: fixture.previousRegistry,
     config: fixture.getConfig(),
     onHandle: (handle) => {
-      expect(fixture.owner.publishServices(fixture.owner.currentClaim(), handle)).toBe(true);
+      fixture.owner.setServices(handle);
     },
   });
   await startupEntered.promise;

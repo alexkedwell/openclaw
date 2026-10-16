@@ -83,10 +83,9 @@ export function captureSessionAbortRequestOrigin(
     : undefined;
 }
 
-type PreRegisteredAgentDedupePayload = {
+export type PreRegisteredAgentDedupePayload = {
   goalFingerprint?: unknown;
   agentId?: unknown;
-  attemptId?: unknown;
   controlUiVisible?: unknown;
   dedupeKeys?: unknown;
   expiresAtMs?: unknown;
@@ -332,14 +331,15 @@ export function writePreRegisteredChatAbort(params: {
   runId: string;
   stopReason: string;
   endedAt?: number;
-  attemptId?: string;
+  ownPendingPayload?: PreRegisteredAgentDedupePayload;
   requestIdentity?: string;
   expectedPayload?: PreRegisteredAgentDedupePayload;
 }) {
+  const pendingKey = pendingChatSendDedupeKey(params.runId);
+  const pendingEntry = params.context.dedupe.get(pendingKey);
   if (
-    params.expectedPayload &&
-    params.context.dedupe.get(pendingChatSendDedupeKey(params.runId))?.payload !==
-      params.expectedPayload
+    (params.expectedPayload && pendingEntry?.payload !== params.expectedPayload) ||
+    (params.ownPendingPayload && pendingEntry && pendingEntry.payload !== params.ownPendingPayload)
   ) {
     return false;
   }
@@ -351,21 +351,9 @@ export function writePreRegisteredChatAbort(params: {
   });
   params.context.chatRunState.getOrCreate(params.runId).abortMarker =
     createChatAbortMarker(endedAt);
-  const pendingKey = pendingChatSendDedupeKey(params.runId);
-  const pendingEntry = params.context.dedupe.get(pendingKey);
-  const pendingAttemptId = normalizeOptionalString(
-    (pendingEntry?.payload as PreRegisteredAgentDedupePayload | undefined)?.attemptId,
-  );
-  const ownsPendingAttempt = !params.attemptId || pendingAttemptId === params.attemptId;
   // Eviction removes the reservation, not the admission's immutable input identity.
-  const requestIdentity = pendingEntry
-    ? ownsPendingAttempt
-      ? pendingEntry.requestIdentity
-      : undefined
-    : params.requestIdentity;
-  if (ownsPendingAttempt) {
-    params.context.dedupe.delete(pendingKey);
-  }
+  const requestIdentity = pendingEntry ? pendingEntry.requestIdentity : params.requestIdentity;
+  params.context.dedupe.delete(pendingKey);
   setGatewayDedupeEntry({
     dedupe: params.context.dedupe,
     key: `chat:${params.runId}`,

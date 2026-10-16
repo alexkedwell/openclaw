@@ -3,7 +3,7 @@ import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import { prepareGatewayPluginLoad } from "./server-plugin-bootstrap.js";
 import { createPluginReloadRecovery } from "./server-plugin-reload-recovery.js";
-import { createGatewayPluginRuntimeGeneration } from "./server-plugin-runtime-generation.js";
+import { createGatewayPluginRuntimeState } from "./server-plugin-runtime-state.js";
 
 it("preserves readiness when rollback restores an already unavailable startup plugin", () => {
   const registry = createEmptyPluginRegistry();
@@ -11,12 +11,10 @@ it("preserves readiness when rollback restores an already unavailable startup pl
   const selected = new Set(["startup-error"]);
   const recovery = createPluginReloadRecovery(registry, prepareGatewayPluginLoad);
   expect(recovery.capture(selected)).toEqual([]);
-  const generation = createGatewayPluginRuntimeGeneration({
+  const generation = createGatewayPluginRuntimeState({
     getServices: () => null,
     setServices() {},
   });
-  const rejected = generation.reserve();
-  rejected.reject();
-  rejected.finishReload("restored", selected, registry, recovery.unavailablePluginIds);
+  generation.finishReload(undefined, "restored", selected, registry, recovery.unavailablePluginIds);
   expect(generation.getReloadStatus()).toBeUndefined();
 });

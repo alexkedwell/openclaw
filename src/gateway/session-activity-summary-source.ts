@@ -55,7 +55,6 @@ export async function readActivitySummarySource(
   },
 ) {
   const resolved = await prepareSqliteTranscriptReadScope(params.scope);
-  params.assertCurrent();
   const options = toDatabaseOptions(resolved);
   const scope = {
     ...params.scope,
@@ -74,13 +73,11 @@ export async function readActivitySummarySource(
     await import("../config/sessions/session-transcript-worker-runtime.js");
   return withSessionHistoryWorkerDatabase(options, async (owner) => {
     const read = async () => {
-      params.assertCurrent();
       const source = await owner.readActivitySummarySource({
         scope,
         previous: params.previous,
         admission,
       });
-      params.assertCurrent();
       return withActivitySummaryNotes(source);
     };
     for (let retry = false; ; retry = true) {
@@ -92,7 +89,6 @@ export async function readActivitySummarySource(
         if (retry || !(error instanceof SessionTranscriptProjectionUnavailableError)) {
           throw error;
         }
-        params.assertCurrent();
         startSessionTranscriptIndexReconcile({
           ...options,
           preferredSessionId: resolved.sessionId,

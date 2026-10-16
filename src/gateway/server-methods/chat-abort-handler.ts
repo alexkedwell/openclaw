@@ -403,7 +403,6 @@ export async function handleChatAbortRequestWithLifecycle(
         context,
         runId,
         stopReason: "rpc",
-        attemptId: normalizeOptionalString(pendingChatMatch.payload.attemptId),
         expectedPayload: pendingChatMatch.payload,
       });
       await respondWithWorkerRuns(aborted ? [runId] : []);

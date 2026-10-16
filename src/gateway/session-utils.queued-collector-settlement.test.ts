@@ -35,7 +35,6 @@ it.for(["settled", "rejected", "session replaced"] as const)(
     const releaseCleanup = createDeferred();
     const initialPublication = createDeferred();
     const failure = new Error("owned queued cleanup failed");
-    const publications: Array<string | undefined> = [];
     let cleanupSettled = false;
     const start = vi.fn(async () => {});
     const cleanup = vi.fn(async () => {
@@ -54,16 +53,8 @@ it.for(["settled", "rejected", "session replaced"] as const)(
           owner === context &&
           payload.sessionKey === entry.childSessionKey &&
           payload.reason === "abort";
-        if (selected) {
-          const view = expectDefined(options?.sessionRows, "prepared cancellation rows");
-          const row = expectDefined(
-            view.describe({ agentId: "main", key: entry.childSessionKey }),
-            "cancelled collector row",
-          );
-          publications.push(view.present(row).lastRunId);
-        }
         emit(owner, payload, options);
-        if (selected && publications.length === 1) {
+        if (selected) {
           initialPublication.resolve();
         }
       });
@@ -98,7 +89,19 @@ it.for(["settled", "rejected", "session replaced"] as const)(
         ),
         signal,
       );
-      expect(publications).toEqual([undefined]);
+      await sessionEvents.flushPendingSessionsChangedEvents(context);
+      expect(context.broadcastToConnIds).toHaveBeenCalledWith(
+        "sessions.changed",
+        expect.objectContaining({ sessionKey: entry.childSessionKey, reason: "abort" }),
+        new Set(["observer"]),
+        expect.any(Object),
+      );
+      expect(context.broadcastToConnIds).not.toHaveBeenCalledWith(
+        "sessions.changed",
+        expect.objectContaining({ lastRunId: entry.runId }),
+        expect.anything(),
+        expect.anything(),
+      );
       expect(cleanupSettled).toBe(false);
       expect(
         (await loadGatewaySessionEntryReadOnlyAsync(entry.childSessionKey)).entry?.lastRunId,
@@ -122,6 +125,7 @@ it.for(["settled", "rejected", "session replaced"] as const)(
       }
       releaseCleanup.resolve();
       await withinTest(stopping, signal);
+      await sessionEvents.flushPendingSessionsChangedEvents(context);
 
       const stored = expectDefined(
         (await loadGatewaySessionEntryReadOnlyAsync(entry.childSessionKey)).entry,
@@ -142,7 +146,6 @@ it.for(["settled", "rejected", "session replaced"] as const)(
           lastRunId: entry.runId,
           abortedLastRun: true,
         });
-        expect(publications).toEqual([undefined, entry.runId]);
         expect(context.broadcastToConnIds).toHaveBeenCalledWith(
           "sessions.changed",
           expect.objectContaining({
@@ -157,7 +160,12 @@ it.for(["settled", "rejected", "session replaced"] as const)(
         );
       } else {
         expect(respond.mock.calls[0]?.[0]).toBe(false);
-        expect(publications).toEqual([undefined]);
+        expect(context.broadcastToConnIds).not.toHaveBeenCalledWith(
+          "sessions.changed",
+          expect.objectContaining({ lastRunId: entry.runId }),
+          expect.anything(),
+          expect.anything(),
+        );
         expect(stored.lastRunId).toBe(
           transition === "session replaced" ? "replacement-terminal" : undefined,
         );

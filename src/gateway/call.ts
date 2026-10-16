@@ -814,7 +814,9 @@ async function callGatewayWithScopes<T = Record<string, unknown>>(
         }
         try {
           opts.onHelloOk?.(hello);
-        } catch {}
+        } catch {
+          // Hello observers are isolated; cancellation and dispatch checks still apply below.
+        }
         // An observer may cancel after inspecting hello, before any RPC is sent.
         if (settled) {
           return;

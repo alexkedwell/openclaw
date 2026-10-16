@@ -41,12 +41,14 @@ import { createHarness } from "./placement-dispatch-test-harness.js";
 import type { WorkerPlacementExecutionMode } from "./placement-record.js";
 import { createWorkerSessionPlacementStore } from "./placement-store.js";
 import type { WorkerProviderPreparedIntent } from "./preparation-identity.js";
+import type { WorkerProjectPreparationIdentity } from "./preparation-identity.schema.js";
 import * as support from "./service.test-support.js";
 import {
   readSessionRepositoryArtifacts,
   stageSessionRepositoryCheckpoint,
 } from "./session-repository-checkpoints.js";
 import { prepareGitHubPublicationFact } from "./worker-github-binding.js";
+import type { WorkerProjectSnapshot } from "./workspace-git-base.js";
 import { captureWorkspaceManifest } from "./workspace-manifest-worker.js";
 import { serializeWorkerWorkspaceManifest } from "./workspace-manifest.js";
 import { requireWorkspaceResultGit } from "./workspace-result-git.js";
@@ -107,7 +109,7 @@ async function preparedHarness(
       ),
   });
   const environmentId = reserve ? "prepared-spare" : harness.ready.environmentId;
-  const preparation = {
+  const preparation: WorkerProjectPreparationIdentity = {
     key: PREPARATION_KEY,
     cacheKey: "a".repeat(64),
     contractVersion: 1,
@@ -121,40 +123,38 @@ async function preparedHarness(
       protocolFeatures,
     },
   };
+  const project: WorkerProjectSnapshot = options.repository
+    ? {
+        key: "d".repeat(64),
+        baseCommit: options.repository.baseCommit,
+        source: {
+          kind: "repository",
+          url: options.repository.url,
+          repositoryId: "R_dispatch_fixture",
+          owner: {
+            agent: { agentId: REQUEST.agentId, provenance: null },
+            identity: { source: "anonymous" },
+          },
+        },
+      }
+    : { key: "d".repeat(64), baseCommit: "e".repeat(40), root: "/gateway/workspace" };
+  const profile = { settings: { region: "test" }, executionMode };
   const intent: WorkerProviderPreparedIntent = {
     providerId: "fake",
-    preparationKey: PREPARATION_KEY,
-    profileSnapshot: {
-      settings: { region: "test" },
-      executionMode,
-      ...(options.emptyWorkspace
-        ? { runtimePreparation: { ...preparation, source: "empty" } }
-        : {
-            project: {
-              key: "d".repeat(64),
-              baseCommit: options.repository?.baseCommit ?? "e".repeat(40),
-              ...(options.repository
-                ? {
-                    source: {
-                      kind: "repository",
-                      url: options.repository.url,
-                      repositoryId: "R_dispatch_fixture",
-                      owner: {
-                        agent: { agentId: REQUEST.agentId, provenance: null },
-                        identity: { source: "anonymous" },
-                      },
-                    },
-                  }
-                : { root: "/gateway/workspace" }),
-              preparation: {
-                ...preparation,
-                ...(options.recipe
-                  ? { recipe: options.recipe, setupRecipe: options.recipe.identity }
-                  : {}),
-              },
+    profileSnapshot: options.emptyWorkspace
+      ? { ...profile, runtimePreparation: { ...preparation, source: "empty" } }
+      : {
+          ...profile,
+          project: {
+            ...project,
+            preparation: {
+              ...preparation,
+              ...(options.recipe
+                ? { recipe: options.recipe, setupRecipe: options.recipe.identity }
+                : {}),
             },
-          }),
-    },
+          },
+        },
   };
   const store = support.testState.store;
   await store.createIntent({

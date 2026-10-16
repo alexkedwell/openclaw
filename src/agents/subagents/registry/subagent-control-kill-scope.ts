@@ -81,18 +81,11 @@ export type KillScope = {
 
 type PendingKillTree = { tree: KillTree; prepare: () => Promise<void> };
 
-export type KillPublicationPreparation<T> = {
-  prepare: (
-    publish: (prepareRows?: (publishResult: () => void) => Promise<void>) => Promise<void>,
-  ) => Promise<void>;
-  publishSnapshot?: (result: T) => void;
-};
-
 export async function withSubagentKillScope<T>(
   params: KillSelection,
   run: (scope: KillScope, trees: KillTree[]) => Promise<T>,
   captureResult?: (result: T, trees: KillTree[]) => T,
-  preparePublication?: KillPublicationPreparation<T>,
+  onSnapshot?: (result: T) => void,
   finishResult?: (result: T) => T,
 ): Promise<T> {
   // Discovery retains the cancellation scope, not a child's temporary write admission.
@@ -466,36 +459,11 @@ export async function withSubagentKillScope<T>(
     return batch;
   };
   const withPublication = async (publish: () => void) => {
-    let publicationActive = true;
-    const publishResult = () => {
-      if (!publicationActive) {
-        throw new Error("Subagent cancellation publication scope is no longer active");
-      }
-      publish();
-    };
     const publicationSession = captureResult ? trees[0]?.session : undefined;
-    const publishPrepared = async (prepareRows?: (publishResult: () => void) => Promise<void>) => {
-      const prepareResult = async () => {
-        if (prepareRows) {
-          await prepareRows(publishResult);
-        } else {
-          publishResult();
-        }
-      };
-      if (publicationSession) {
-        await publicationSession.withPublication(prepareResult);
-      } else {
-        await prepareResult();
-      }
-    };
-    try {
-      if (preparePublication) {
-        await preparePublication.prepare(publishPrepared);
-      } else {
-        await publishPrepared();
-      }
-    } finally {
-      publicationActive = false;
+    if (publicationSession) {
+      await publicationSession.withPublication(async () => publish());
+    } else {
+      publish();
     }
   };
   let outcome: { ok: true; rawResult: T; value: T } | { ok: false; error: unknown };
@@ -545,7 +513,7 @@ export async function withSubagentKillScope<T>(
         assertCurrent();
       }
       snapshot = captureResult ? captureResult(result, trees) : result;
-      if (preparePublication?.publishSnapshot?.(snapshot) !== undefined) {
+      if (onSnapshot?.(snapshot) !== undefined) {
         throw new TypeError("Subagent cancellation snapshot publication must be synchronous.");
       }
     });
