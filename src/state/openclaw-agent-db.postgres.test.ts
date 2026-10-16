@@ -228,6 +228,7 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
     const retained = await client.query(
       `SELECT session_id, event_id, parent_id FROM "${facts.namespace}".transcript_event_identities ORDER BY seq`,
     );
+    withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(database.path));
     await owners.closeOpenClawAgentDatabaseByPathAsync(database.path);
     await owners.cleanupSessionStateForTest({ stateDir: root });
     retireSqliteDatabaseAdmissionForPath(database.path);
@@ -292,6 +293,7 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
     expect(
       await owners.searchSessionTranscripts({ ...target, query: "archive", env: process.env }),
     ).toMatchObject({ hits: [expect.objectContaining({ messageId: "migration-user" })] });
+    withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(database.path));
     await owners.closeOpenClawAgentDatabaseByPathAsync(database.path);
     retireSqliteDatabaseAdmissionForPath(database.path);
     const reopened = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));

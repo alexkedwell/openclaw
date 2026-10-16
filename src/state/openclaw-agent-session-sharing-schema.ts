@@ -5,6 +5,7 @@ import { withoutOutboxEnqueueSequence } from "./openclaw-agent-outbox-sequence-m
 import { withLegacySessionParticipantsSchema } from "./openclaw-agent-participants-migration.js";
 import { AGENT_SCHEMA_WITHOUT_PROGRESS_CARD_SQL } from "./openclaw-agent-progress-card-schema.js";
 import { withLegacyAgentStorageSchema } from "./openclaw-agent-storage-schema.js";
+import { withLegacyAgentWriteLayout } from "./openclaw-agent-write-layout-migration.js";
 
 const SUGGESTIONS_SCHEMA_START = "CREATE TABLE IF NOT EXISTS session_suggestions (";
 
@@ -31,7 +32,9 @@ export const AGENT_V14_CORE_SCHEMA_SQL = withLegacySessionParticipantsSchema(
     withLegacyCanonicalSessionValidationTriggers(
       withoutAgentJsonPredicateColumns(
         withoutOutboxEnqueueSequence(
-          AGENT_SCHEMA_WITHOUT_PROGRESS_CARD_SQL.replace(sessionSharingSchema, ""),
+          withLegacyAgentWriteLayout(
+            AGENT_SCHEMA_WITHOUT_PROGRESS_CARD_SQL.replace(sessionSharingSchema, ""),
+          ),
         ),
       ),
     ),

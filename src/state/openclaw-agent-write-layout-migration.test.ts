@@ -8,6 +8,10 @@ import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
 import { withAgentDatabaseMaintenanceLease } from "./openclaw-agent-db-maintenance-lease.js";
 import { getOpenClawAgentMigrationSchema } from "./openclaw-agent-db-schema-helpers.js";
 import { ensureOpenClawAgentDatabaseSchema } from "./openclaw-agent-db-schema.js";
+import {
+  assertOpenClawMigrationWitnessPreserved,
+  captureOpenClawMigrationWitness,
+} from "./openclaw-migration-witness.js";
 import { resolveSchemaMigrationBackupTables } from "./schema-migration-backup-scope.js";
 import { assertSqliteMigrationScopePreserved } from "./sqlite-migration-scope.test-support.js";
 
@@ -80,6 +84,26 @@ describe("agent write layout migration", () => {
         if (outcome === "without-origins") {
           database.exec("DROP TABLE memory_entry_origins");
         }
+        if (outcome === "commit") {
+          database.exec(`
+            CREATE INDEX local_origin_lookup ON memory_entry_origins(session_key);
+            CREATE TABLE local_plugin_store (key TEXT PRIMARY KEY, body BLOB) STRICT;
+            INSERT INTO local_plugin_store VALUES ('retained', X'00FF');
+          `);
+        }
+        const captureWitness = () =>
+          captureOpenClawMigrationWitness(database, { role: "agent", agentId: "main" });
+        const originalWitness = outcome === "commit" ? captureWitness() : undefined;
+        if (originalWitness) {
+          // Physical identity stays exact when no version transition occurred.
+          database.exec(
+            "SAVEPOINT physical_identity; UPDATE memory_entry_origins SET oid = oid + 10",
+          );
+          expect(() =>
+            assertOpenClawMigrationWitnessPreserved(originalWitness, captureWitness()),
+          ).toThrow(/changed or lost/u);
+          database.exec("ROLLBACK TO physical_identity; RELEASE physical_identity");
+        }
         const indexes = indexDefinitions(database);
         const identities = database
           .prepare("SELECT * FROM transcript_event_identities ORDER BY seq")
@@ -114,6 +138,26 @@ describe("agent write layout migration", () => {
           });
         });
         database.setAuthorizer(null);
+        if (originalWitness) {
+          expect(
+            assertOpenClawMigrationWitnessPreserved(originalWitness, captureWitness()),
+          ).toEqual({
+            warnings: [],
+          });
+          for (const mutation of [
+            "UPDATE memory_entry_origins SET origin_class = 'system' WHERE agent_id = 'main'",
+            "ALTER TABLE memory_entry_origins ADD COLUMN unexpected TEXT",
+            "DROP INDEX local_origin_lookup",
+            "UPDATE local_plugin_store SET rowid = rowid + 1",
+          ]) {
+            database.exec("SAVEPOINT retained_content");
+            database.exec(mutation);
+            expect(() =>
+              assertOpenClawMigrationWitnessPreserved(originalWitness, captureWitness()),
+            ).toThrow(/changed or lost|noncanonical/u);
+            database.exec("ROLLBACK TO retained_content; RELEASE retained_content");
+          }
+        }
         expect(
           database.prepare("SELECT * FROM transcript_event_identities ORDER BY seq").all(),
         ).toEqual(identities);
