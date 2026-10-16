@@ -591,15 +591,15 @@ export function createLifecycleEventBroadcastHandler(params: {
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   getSessionRowProjection?: () => SessionRowProjection | undefined;
 }) {
-  return async (event: SessionLifecycleEvent): Promise<void> => {
+  return async (emittedEvent: SessionLifecycleEvent): Promise<void> => {
     const connIds = params.sessionEventSubscribers.getAll();
     if (!hasSessionChangeReceivers(connIds)) {
       return;
     }
     const agentScope = resolveSessionEventAgentScope(
       getRuntimeConfig(),
-      event.sessionKey,
-      normalizeOptionalString(event.agentId),
+      emittedEvent.sessionKey,
+      normalizeOptionalString(emittedEvent.agentId),
       true,
     );
     if (!agentScope) {
@@ -607,23 +607,23 @@ export function createLifecycleEventBroadcastHandler(params: {
     }
     const [eventAgentId, routingAgentId, compatibilityOwnerAgentId] = agentScope;
     const privateBroadcastScope = resolvePrivateSessionEventBroadcastScope(
-      event.sessionKey,
+      emittedEvent.sessionKey,
       agentScope,
     );
     const broadcastOptions = { ...privateBroadcastScope, dropIfSlow: true };
     // Key-only lifecycle deletes invalidate membership; a later row is not deletion evidence.
     if (
-      event.reason === "delete" ||
+      emittedEvent.reason === "delete" ||
       !routingAgentId ||
       (!eventAgentId && !compatibilityOwnerAgentId)
     ) {
       params.broadcastToConnIds(
         "sessions.changed",
         {
-          sessionKey: event.sessionKey,
+          sessionKey: emittedEvent.sessionKey,
           ...(eventAgentId ? { agentId: eventAgentId } : {}),
-          reason: event.reason,
-          ...(event.catalogChanged ? { catalogChanged: true } : {}),
+          reason: emittedEvent.reason,
+          ...(emittedEvent.catalogChanged ? { catalogChanged: true } : {}),
           ts: Date.now(),
         },
         connIds,
@@ -632,17 +632,18 @@ export function createLifecycleEventBroadcastHandler(params: {
       return;
     }
     const projection = params.getSessionRowProjection?.();
-    const query = { key: event.sessionKey, agentId: routingAgentId };
+    const query = { key: emittedEvent.sessionKey, agentId: routingAgentId };
     const captured = projection?.capture(query);
-    if (projection && !captured) {
-      // Discovery has no original incarnation: publish current facts, not the old event's fields.
-      event = {
-        sessionKey: event.sessionKey,
-        agentId: event.agentId,
-        reason: "updated",
-        ...(event.catalogChanged ? { catalogChanged: true } : {}),
-      };
-    }
+    // Discovery has no original incarnation: publish current facts, not the old event's fields.
+    const event: SessionLifecycleEvent =
+      projection && !captured
+        ? {
+            sessionKey: emittedEvent.sessionKey,
+            agentId: emittedEvent.agentId,
+            reason: "updated",
+            ...(emittedEvent.catalogChanged ? { catalogChanged: true } : {}),
+          }
+        : emittedEvent;
     const readActiveState = (session: { key: string; sessionId?: string }) =>
       resolveVisibleActiveSessionRunState({
         context: params,
