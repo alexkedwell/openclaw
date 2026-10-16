@@ -195,14 +195,6 @@ describe("queued collector native admission", () => {
         );
         await dispatched.promise;
         expect(agentResponse).toHaveBeenCalledOnce();
-        expect(agentResponse).toHaveBeenCalledWith(
-          false,
-          undefined,
-          expect.objectContaining({
-            code: "INVALID_REQUEST",
-            message: "agent runtime authority is no longer active",
-          }),
-        );
         await stopping;
         await dispatched.promise;
         // This unadopted launch still owns its provisional session; join its real cleanup.

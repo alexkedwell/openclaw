@@ -230,7 +230,7 @@ it("bounds live projection over idle history through admission, progress, drain,
       try {
         bindSwarmRunReservation(swarm.runId, getSubagentRunRuntimeKey(swarm));
         await read({
-          sessions: { running: 1, queued: 0 },
+          sessions: { running: 0, queued: 1 },
           work: { agentRuns: 0, chatRuns: 0, queuedTurns: 0 },
         });
         activateSwarmRun({
@@ -246,7 +246,7 @@ it("bounds live projection over idle history through admission, progress, drain,
         });
         hold = holdQueuedSwarmRun(swarm.runId);
         await read({
-          sessions: { running: 1, queued: 0 },
+          sessions: { running: 0, queued: 1 },
           work: { agentRuns: 0, chatRuns: 0, queuedTurns: 0 },
         });
         expect(hold?.withdraw()).toBe(true);

@@ -334,10 +334,10 @@ describe("queued collector session projection", () => {
           requestedKey: entry.childSessionKey,
           canonicalKey: entry.childSessionKey,
         }),
-      ).toEqual({ active: true, runIds: [entry.runId] });
+      ).toEqual({ active: true, runIds: [entry.runId], status: "queued" });
       expect((await listChildren(context)).sessions).toEqual([
         expect.objectContaining({
-          status: "running",
+          status: "queued",
           hasActiveRun: true,
           activeRunIds: [entry.runId],
         }),
