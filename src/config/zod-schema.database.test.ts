@@ -103,7 +103,6 @@ describe("experimental database config", () => {
   it.each([
     { families: { agent: { engine: "postgres" } } },
     { engine: "postgres", families: { state: { engine: "sqlite" } } },
-    { engine: "postgres", families: { workboard: { engine: "sqlite" } } },
   ])("reports unproven mixed PostgreSQL agents at their config path: %j", (database) => {
     expect(validateConfigObjectRaw({ database })).toMatchObject({
       ok: false,

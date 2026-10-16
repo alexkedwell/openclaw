@@ -14,6 +14,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveActivatedPluginBackupInventory } from "../../plugins/manifest-backup-resources.js";
 import { createPluginCache, withPluginCache } from "../../plugins/plugin-cache.js";
 import {
+  capturePostgresBackup,
   preparePostgresRestore,
   readBackupEngine,
   verifyMatchedPostgresBackup,
@@ -42,6 +43,8 @@ import {
 } from "../update-database-backup.js";
 import { restoreUpdateDatabaseBackup } from "../update-database-restore.js";
 import { createUpdateRun } from "../update-run-ledger.js";
+import { resolveDatabaseEngineSelection } from "./config.js";
+import { withDatabaseEngineSelection } from "./context.js";
 import { loadDatabasePortDescriptor } from "./port-provider-descriptor.js";
 import { materializeDatabasePort, type PortDescriptor } from "./port.worker.js";
 import { expectedPostgresCatalog } from "./postgres-catalog.js";
@@ -80,7 +83,7 @@ describe.skipIf(!connection)("matched PostgreSQL backup and update recovery", ()
       const storeId = randomUUID();
       const anchorPath = state.statePath("plugins", "workboard", "workboard.sqlite");
       const config: OpenClawConfig = {
-        database: { engine: "postgres", postgres: { connection } },
+        database: { families: { workboard: { engine: "postgres" } }, postgres: { connection } },
         plugins: { entries: { workboard: { enabled: true } } },
       };
       await state.writeConfig(config);
@@ -133,13 +136,15 @@ describe.skipIf(!connection)("matched PostgreSQL backup and update recovery", ()
             .prepare("INSERT INTO openclaw_engine_anchor VALUES (?, 'postgres', ?)")
             .run(storeId, namespace);
         }
+        openOpenClawStateDatabase({ env: state.env });
+        await closeOpenClawStateDatabaseAsync();
+        const inventory = resolveActivatedPluginBackupInventory({
+          config,
+          env: state.env,
+          stateDir: state.stateDir,
+        });
         {
           const originalAnchor = await fs.readFile(anchorPath);
-          const inventory = resolveActivatedPluginBackupInventory({
-            config,
-            env: state.env,
-            stateDir: state.stateDir,
-          });
           const resources = await createBackupResourcePlan({
             stateDir: state.stateDir,
             configPaths: [],
@@ -205,6 +210,45 @@ describe.skipIf(!connection)("matched PostgreSQL backup and update recovery", ()
           await expect(verifyMatchedPostgresBackup(directory, "user-backup")).rejects.toThrow();
         }
         {
+          const capturedSelection = await resolveDatabaseEngineSelection(config);
+          const unavailableConfig: OpenClawConfig = {
+            ...config,
+            database: {
+              ...config.database,
+              postgres: {
+                connection: {
+                  source: "env",
+                  provider: "default",
+                  id: `OPENCLAW_UNAVAILABLE_BACKUP_${randomUUID().replaceAll("-", "").toUpperCase()}`,
+                },
+              },
+            },
+          };
+          await expect(resolveDatabaseEngineSelection(unavailableConfig)).rejects.toThrow(
+            "Configure a resolvable PostgreSQL DSN",
+          );
+          await withDatabaseEngineSelection(capturedSelection, async () => {
+            const directory = state.path("captured-selection-backup");
+            await capturePostgresBackup({
+              sourcePath: anchorPath,
+              directory,
+              config: unavailableConfig,
+              profile: "user-backup",
+              assertCurrent() {},
+            });
+            const restored = await preparePostgresRestore({
+              directory,
+              anchorPath: state.path("captured-selection-restored.sqlite"),
+              config: unavailableConfig,
+              profile: "user-backup",
+              assertCurrent() {},
+            });
+            namespaces.add(restored.namespace);
+            expect(restored.namespace).not.toBe(namespace);
+            await expectRestored(client, restored.namespace);
+          });
+        }
+        {
           const gitPath = state.path("git-backup");
           const identity = { role: "generic", id: "workboard" } as const;
           const gitManifest = await dumpGitBackupDatabase({
@@ -227,6 +271,9 @@ describe.skipIf(!connection)("matched PostgreSQL backup and update recovery", ()
           await expectRestored(client, gitAnchor.namespace);
         }
         {
+          // The later exact-update recovery exercises the homogeneous PostgreSQL selection.
+          config.database = { engine: "postgres", postgres: { connection } };
+          await state.writeConfig(config);
           openOpenClawStateDatabase({ env: state.env });
           createUpdateRun({ trigger: "cli" }, { env: state.env });
           await closeOpenClawStateDatabaseAsync();
@@ -290,6 +337,82 @@ describe.skipIf(!connection)("matched PostgreSQL backup and update recovery", ()
               .prepare("INSERT INTO openclaw_engine_anchor VALUES (?, 'postgres', ?)")
               .run(sharedStoreId, sharedNamespace);
           }
+          // Reverse the mixture: state is PostgreSQL while the plugin remains SQLite.
+          const retainedAnchor = state.path("workboard-pg.sqlite");
+          await fs.rename(anchorPath, retainedAnchor);
+          {
+            using local = openNodeSqliteDatabase(anchorPath);
+            local.exec(descriptor.sqlite);
+          }
+          config.database = {
+            families: { state: { engine: "postgres" } },
+            postgres: { connection },
+          };
+          await state.writeConfig(config);
+          const stateStaging = state.path("state-archive-staging");
+          await fs.mkdir(stateStaging);
+          const stateResources = await createBackupResourcePlan({
+            stateDir: state.stateDir,
+            configPaths: [],
+            oauthDirs: [],
+            workspaceDirs: [],
+            excludedWorkspaceDirs: [],
+            agentRoots: [],
+            pluginResources: inventory.resources,
+            pluginRoots: inventory.pluginRoots,
+          });
+          const statePlan = await createBackupSqliteSnapshotPlan({
+            resources: stateResources,
+            tempDir: stateStaging,
+            legacyAuditSnapshots: [],
+          });
+          const stateCapsule = statePlan.snapshots.find(
+            (asset) => asset.archiveSourcePath === `${sharedPath}.postgres/manifest.json`,
+          );
+          assert(stateCapsule);
+          const workboardImage = statePlan.snapshots.find(
+            (asset) => asset.archiveSourcePath === anchorPath,
+          );
+          assert(workboardImage);
+          expect(readBackupEngine(workboardImage.sourcePath)).toEqual({ engine: "sqlite" });
+          const stateRestore = await preparePostgresRestore({
+            directory: path.dirname(stateCapsule.sourcePath),
+            anchorPath: state.path("restored-state.sqlite"),
+            config,
+            profile: "user-backup",
+            assertCurrent() {},
+          });
+          namespaces.add(stateRestore.namespace);
+          expect(stateRestore.namespace).not.toBe(sharedNamespace);
+          expect(
+            (
+              await client.query(
+                `SELECT COUNT(*) AS count FROM "${stateRestore.namespace}".config_machine_state`,
+              )
+            ).rows,
+          ).toEqual(
+            (
+              await client.query(
+                `SELECT COUNT(*) AS count FROM "${sharedNamespace}".config_machine_state`,
+              )
+            ).rows,
+          );
+          await fs.unlink(anchorPath);
+          await fs.rename(retainedAnchor, anchorPath);
+          config.database = { engine: "postgres", postgres: { connection } };
+          await state.writeConfig(config);
+          const homogeneousStaging = state.path("homogeneous-archive-staging");
+          await fs.mkdir(homogeneousStaging);
+          const homogeneousPlan = await createBackupSqliteSnapshotPlan({
+            resources: stateResources,
+            tempDir: homogeneousStaging,
+            legacyAuditSnapshots: [],
+          });
+          expect(
+            homogeneousPlan.snapshots.some(
+              (asset) => asset.archiveSourcePath === `${sharedPath}.postgres/manifest.json`,
+            ),
+          ).toBe(true);
           const input = {
             backupRoot: state.path("candidate"),
             stateDir: state.stateDir,

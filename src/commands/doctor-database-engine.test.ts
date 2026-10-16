@@ -86,6 +86,30 @@ describe("Doctor database engines", () => {
     expect(collectDatabaseEngineHealthFindings(cfg)).toHaveLength(1);
   });
 
+  it("distinguishes configured choices from conflicting physical stores without exposing connection details", () => {
+    const cfg = {
+      database: {
+        families: { workboard: { engine: "postgres" as const } },
+        postgres: { connection: "postgres://fixture:secret@host/database" },
+      },
+    };
+    const observed = { workboard: ["sqlite" as const], state: ["sqlite" as const] };
+    noteDatabaseEngines(cfg, observed);
+    const output = String(vi.mocked(note).mock.calls[0]?.[0]);
+    expect(output).toContain(
+      "Workboard: default=sqlite, override=postgres, effective=postgres (configured); observed=sqlite",
+    );
+    expect(output).not.toContain("secret");
+    expect(collectDatabaseEngineHealthFindings(cfg, observed)).toEqual([
+      expect.objectContaining({ message: expect.stringContaining("experimental") }),
+      expect.objectContaining({
+        path: "database.families.workboard.engine",
+        message: expect.stringContaining("configured postgres, observed sqlite"),
+        fixHint: expect.stringContaining("database port --family workboard"),
+      }),
+    ]);
+  });
+
   it.each(["bundled", "env", "discovered"] as const)(
     "reports the %s SQLite library independently of Gateway service inspection",
     (source) => {

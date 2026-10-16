@@ -18,7 +18,7 @@ import { embedSessionColdArchivesInSnapshot } from "../config/sessions/session-c
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { normalizeAgentId } from "../routing/session-key.js";
-import { capturePostgresBackup, readBackupEngineImage } from "../snapshot/database-backup.js";
+import { capturePostgresBackup, readBackupEngine } from "../snapshot/database-backup.js";
 import { listDefaultAgentDatabasePaths } from "../state/agent-database-path-discovery.js";
 import type { OpenClawRegisteredAgentDatabase } from "../state/openclaw-agent-db-contract.js";
 import { assertOpenClawAgentDatabaseOwner } from "../state/openclaw-agent-db-maintenance.js";
@@ -41,9 +41,10 @@ import {
 } from "./backup-sqlite-source-groups.js";
 import { isTransientSqliteBackupPath } from "./backup-volatile-filter.js";
 import { resolveAgentPortRoots } from "./database-engine/agent-port.js";
-import { listDatabaseEngineStores } from "./database-engine/registry.js";
+import { listDatabaseEngineStores, selectDatabaseEngine } from "./database-engine/registry.js";
 import { hasErrnoCode } from "./errno.js";
 import { collectErrorGraphCandidates, formatErrorMessage } from "./errors.js";
+import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import {
   isAppleDoubleMetadataFile,
   resolveSqliteDatabaseFilePaths,
@@ -206,7 +207,10 @@ export async function discoverBackupDatabasePaths(params: {
   env?: NodeJS.ProcessEnv;
   agentRegistry?: readonly OpenClawRegisteredAgentDatabase[];
 }): Promise<string[]> {
-  if (isMainThread && params.config.database?.engine === "postgres") {
+  if (
+    isMainThread &&
+    selectDatabaseEngine({ id: "state", postgres: true }, params.config) === "postgres"
+  ) {
     const { preparePostgresBackupDiscovery } = await import("./backup-database-discovery.js");
     return (await preparePostgresBackupDiscovery(params)).paths;
   }
@@ -335,6 +339,49 @@ export async function createBackupSqliteSnapshotPlan(params: {
     assertNotUpdateCapturePath(archiveSourcePath, params.resources.stateDir);
     assertNotUpdateCapturePath(sourceDatabasePath, params.resources.stateDir);
     const sourcePath = path.join(params.tempDir, `openclaw-state-db-${snapshots.length}.sqlite`);
+    if (readBackupEngine(sourceDatabasePath).engine === "postgres") {
+      const directory = path.join(
+        `${sourcePath}.postgres`,
+        path.basename(`${archiveSourcePath}.postgres`),
+      );
+      await fs.mkdir(path.dirname(directory), { mode: 0o700 });
+      await capturePostgresBackup({ sourcePath: sourceDatabasePath, directory });
+      for (const name of ["anchor.sqlite", "database.sqlite", "manifest.json"]) {
+        snapshots.push({
+          sourcePath: path.join(directory, name),
+          archiveSourcePath: `${archiveSourcePath}.postgres/${name}`,
+          skippedSourcePaths: new Set(),
+        });
+      }
+      if (canonicalSource?.role === "global") {
+        using database = openNodeSqliteDatabase(path.join(directory, "database.sqlite"), {
+          readOnly: true,
+        });
+        capturedAgents = readOpenClawAgentDatabaseRegistryRows(
+          database,
+          canonicalSource.archiveSourcePath,
+        ).map((row) => ({
+          role: "agent" as const,
+          agentId: normalizeAgentId(row.agent_id),
+          sourcePath: resolveOpenClawRegisteredAgentDatabasePath(
+            canonicalSource.archiveSourcePath,
+            row.path,
+          ),
+        }));
+      }
+      const anchorPath = `${sourcePath}.anchor`;
+      await fs.copyFile(
+        path.join(directory, "anchor.sqlite"),
+        anchorPath,
+        fs.constants.COPYFILE_EXCL,
+      );
+      snapshots.push({
+        sourcePath: anchorPath,
+        archiveSourcePath,
+        skippedSourcePaths: new Set(resolveSqliteDatabaseFilePaths(sourceDatabasePath)),
+      });
+      return;
+    }
     try {
       const capture = () =>
         createVerifiedSqliteSnapshot({
@@ -400,33 +447,6 @@ export async function createBackupSqliteSnapshotPlan(params: {
         `SQLite database cannot be compacted safely for backup: ${archiveSourcePath}. ${formatErrorMessage(error)}. The source must pass full integrity checks, online SQLite backup, and offline compaction with its required SQLite capabilities; a direct file copy was refused because it can retain deleted data.`,
         { cause: error },
       );
-    }
-    if (readBackupEngineImage(sourcePath, sourceDatabasePath).engine === "postgres") {
-      const directory = path.join(
-        `${sourcePath}.postgres`,
-        path.basename(`${archiveSourcePath}.postgres`),
-      );
-      await fs.mkdir(path.dirname(directory), { mode: 0o700 });
-      await capturePostgresBackup({ sourcePath: sourceDatabasePath, directory });
-      for (const name of ["anchor.sqlite", "database.sqlite", "manifest.json"]) {
-        snapshots.push({
-          sourcePath: path.join(directory, name),
-          archiveSourcePath: `${archiveSourcePath}.postgres/${name}`,
-          skippedSourcePaths: new Set(),
-        });
-      }
-      const anchorPath = `${sourcePath}.anchor`;
-      await fs.copyFile(
-        path.join(directory, "anchor.sqlite"),
-        anchorPath,
-        fs.constants.COPYFILE_EXCL,
-      );
-      snapshots.push({
-        sourcePath: anchorPath,
-        archiveSourcePath,
-        skippedSourcePaths: new Set(resolveSqliteDatabaseFilePaths(sourceDatabasePath)),
-      });
-      return;
     }
     snapshots.push({
       sourcePath,

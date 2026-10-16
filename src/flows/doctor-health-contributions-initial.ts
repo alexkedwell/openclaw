@@ -101,14 +101,30 @@ export function resolveInitialDoctorHealthContributions(params: {
         async detect(ctx) {
           const { collectDatabaseEngineHealthFindings } =
             await import("../commands/doctor-database-engine.js");
-          return collectDatabaseEngineHealthFindings(ctx.cfg);
+          const { inspectDoctorDatabaseEngines } =
+            await import("../commands/doctor-database-engine-inspection.js");
+          const { resolveStateDir } = await import("../config/paths.js");
+          const observed = await inspectDoctorDatabaseEngines({
+            config: ctx.cfg,
+            stateDir: resolveStateDir(ctx.env),
+            env: ctx.env ?? process.env,
+          });
+          return collectDatabaseEngineHealthFindings(ctx.cfg, observed);
         },
       },
       async run(ctx) {
         const { noteDatabaseEngines, collectDatabaseEngineHealthFindings } =
           await import("../commands/doctor-database-engine.js");
-        noteDatabaseEngines(ctx.cfg);
-        recordDoctorHealthWarnings(ctx, collectDatabaseEngineHealthFindings(ctx.cfg));
+        const { inspectDoctorDatabaseEngines } =
+          await import("../commands/doctor-database-engine-inspection.js");
+        const { resolveStateDir } = await import("../config/paths.js");
+        const observed = await inspectDoctorDatabaseEngines({
+          config: ctx.cfg,
+          stateDir: resolveStateDir(ctx.env),
+          env: ctx.env ?? process.env,
+        });
+        noteDatabaseEngines(ctx.cfg, observed);
+        recordDoctorHealthWarnings(ctx, collectDatabaseEngineHealthFindings(ctx.cfg, observed));
       },
     }),
     createDoctorHealthContribution("doctor:auth-profile-migration", "Auth profile migration", {

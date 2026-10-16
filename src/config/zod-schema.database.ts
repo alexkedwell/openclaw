@@ -6,7 +6,7 @@ import { configUiMetadata, sensitive } from "./zod-schema.sensitive.js";
 
 const DatabaseFamilyEngineSchema = z.enum(["sqlite", "postgres"]).register(configUiMetadata, {
   label: "Family Database Engine (Experimental)",
-  help: "Override database.engine for this family. Changing an engine requires a port and a restart; it does not migrate existing data. Port, backup/restore, and update refuse mixed-engine installations until family-scoped support is available.",
+  help: "Override database.engine for this family. Changing an engine requires database port --family and a restart; editing config does not migrate existing data. Mixed-engine backup/restore preserves each store's engine, and updates require candidate family support.",
 });
 
 const DatabaseFamilySchema = z.strictObject({ engine: DatabaseFamilyEngineSchema }).optional();
@@ -24,7 +24,7 @@ export const DatabaseConfigSchema = z
           .strictObject({
             engine: DatabaseFamilyEngineSchema.clone().register(configUiMetadata, {
               label: "Agent Database Engine (Experimental)",
-              help: "Agent databases support sqlite in mixed-engine installations. PostgreSQL agents require PostgreSQL for every configurable family until mixed-pair conformance is available.",
+              help: "Select one engine for all agent databases. PostgreSQL agents require PostgreSQL shared state until mixed-pair conformance is available. Scoped agent ports cannot separate the agent and state engines until PR3.",
             }),
           })
           .optional(),
@@ -35,7 +35,7 @@ export const DatabaseConfigSchema = z
       .optional()
       .register(configUiMetadata, {
         label: "Family Database Engines (Experimental)",
-        help: "Optional engine overrides for state, agent, workboard, logbook, and team-reports. Each override requires engine. PostgreSQL agents require PostgreSQL for every configurable family; local safety journals are not configurable. All PostgreSQL families share database.postgres.",
+        help: "Optional engine overrides for state, agent, workboard, logbook, and team-reports. Each override requires engine. PostgreSQL agents require PostgreSQL shared state; local safety journals are not configurable. All PostgreSQL families share database.postgres.",
       }),
     postgres: z
       .strictObject({
