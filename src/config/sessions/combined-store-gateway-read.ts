@@ -4,10 +4,7 @@ import { resolveSessionParentSessionKey } from "../../channels/plugins/session-c
 import { resolveStoredSessionKeyForAgentStore } from "../../gateway/session-store-key.js";
 import { createGatewaySessionLineageReaderAsync } from "../../gateway/session-utils-store-lineage.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
-import {
-  isSessionStoreTopologyChange,
-  sessionChanges,
-} from "../../sessions/session-row-changes.js";
+import { readWithSessionStoreTopology } from "../../sessions/session-row-changes.js";
 import { prepareAgentDatabaseDeletionSnapshotRead } from "../../state/agent-deletion-journal.read.js";
 import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
 import { cloneEnvWithPlatformSemantics } from "../config-env-vars.js";
@@ -77,33 +74,7 @@ export async function loadCombinedSessionStoreForGatewayCoreAsync(
     };
     return loadCombinedSessionStore(inventory, { ...options, discovery });
   };
-  if (options.discovery) {
-    return read();
-  }
-  let changed: boolean;
-  const stop = sessionChanges.subscribeFacts((change) => {
-    if (isSessionStoreTopologyChange(change)) {
-      changed = true;
-    }
-  });
-  try {
-    // This pure read can restart when deletion revokes an in-flight topology.
-    for (;;) {
-      changed = false;
-      try {
-        const result = await read();
-        if (!changed) {
-          return result;
-        }
-      } catch (error) {
-        if (!changed) {
-          throw error;
-        }
-      }
-    }
-  } finally {
-    stop();
-  }
+  return options.discovery ? read() : readWithSessionStoreTopology(read);
 }
 
 /** Capture missing owners' lineage before synchronous display and model projection. */
