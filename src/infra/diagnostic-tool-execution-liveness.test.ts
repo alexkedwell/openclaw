@@ -1,28 +1,15 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-import { expect, it, vi } from "vitest";
-import { resolveGlobalSingleton } from "../shared/global-singleton.js";
+import { expect, it } from "vitest";
 import {
   createDiagnosticToolExecutionLiveness,
   recordDiagnosticToolExecutionDeadline,
   registerDiagnosticToolExecutionDeadline,
 } from "./diagnostic-tool-execution-liveness.js";
 
-it("preserves released deadline callbacks and callers while runtime chunks drain", () => {
-  const { context } = resolveGlobalSingleton(
-    Symbol.for("openclaw.diagnosticToolExecutionLiveness"),
-    () => ({ context: new AsyncLocalStorage<(deadline: number | undefined) => void>() }),
-  );
-  const releasedRecord = vi.fn();
-  context.run(releasedRecord, () => {
-    recordDiagnosticToolExecutionDeadline(100);
-    expect(registerDiagnosticToolExecutionDeadline(200)).toBeUndefined();
-  });
-  expect(releasedRecord).toHaveBeenCalledExactlyOnceWith(100);
-
+it("keeps fixed execution deadlines after an overlapping wait ends", () => {
   const invocation = createDiagnosticToolExecutionLiveness();
   try {
     invocation.run(() => {
-      context.getStore()?.(100);
+      recordDiagnosticToolExecutionDeadline(100);
       const release = registerDiagnosticToolExecutionDeadline(200);
       expect(invocation.view.deadlineAtMs).toBe(200);
       release?.();

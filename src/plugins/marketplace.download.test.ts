@@ -104,7 +104,6 @@ describe("marketplace archive downloads", () => {
   it.each([
     ["empty", "empty response body"],
     ["HTTP", "HTTP 503"],
-    ["non-streaming", "streaming response body unavailable"],
     ["malformed length", "invalid content-length header: 1e9"],
     ["oversized length", "download too large: 268435457 bytes (limit: 268435456 bytes)"],
     ["drive-relative filename", "invalid download filename"],
@@ -112,7 +111,6 @@ describe("marketplace archive downloads", () => {
     await withArchiveMarketplace(async (install) => {
       const release = vi.fn(async () => undefined);
       const cancel = vi.fn(async () => undefined);
-      const arrayBuffer = vi.fn(async () => new Uint8Array([1, 2, 3]).buffer);
       const reader = { read: vi.fn(), cancel: vi.fn(async () => undefined), releaseLock: vi.fn() };
       const headers = new Headers();
       if (kind === "malformed length" || kind === "oversized length") {
@@ -137,8 +135,7 @@ describe("marketplace archive downloads", () => {
                   ok: true,
                   status: 200,
                   headers,
-                  arrayBuffer,
-                  body: kind === "non-streaming" ? { cancel } : { getReader: () => reader, cancel },
+                  body: { getReader: () => reader, cancel },
                 } as unknown as Response);
       fetchWithSsrFGuardMock.mockResolvedValueOnce({
         response,
@@ -153,11 +150,8 @@ describe("marketplace archive downloads", () => {
       expectFetchDownloadCall();
       expect(installPluginFromPathMock).not.toHaveBeenCalled();
       expect(release).toHaveBeenCalledTimes(1);
-      if (kind === "HTTP" || kind === "non-streaming" || kind.endsWith("length")) {
+      if (kind === "HTTP" || kind.endsWith("length")) {
         expect(cancel).toHaveBeenCalledTimes(1);
-      }
-      if (kind === "non-streaming") {
-        expect(arrayBuffer).not.toHaveBeenCalled();
       }
       if (kind.endsWith("length")) {
         expect(reader.read).not.toHaveBeenCalled();

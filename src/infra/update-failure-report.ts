@@ -26,7 +26,6 @@ import {
 } from "./restart-sentinel.js";
 import {
   cleanRetiredUpdateFailureReportArtifacts,
-  type UpdateFailureReportSweepHooks,
   type UpdateFailureReportSweepReceipt,
 } from "./update-failure-report-artifact-sweep.js";
 import {
@@ -130,7 +129,6 @@ export async function submitUpdateFailureReport(
     publicationMode?: "host" | "browser" | "reconcile";
     /** Interactive CLI retries stay in the terminal instead of publishing a browser handoff. */
     allowBrowserFallback?: boolean;
-    artifactSweepHooks?: UpdateFailureReportSweepHooks;
     finalizeReceipt?: (
       ...args: Parameters<typeof finalizeUpdateFailureReportReceipt>
     ) => boolean | Promise<boolean>;
@@ -166,17 +164,10 @@ export async function submitUpdateFailureReport(
   const readReceipt = options.readReceipt ?? readUpdateFailureReportReceipt;
   const ensureReconciliationAuthority = () => ensureAuthority("reconciliation");
   const cleanRetiredArtifacts = (receipt: UpdateFailureReportSweepReceipt, keepCurrent: boolean) =>
-    cleanRetiredUpdateFailureReportArtifacts(
-      prepared,
-      receipt,
-      stateEnv,
-      keepCurrent,
-      options.artifactSweepHooks,
-      context,
-    );
+    cleanRetiredUpdateFailureReportArtifacts(prepared, receipt, stateEnv, keepCurrent, context);
   const cleanOwnedArtifact = async (receipt: UpdateFailureReportSweepReceipt): Promise<boolean> => {
-    if (receipt.artifactSweep && !(await cleanRetiredArtifacts(receipt, false))) {
-      return false;
+    if (receipt.artifactSweep) {
+      await cleanRetiredArtifacts(receipt, false);
     }
     const ownedPrepared = bindSavedReportArtifact(
       prepared,
@@ -320,10 +311,7 @@ export async function submitUpdateFailureReport(
     await cleanPreparation(existingReceipt);
   }
   if (existingReceipt?.status === "retryable" && existingReceipt.replacementReady === true) {
-    if (!(await cleanRetiredArtifacts(existingReceipt, false))) {
-      const currentReceipt = await readReceipt(prepared.attemptId, stateEnv, context);
-      return resultFromExistingReceipt(currentReceipt, prepared);
-    }
+    await cleanRetiredArtifacts(existingReceipt, false);
   }
 
   const reservationId = randomUUID();

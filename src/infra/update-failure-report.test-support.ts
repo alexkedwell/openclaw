@@ -104,9 +104,6 @@ export function expireUpdateFailureReportReceipt(attemptId: string, stateDir: st
       if (receipt.preparingSinceMs !== undefined) {
         receipt.preparingSinceMs = 1;
       }
-      if (receipt.sweepSinceMs !== undefined) {
-        receipt.sweepSinceMs = 1;
-      }
       executeSqliteQuerySync(
         db,
         stateDb

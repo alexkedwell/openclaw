@@ -78,9 +78,7 @@ vi.mock("./diagnostic-run-activity.js", () => ({
   getDiagnosticSessionActivitySnapshot: mocks.getDiagnosticSessionActivitySnapshot,
 }));
 
-export async function resetMocks(): Promise<void> {
-  const { retireSessionDiagnosticLogs } = await import("./diagnostic-session-context.js");
-  retireSessionDiagnosticLogs();
+export function resetMocks(): void {
   mocks.abortEmbeddedAgentRun.mockReset();
   mocks.forceClearEmbeddedAgentRun.mockReset();
   mocks.isEmbeddedAgentRunActive.mockReset();

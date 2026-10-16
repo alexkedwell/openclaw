@@ -20,12 +20,6 @@ type SessionDiagnosticTarget = {
   activeSessionId?: string;
 };
 
-let logGeneration = 0;
-
-export function retireSessionDiagnosticLogs(): void {
-  logGeneration += 1;
-}
-
 async function withSessionDiagnosticContext(
   params: SessionDiagnosticTarget,
   consume: (context: SessionDiagnosticContext) => void,
@@ -119,8 +113,7 @@ export function logWithSessionDiagnosticContext(
     cronNameLabel?: "cronJob" | "stopped";
   },
 ): Promise<void> | undefined {
-  const generation = logGeneration;
-  const isCurrent = () => areDiagnosticsEnabledForProcess() && generation === logGeneration;
+  const isCurrent = areDiagnosticsEnabledForProcess;
   if (!isCurrent() || !diag.isEnabled(params.level)) {
     return undefined;
   }

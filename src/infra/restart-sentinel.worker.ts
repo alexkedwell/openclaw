@@ -24,8 +24,6 @@ import {
   beginUpdateFailureReportReceiptCleanupRowSync,
   beginStaleUpdateFailureReportReceiptCleanupRowSync,
   completeUpdateFailureReportReceiptCleanupRowSync,
-  claimUpdateFailureReportArtifactSweepRowSync,
-  releaseUpdateFailureReportArtifactSweepRowSync,
   refreshUpdateFailureReportReceiptPreparationRowSync,
   finalizeUpdateFailureReportReceiptRowSync,
   markUpdateFailureReportReceiptPendingRowSync,
@@ -83,44 +81,6 @@ export const restartSentinelOperations = {
     "update-failure-report.completeCleanup",
     (db, input: { attemptId: string; reservationId: string }) =>
       completeUpdateFailureReportReceiptCleanupRowSync(db, input.attemptId, input.reservationId),
-  ),
-  "restartSentinel.claimSweep": receiptTransaction(
-    "update-failure-report.claimSweep",
-    (
-      db,
-      input: {
-        attemptId: string;
-        expectedReservationId: string;
-        sweepOwnerId: string;
-        sweepGeneration: string;
-      },
-    ) =>
-      claimUpdateFailureReportArtifactSweepRowSync(
-        db,
-        input.attemptId,
-        input.expectedReservationId,
-        input.sweepOwnerId,
-        input.sweepGeneration,
-      ),
-  ),
-  "restartSentinel.releaseSweep": receiptTransaction(
-    "update-failure-report.releaseSweep",
-    (
-      db,
-      input: {
-        attemptId: string;
-        expectedReservationId: string;
-        sweepOwnerId: string;
-        sweepGeneration: string;
-      },
-    ) =>
-      releaseUpdateFailureReportArtifactSweepRowSync(
-        db,
-        input.attemptId,
-        input.expectedReservationId,
-        input.sweepOwnerId,
-        input.sweepGeneration,
-      ),
   ),
   "restartSentinel.refreshPreparation": receiptTransaction(
     "update-failure-report.refreshPreparation",

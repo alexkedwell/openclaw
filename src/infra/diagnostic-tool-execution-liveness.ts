@@ -4,9 +4,8 @@ import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 export type DiagnosticToolExecutionLiveness = Readonly<{ deadlineAtMs?: number }>;
 export const TOOL_EXECUTION_LIVENESS_METADATA_KEY = "toolExecutionLiveness";
 
-// Released runtime chunks still call this carrier while their invocations drain.
 type ToolExecutionDeadlineOwner = ((deadlineAtMs: number | undefined) => void) & {
-  register?: (deadlineAtMs: number) => () => void;
+  register: (deadlineAtMs: number) => () => void;
 };
 
 const state = resolveGlobalSingleton(
@@ -34,12 +33,12 @@ export function createDiagnosticToolExecutionLiveness(signal?: AbortSignal) {
       return latestDeadline;
     },
   });
-  const record: ToolExecutionDeadlineOwner = (deadline) => {
+  function record(deadline: number | undefined) {
     if (active && !signal?.aborted) {
       deadlineAtMs = deadline;
     }
-  };
-  record.register = (deadline) => {
+  }
+  record.register = (deadline: number) => {
     const wait = {};
     if (active && !signal?.aborted && Number.isFinite(deadline)) {
       waits.set(wait, deadline);
@@ -70,7 +69,7 @@ export function recordDiagnosticToolExecutionDeadline(deadlineAtMs: number | und
 export function registerDiagnosticToolExecutionDeadline(
   deadlineAtMs: number,
 ): (() => void) | undefined {
-  return state.context.getStore()?.register?.(deadlineAtMs);
+  return state.context.getStore()?.register(deadlineAtMs);
 }
 
 /** Keep the live reference out of the cloned, plugin-facing event payload. */

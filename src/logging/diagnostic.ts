@@ -54,10 +54,7 @@ import {
   isTerminalDiagnosticProgressReason,
   type SessionAttentionClassification,
 } from "./diagnostic-session-attention.js";
-import {
-  logWithSessionDiagnosticContext,
-  retireSessionDiagnosticLogs,
-} from "./diagnostic-session-context.js";
+import { logWithSessionDiagnosticContext } from "./diagnostic-session-context.js";
 import {
   requestStuckSessionRecovery,
   resetDiagnosticSessionRecoveryCoordinatorForTest,
@@ -1004,7 +1001,6 @@ export function startGatewayDiagnosticHeartbeat(
 export function stopGatewayDiagnosticHeartbeat() {
   detachHeartbeatOwner?.();
   detachHeartbeatOwner = undefined;
-  retireSessionDiagnosticLogs();
   stopDiagnosticGcObserver();
   heartbeatJob?.cancel();
   heartbeatJob = undefined;

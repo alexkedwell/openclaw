@@ -291,9 +291,6 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
       outputController.abort(error);
     };
     let stderrOutputExceeded = false;
-    let reportIoProgress: (() => void) | undefined;
-    let completedIo = 0;
-    const copiedPages = new Map<string, number>();
     const diagnostics = createUpdateStateInspectionDiagnostics({
       operation: "State snapshot",
       phase: request.mode,
@@ -305,24 +302,7 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
           outputController.abort(new Error("Update snapshot diagnostic output exceeded its limit"));
         },
       },
-      onProgress: ({ phase, path: database, snapshot, completedIo: observedIo }) => {
-        const key = `${phase}\0${database ?? ""}`;
-        const pagesAdvanced = snapshot && snapshot.copiedPages > (copiedPages.get(key) ?? 0);
-        const entriesAdvanced = observedIo !== undefined && observedIo > completedIo;
-        if (snapshot) {
-          copiedPages.set(key, snapshot.copiedPages);
-        }
-        if (entriesAdvanced) {
-          completedIo = observedIo;
-        }
-        if (pagesAdvanced || entriesAdvanced || snapshot?.status === "completed") {
-          try {
-            reportIoProgress?.();
-          } catch (error) {
-            failProgress(error);
-          }
-        }
-        // Entry receipts feed the I/O watchdog, not a ledger write per copied file.
+      onProgress: ({ phase, path: database, snapshot }) => {
         if (!snapshot) {
           return;
         }
@@ -362,12 +342,8 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
         timeoutMs: params.timeoutMs,
         signal: params.signal,
         operation: "snapshot",
-        progress: "reported",
-        nodeRunner: params.nodeRunner,
-        env: workerEnv,
       },
-      async (signal, reportProgress) => {
-        reportIoProgress = reportProgress;
+      async (signal) => {
         signal.throwIfAborted();
         params.assertCurrent?.();
         const result = await runUtf8CommandWithTimeout(
@@ -386,7 +362,6 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
               ...request,
               includeLocalStoreVersions: true,
               streamProgress: true,
-              streamEntryProgress: true,
               stateDir: params.stateDir,
               config: params.config,
               targetStateDir: directory,
@@ -442,14 +417,10 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
         }
         return JSON.parse(result.stdout) as unknown;
       },
-    )
-      .then(
-        (value) => ({ value }),
-        (error: unknown) => ({ error }),
-      )
-      .finally(() => {
-        reportIoProgress = undefined;
-      });
+    ).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
     await progressPending;
     if (progressFailure && hasCommandProcessCleanupError(progressFailure.error)) {
       if ("error" in outcome && outcome.error !== progressFailure.error) {
