@@ -50,36 +50,29 @@ function runLint(root: string, args: string[], checkoutBase = "HEAD") {
 }
 
 describe("Control UI Lit ratchet", () => {
-  it("retains fork debt in a shallow candidate while rejecting genuinely new Lit", () => {
-    const source = fixture(legacy);
-    const fork = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: source,
-      encoding: "utf8",
-    }).trim();
-    git(source, ["checkout", "-b", "candidate"]);
-    git(source, ["commit", "--allow-empty", "-m", "candidate"]);
-    git(source, ["checkout", "-b", "moving-main", fork]);
-    git(source, ["rm", "ui/src/view.ts"]);
-    git(source, ["commit", "-m", "upstream Solid migration"]);
-    const root = tempDirs.make("openclaw-lit-shallow-");
-    git(root, ["clone", "--depth=1", "--branch=candidate", pathToFileURL(source).href, "."]);
-    git(root, ["fetch", "--depth=1", "origin", "moving-main:refs/remotes/origin/main", fork]);
-    expect(spawnSync("git", ["merge-base", "HEAD", "origin/main"], { cwd: root }).status).not.toBe(
-      0,
-    );
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    expect(main(root, ["--base", "origin/main"])).toBe(1);
-    expect(errors.mock.calls.flat().join("\n")).toContain("Could not resolve ratchet merge base");
-    expect(main(root, ["--base", fork, "--no-merge-base"])).toBe(0);
-    const inferred = runLint(root, ["--only=extensions"], fork);
-    expect(inferred.stdout).toContain("Control UI Lit ratchet OK");
-    const explicit = runLint(root, ["--base", "origin/main", "--only=extensions"], fork);
-    expect(explicit.status).not.toBe(0);
-    expect(explicit.stderr).toContain("Could not resolve ratchet merge base");
-    fs.writeFileSync(path.join(root, "ui/src/new.ts"), legacy);
-    expect(main(root, ["--base", fork, "--no-merge-base"])).toBe(1);
-    expect(errors.mock.calls.flat().join("\n")).toContain("ui/src/new.ts");
+  it("keeps controller growth advisory until all production controllers are retired", () => {
+    const root = fixture("class OldController { hostConnected() {} }\n");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const target = path.join(root, "ui/src/new.ts");
+    fs.writeFileSync(target, "class NewController { hostDisconnected() {} requestUpdate() {} }\n");
+    expect(main(root, ["--base", "HEAD"])).toBe(0);
+    expect(log.mock.calls.flat().join("\n")).toContain("controllerPatterns");
+
+    fs.writeFileSync(path.join(root, "ui/src/view.ts"), "// class OldController {}\n");
+    fs.writeFileSync(target, 'const text = "hostConnected requestUpdate";\n');
+    fs.writeFileSync(path.join(root, "ui/src/view.test.ts"), "class TestController {}\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "retire production controllers"]);
+    expect(main(root, ["--base", "HEAD"])).toBe(0);
+    for (const source of [
+      "class NewController {}",
+      "const host = { hostConnected() {}, hostDisconnected() {}, requestUpdate() {} };",
+      "host.requestUpdate();",
+    ]) {
+      fs.writeFileSync(target, source);
+      expect(main(root, ["--base", "HEAD"]), source).toBe(1);
+    }
   });
 
   it("allows the named interop owner but rejects a new sibling Lit implementation", () => {
@@ -245,5 +238,37 @@ describe("Control UI Lit ratchet", () => {
       fs.writeFileSync(target, source);
       expect(main(root, ["--base", "HEAD"]), source).toBe(1);
     }
+  });
+
+  it("retains fork debt in a shallow candidate while rejecting genuinely new Lit", () => {
+    const source = fixture(legacy);
+    const fork = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: source,
+      encoding: "utf8",
+    }).trim();
+    git(source, ["checkout", "-b", "candidate"]);
+    git(source, ["commit", "--allow-empty", "-m", "candidate"]);
+    git(source, ["checkout", "-b", "moving-main", fork]);
+    git(source, ["rm", "ui/src/view.ts"]);
+    git(source, ["commit", "-m", "upstream Solid migration"]);
+    const root = tempDirs.make("openclaw-lit-shallow-");
+    git(root, ["clone", "--depth=1", "--branch=candidate", pathToFileURL(source).href, "."]);
+    git(root, ["fetch", "--depth=1", "origin", "moving-main:refs/remotes/origin/main", fork]);
+    expect(spawnSync("git", ["merge-base", "HEAD", "origin/main"], { cwd: root }).status).not.toBe(
+      0,
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(main(root, ["--base", "origin/main"])).toBe(1);
+    expect(errors.mock.calls.flat().join("\n")).toContain("Could not resolve ratchet merge base");
+    expect(main(root, ["--base", fork, "--no-merge-base"])).toBe(0);
+    const inferred = runLint(root, ["--only=extensions"], fork);
+    expect(inferred.stdout).toContain("Control UI Lit ratchet OK");
+    const explicit = runLint(root, ["--base", "origin/main", "--only=extensions"], fork);
+    expect(explicit.status).not.toBe(0);
+    expect(explicit.stderr).toContain("Could not resolve ratchet merge base");
+    fs.writeFileSync(path.join(root, "ui/src/new.ts"), legacy);
+    expect(main(root, ["--base", fork, "--no-merge-base"])).toBe(1);
+    expect(errors.mock.calls.flat().join("\n")).toContain("ui/src/new.ts");
   });
 });
