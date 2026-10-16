@@ -206,16 +206,12 @@ describe("production lint suppressions", () => {
         "scripts/e2e/lib/upgrade-survivor/probe-volume-gateway.mjs|no-underscore-dangle|1",
         "scripts/e2e/lib/upgrade-survivor/probe-volume-gateway.mjs|preserve-caught-error|1",
         "scripts/e2e/parallels/host-command.ts|no-warning-comments|1",
-        // The browser probe captures native IndexedDB get and supplies each store receiver through .apply.
-        "scripts/lib/control-ui-warm-reload-probe.ts|typescript/unbound-method|1",
         "scripts/lib/plain-gh.mjs|no-warning-comments|1",
         "scripts/lib/sqlite-reliability-process.ts|typescript/prefer-promise-reject-errors|1",
         "src/agents/agent-bundle-mcp-runtime.ts|unicorn/prefer-add-event-listener|1",
         "src/agents/agent-tools.abort.ts|typescript/prefer-promise-reject-errors|1",
         "src/agents/auth-profiles/oauth-refresh-fence.ts|preserve-caught-error|1",
         "src/agents/auth-profiles/oauth-refresh-peers.ts|preserve-caught-error|1",
-        // The profiler fault fixture captures the original method and supplies its receiver with .call.
-        "src/agents/code-mode-node.watchdog.test-support.ts|typescript/unbound-method|1",
         "src/agents/mcp-http-transport.ts|unicorn/prefer-add-event-listener|3",
         "src/agents/provider-http-errors.ts|preserve-caught-error|1",
         "src/channels/plugins/channel-runtime-surface.types.ts|typescript/no-unnecessary-type-parameters|1",
