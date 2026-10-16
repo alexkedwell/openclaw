@@ -2,13 +2,12 @@ import { createPrivateKey, createSign } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { normalizeResolvedSecretInputString } from "../config/types.secrets.js";
-import type { GitHubToolIdentityConfig } from "../config/types.tools.js";
 import { readResponseWithLimit } from "../infra/http-response-body.js";
 import { registerSecretValueForRedaction } from "../logging/secret-redaction-registry.js";
+import type { GitHubAppSelection } from "./github-credential-reader.js";
 import { GitHubIdentityError } from "./github-read-identity.js";
 import type { GitHubToolAccount } from "./github-tool-account.js";
 
-export type GitHubAppSelection = Extract<GitHubToolIdentityConfig, { kind: "app-installation" }>;
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const permissions = z.record(z.string(), z.enum(["read", "write", "admin"]));
 const repository = z.object({ id, full_name: z.string().max(256) });

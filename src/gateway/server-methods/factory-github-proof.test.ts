@@ -4,7 +4,8 @@ import { createDirectChatContext } from "../server-chat.agent-events.test-helper
 import { coreGatewayHandlers } from "./core-handlers.js";
 import type { GatewayClient, GatewayRequestHandlerOptions } from "./types.js";
 
-vi.mock("../../agents/github-host-runtime.js", () => ({
+vi.mock("../../agents/github-host-runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../agents/github-host-runtime.js")>()),
   resolveGitHubHost: () => "example.ghe.com",
 }));
 
