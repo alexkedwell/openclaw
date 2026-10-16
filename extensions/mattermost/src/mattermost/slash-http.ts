@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
 import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
+import {
+  asDateTimestampMs,
+  resolveExpiresAtMsFromDurationMs,
+} from "openclaw/plugin-sdk/number-runtime";
 import { finalizeInboundContext } from "openclaw/plugin-sdk/reply-runtime";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
@@ -122,7 +126,7 @@ function findRegisteredCommandForPayload(params: {
 }
 
 function isDeletedMattermostCommand(command: { delete_at?: number }): boolean {
-  return (command.delete_at ?? 0) > 0;
+  return typeof command.delete_at === "number" && command.delete_at > 0;
 }
 
 function sanitizeCommandLookupError(error: unknown): string {
@@ -158,6 +162,16 @@ function sanitizeMattermostLogValue(value: string): string {
   return truncateUtf16Safe(value.replace(/[\r\n\t]/gu, " "), 200);
 }
 
+async function withCommandLookupTimeout<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COMMAND_LOOKUP_TIMEOUT_MS);
+  try {
+    return await task(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function commandLookupKey(
   client: ReturnType<typeof createMattermostClient>,
   registered: MattermostRegisteredCommand,
@@ -181,31 +195,51 @@ export function clearMattermostSlashCommandValidationCacheForAccount(accountId: 
 }
 
 function sweepCommandValidationFailureCache(now = Date.now()): void {
+  const validNow = asDateTimestampMs(now);
+  if (validNow === undefined) {
+    commandValidationFailureCache.clear();
+    return;
+  }
   for (const [key, entry] of commandValidationFailureCache) {
-    if (entry.expiresAt <= now) {
+    const expiresAt = asDateTimestampMs(entry.expiresAt);
+    if (expiresAt === undefined || expiresAt <= validNow) {
       commandValidationFailureCache.delete(key);
     }
   }
   pruneMapToMaxSize(commandValidationFailureCache, COMMAND_VALIDATION_FAILURE_CACHE_MAX_KEYS);
 }
 
-function hasCachedCommandValidationFailure(key: string): boolean {
-  sweepCommandValidationFailureCache();
+function hasCachedCommandValidationFailure(key: string, now = Date.now()): boolean {
+  sweepCommandValidationFailureCache(now);
   return commandValidationFailureCache.has(key);
 }
 
 function cacheCommandValidationFailure(key: string, accountId: string): void {
+  const now = Date.now();
+  sweepCommandValidationFailureCache(now);
+  const expiresAt = resolveExpiresAtMsFromDurationMs(COMMAND_VALIDATION_FAILURE_CACHE_MS, {
+    nowMs: now,
+  });
+  if (expiresAt === undefined) {
+    commandValidationFailureCache.delete(key);
+    return;
+  }
   commandValidationFailureCache.set(key, {
     accountId,
-    expiresAt: Date.now() + COMMAND_VALIDATION_FAILURE_CACHE_MS,
+    expiresAt,
   });
-  pruneMapToMaxSize(commandValidationFailureCache, COMMAND_VALIDATION_FAILURE_CACHE_MAX_KEYS);
 }
 
-function sweepCommandValidationLookupRateLimit(now: number): void {
+function sweepCommandValidationLookupRateLimit(now = Date.now()): void {
+  const validNow = asDateTimestampMs(now);
+  if (validNow === undefined) {
+    commandValidationLookupRateLimit.clear();
+    return;
+  }
   const staleAfterMs = COMMAND_VALIDATION_LOOKUP_REFILL_MS * COMMAND_VALIDATION_LOOKUP_BURST * 2;
   for (const [key, entry] of commandValidationLookupRateLimit) {
-    if (now - entry.updatedAt > staleAfterMs) {
+    const updatedAt = asDateTimestampMs(entry.updatedAt);
+    if (updatedAt === undefined || validNow - updatedAt > staleAfterMs) {
       commandValidationLookupRateLimit.delete(key);
     }
   }
@@ -218,8 +252,14 @@ function sweepCommandValidationLookupRateLimit(now: number): void {
 function reserveCommandValidationLookup(params: {
   key: string;
   accountId: string;
+  now?: number;
 }): { allowed: true } | { allowed: false; shouldLog: boolean } {
-  const now = Date.now();
+  const rawNow = params.now ?? Date.now();
+  const now = asDateTimestampMs(rawNow);
+  if (now === undefined) {
+    commandValidationLookupRateLimit.clear();
+    return { allowed: true };
+  }
   sweepCommandValidationLookupRateLimit(now);
   const existing = commandValidationLookupRateLimit.get(params.key);
   if (!existing) {
@@ -257,9 +297,9 @@ async function fetchCurrentMattermostCommandUncached(params: {
   let commandLookupError: unknown;
   let commandLookupFallbackDetail: string | undefined;
   try {
-    commandLookupResult = await getMattermostCommand(params.client, params.registered.id, {
-      signal: AbortSignal.timeout(COMMAND_LOOKUP_TIMEOUT_MS),
-    });
+    commandLookupResult = await withCommandLookupTimeout((signal) =>
+      getMattermostCommand(params.client, params.registered.id, { signal }),
+    );
     if (!isDeletedMattermostCommand(commandLookupResult)) {
       return commandLookupResult;
     }
@@ -271,9 +311,9 @@ async function fetchCurrentMattermostCommandUncached(params: {
   }
 
   try {
-    const currentCommands = await listMattermostCommands(params.client, params.registered.teamId, {
-      signal: AbortSignal.timeout(COMMAND_LOOKUP_TIMEOUT_MS),
-    });
+    const currentCommands = await withCommandLookupTimeout((signal) =>
+      listMattermostCommands(params.client, params.registered.teamId, { signal }),
+    );
     if (commandLookupError) {
       params.log?.(
         `mattermost: slash command lookup by id failed for /${sanitizeMattermostLogValue(params.registered.trigger)}; using team list fallback: ${sanitizeCommandLookupError(commandLookupError)}`,
@@ -754,7 +794,8 @@ async function handleSlashCommandAsync(params: {
     dispatcherOptions: { humanDelay: resolveHumanDelayConfig(cfg, route.agentId) },
     replyOptions: {
       disableBlockStreaming:
-        account.blockStreaming === undefined ? undefined : !account.blockStreaming,
+        typeof account.blockStreaming === "boolean" ? !account.blockStreaming : undefined,
     },
   });
 }
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

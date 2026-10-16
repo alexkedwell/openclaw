@@ -348,6 +348,49 @@ describe("slash-http", () => {
     expect(client.requests).toEqual(["/commands/cmd-1"]);
   });
 
+  it("does not cache failed command validation when the expiry would exceed a valid Date", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(8_640_000_000_000_000));
+    try {
+      const registeredCommand = createRegisteredCommand({ token: "old-token" });
+      const client = createCommandLookupClient({
+        command: createCurrentCommand({ token: "new-token" }),
+      });
+
+      await expectTokenValidation({ client, registeredCommand, expected: false });
+      await expectTokenValidation({ client, registeredCommand, expected: false });
+
+      expect(client.requests).toEqual(["/commands/cmd-1", "/commands/cmd-1"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops exhausted validation lookup buckets when the current clock is invalid", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-27T00:00:00Z"));
+    try {
+      const registeredCommand = createRegisteredCommand({ token: "valid-token" });
+      const client = createCommandLookupClient({ command: createCurrentCommand() });
+
+      for (let i = 0; i < 20; i += 1) {
+        await expectTokenValidation({ client, registeredCommand, expected: true });
+      }
+      await expectTokenValidation({ client, registeredCommand, expected: false });
+
+      const dateNow = vi.spyOn(Date, "now").mockReturnValue(Number.NaN);
+      try {
+        await expectTokenValidation({ client, registeredCommand, expected: true });
+      } finally {
+        dateNow.mockRestore();
+      }
+
+      expect(client.requests).toHaveLength(21);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("logs when command lookup by id returns a deleted command before fallback", async () => {
     const registeredCommand = createRegisteredCommand();
     const commandId = `${"i".repeat(199)}😀tail`;
