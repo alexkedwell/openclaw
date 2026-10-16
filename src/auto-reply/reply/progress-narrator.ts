@@ -156,7 +156,8 @@ function createProgressNarrator(params: {
         prepared,
         input,
         abortSignal: signal,
-        timeoutMs: remainingTimeoutMs,
+        // Runtime timers require integer milliseconds; the outer deadline stays exact.
+        timeoutMs: Math.ceil(remainingTimeoutMs),
       });
       return signal.aborted || performance.now() >= deadline ? null : outcome;
     } finally {

@@ -241,9 +241,14 @@ describe("progress narration through reply options", () => {
     },
   );
 
-  it.each([4_000, 10_000])(
-    "includes %s ms of model preparation in the narration budget",
-    async (preparationMs) => {
+  it.each([
+    { preparationMs: 4_000, timeoutMs: 6_000 },
+    { preparationMs: 4_000.25, timeoutMs: 6_000 },
+    { preparationMs: 9_999.75, timeoutMs: 1 },
+    { preparationMs: 10_000, timeoutMs: 0 },
+  ])(
+    "includes $preparationMs ms of model preparation in the narration budget",
+    async ({ preparationMs, timeoutMs }) => {
       vi.useFakeTimers();
       try {
         let nowMs = 0;
@@ -258,9 +263,9 @@ describe("progress narration through reply options", () => {
         preparation.resolve(narrationModelMocks.prepared);
         await flushNarrations();
 
-        if (preparationMs < 10_000) {
+        if (timeoutMs > 0) {
           expect(generateNarrationWithUtilityModel).toHaveBeenCalledWith(
-            expect.objectContaining({ timeoutMs: 10_000 - preparationMs }),
+            expect.objectContaining({ timeoutMs }),
           );
           expect(onUpdate).toHaveBeenCalledWith({ text: "Working on the request." });
         } else {
