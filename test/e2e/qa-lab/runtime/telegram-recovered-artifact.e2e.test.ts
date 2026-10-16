@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
 import { withServer, withTempDir } from "openclaw/plugin-sdk/test-env";
+import { sliceUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { expect, test } from "vitest";
 import {
   createQaGatewayChild,
@@ -354,6 +357,7 @@ test("delivers a recovered artifact once while preserving its inter-session tran
                 .toBe(false);
               expect(documents).toHaveLength(0);
               enterPhase("turn");
+              const turnLogMark = gateway.markLogs();
               const receipt = (await gateway.call("chat.send", {
                 sessionKey,
                 message: `Empty response after write recovery QA check: write ${FILE_NAME}, then reply with exact marker: \`${marker}\nMEDIA:./${FILE_NAME}\`.`,
@@ -366,13 +370,61 @@ test("delivers a recovered artifact once while preserving its inter-session tran
                 },
               })) as { runId: string };
               expect(receipt.runId).toBeTypeOf("string");
-              expect(
-                await gateway.call(
-                  "agent.wait",
-                  { runId: receipt.runId, timeoutMs: 30_000 },
-                  { timeoutMs: 35_000 },
-                ),
-              ).toMatchObject({ status: "ok" });
+              const waited = await gateway.call(
+                "agent.wait",
+                { runId: receipt.runId, timeoutMs: 30_000 },
+                { timeoutMs: 35_000 },
+              );
+              if (isRecord(waited) && waited.status !== "ok") {
+                const terminal = isRecord(waited.terminalReceipt) ? waited.terminalReceipt : {};
+                const delivery = isRecord(waited.terminalDelivery) ? waited.terminalDelivery : {};
+                const reply = isRecord(waited.terminalReply) ? waited.terminalReply : {};
+                const sanitize = (text: string) =>
+                  redactSensitiveText(
+                    text
+                      .replaceAll(BOT_TOKEN, "<bot-token>")
+                      .replaceAll(gateway.token, "<gateway-token>")
+                      .replaceAll(workspace, "<workspace>")
+                      .replaceAll(gateway.tempRoot, "<gateway-temp>")
+                      .replaceAll(repoRoot, "<repo>"),
+                    { mode: "tools" },
+                  );
+                // Capture producer-owned terminal facts before fixture cleanup replaces the phase.
+                // A finalizer request proves admission only; marker responses prove generated output.
+                process.stderr.write(
+                  `[qa-turn-failure] ${sanitize(
+                    JSON.stringify({
+                      phase,
+                      status: waited.status,
+                      error:
+                        typeof waited.error === "string"
+                          ? sliceUtf16Safe(sanitize(waited.error), 0, 2_048)
+                          : undefined,
+                      stopReason: waited.stopReason,
+                      timeoutPhase: waited.timeoutPhase,
+                      providerStarted: waited.providerStarted,
+                      terminalReceipt: {
+                        present: isRecord(waited.terminalReceipt),
+                        terminalDisposition: terminal.terminalDisposition,
+                        sourceReplyDelivered: terminal.sourceReplyDelivered,
+                        rerouted: terminal.rerouted,
+                      },
+                      terminalDelivery: {
+                        status: delivery.status,
+                        resultCount: delivery.resultCount,
+                      },
+                      terminalReply: { disposition: reply.disposition },
+                      markerResponses: markerResponses.slice(-20),
+                      completedWrites: completedWrites.length,
+                      finalizerRequests: finalizers.length,
+                      documents: documents.length,
+                    }),
+                  )}\n[qa-turn-logs] ${JSON.stringify(
+                    sliceUtf16Safe(sanitize(gateway.readLogsSince(turnLogMark)), -8_192),
+                  )}\n`,
+                );
+              }
+              expect(waited).toMatchObject({ status: "ok" });
               await expect.poll(() => documents.length, { timeout: 30_000 }).toBe(1);
               enterPhase("delivery-observed");
               const history = (await gateway.call("chat.history", { sessionKey, limit: 30 })) as {

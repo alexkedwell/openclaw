@@ -212,10 +212,8 @@ describe("production lint suppressions", () => {
         "src/agents/agent-tools.abort.ts|typescript/prefer-promise-reject-errors|1",
         "src/agents/auth-profiles/oauth-refresh-fence.ts|preserve-caught-error|1",
         "src/agents/auth-profiles/oauth-refresh-peers.ts|preserve-caught-error|1",
-        // Remote transport errors can retain secrets; only sanitized diagnostics may escape.
-        "src/agents/mcp-event-request.ts|eslint/preserve-caught-error|1",
-        // MCP SDK Transport exposes callback properties, not EventTarget listeners.
-        "src/agents/mcp-event-request.ts|unicorn/prefer-add-event-listener|3",
+        // The profiler fault fixture captures the original method and supplies its receiver with .call.
+        "src/agents/code-mode-node.watchdog.test-support.ts|typescript/unbound-method|1",
         "src/agents/mcp-http-transport.ts|unicorn/prefer-add-event-listener|3",
         "src/agents/provider-http-errors.ts|preserve-caught-error|1",
         "src/channels/plugins/channel-runtime-surface.types.ts|typescript/no-unnecessary-type-parameters|1",

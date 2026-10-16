@@ -49,9 +49,11 @@ export function createPreparedEmbeddedAgentSettingsManager(params: {
           log.warn(`bundle MCP skipped for ${diagnostic.pluginId}: ${diagnostic.message}`);
         }
         if (Object.keys(mcp.mcpServers).length > 0) {
-          pluginSettings = applyMergePatch(pluginSettings, {
+          const merged = applyMergePatch(pluginSettings, {
             mcpServers: mcp.mcpServers,
-          }) as AgentSettingsSnapshot;
+          });
+          // SAFETY: The object patch only merges typed MCP servers into the settings record.
+          pluginSettings = merged as AgentSettingsSnapshot;
         }
       }
       prepared.embeddedSnapshot = freezeJsonSnapshot(

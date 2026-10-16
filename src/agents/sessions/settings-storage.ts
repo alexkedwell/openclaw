@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { replaceFileAtomicSync } from "@openclaw/fs-safe/atomic";
+import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { acquireFileLockSyncWithRetry } from "../../infra/file-lock-sync.js";
 import { resolveJsonSaveTarget } from "../../infra/json-file.js";
@@ -144,9 +145,12 @@ export function readSettingsScope(
     if (!isRecord(settings)) {
       throw new TypeError("Session settings must be an object");
     }
-    return { settings: settings as Settings, loadError: null };
+    return { settings, loadError: null };
   } catch (error) {
-    return { settings: {}, loadError: error as Error };
+    return {
+      settings: {},
+      loadError: toErrorObject(error, "Session settings could not be loaded"),
+    };
   }
 }
 
