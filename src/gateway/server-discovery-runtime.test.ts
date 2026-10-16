@@ -646,9 +646,7 @@ describe("startGatewayDiscovery", () => {
     });
     await discovery.update({ mdnsMode: "minimal" });
     expectCalls([oldStop, 1], [old.advertise, 2]);
-    expect(old.advertise).toHaveBeenLastCalledWith(
-      expect.objectContaining({ minimal: true }),
-    );
+    expect(old.advertise).toHaveBeenLastCalledWith(expect.objectContaining({ minimal: true }));
     const next = makeDiscoveryService("next");
     await discovery.update({ gatewayDiscoveryServices: [next] });
     expect(oldStop).toHaveBeenCalledTimes(2);
