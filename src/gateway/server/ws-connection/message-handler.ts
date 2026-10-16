@@ -110,11 +110,11 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     logWsControl,
   } = params;
 
-  const sendFrame = async (obj: unknown): Promise<number> =>
+  const sendFrame = async (obj: unknown, options: { compress?: false } = {}): Promise<number> =>
     await new Promise<number>((resolve, reject) => {
       const encoded = JSON.stringify(obj);
       assertRemoteControlUiIngressCurrent(remoteIngress);
-      socket.send(encoded, (err) => {
+      socket.send(encoded, options, (err) => {
         if (err) {
           reject(err);
           return;
@@ -365,7 +365,8 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           const sendStartedAt = performance.now();
           let bytes: number;
           try {
-            bytes = await sendFrame(response);
+            // Hello carries device tokens; compressed length must not leak them.
+            bytes = await sendFrame(response, { compress: false });
           } catch (error) {
             diagnostics?.response("unavailable");
             throw error;

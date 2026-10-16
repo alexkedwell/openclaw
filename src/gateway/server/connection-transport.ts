@@ -15,6 +15,8 @@ export type GatewayConnectionTransport = {
    * delivery or with an error; it is not a peer acknowledgement.
    */
   send(frame: string, callback?: (error?: Error) => void): void;
+  /** `compress: false` keeps a secret-bearing frame out of negotiated permessage-deflate. */
+  send(frame: string, options: { compress?: false }, callback?: (error?: Error) => void): void;
   send(frame: Buffer, options: { binary: false }, callback?: (error?: Error) => void): void;
   close(code?: number, reason?: string): void;
   terminate(): void;

@@ -54,7 +54,7 @@ describe("Gateway connection transport", () => {
             bufferedAmount: 0,
             send: (
               encoded: string | Buffer,
-              options?: { binary: false } | ((error?: Error) => void),
+              options?: { binary: false } | { compress?: false } | ((error?: Error) => void),
               onSent?: (error?: Error) => void,
             ) => {
               const callback = typeof options === "function" ? options : onSent;
