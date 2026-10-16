@@ -587,16 +587,16 @@ export class ChatSessionVirtualizerHost implements ChatTranscriptSession {
     if (this.offsetState.scrollCommand === null && !this.offsetState.pendingScrollOffset) {
       return;
     }
-    // Only smooth commands skip row measurements. Replaying ordinary auto
-    // scrolling's overscan sizes can move an already settled end anchor.
-    if (this.offsetState.scrollCommand?.behavior === "smooth") {
-      this.presentation.queueRowMeasure();
-    }
+    const measureSkippedRows = this.offsetState.scrollCommand?.behavior === "smooth";
     this.offsetState.scrollCommand = null;
     this.offsetState.pendingScrollOffset = null;
     if (this.scrollRestoreHost.pendingScrollFrame !== null) {
       cancelAnimationFrame(this.scrollRestoreHost.pendingScrollFrame);
       this.scrollRestoreHost.pendingScrollFrame = null;
+    }
+    // A deferred size correction would displace the next native scroll target.
+    if (measureSkippedRows) {
+      this.presentation.measureRows();
     }
     const element = this.scrollElement;
     if (element) {
