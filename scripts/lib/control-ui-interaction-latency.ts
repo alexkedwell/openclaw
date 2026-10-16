@@ -226,11 +226,34 @@ export async function runInteractionLatencyScenario(
     if (beforeScroll <= 0) {
       throw new Error("Interaction scenario has no upward transcript scroll range");
     }
+    const beforeRow = await thread.evaluate((element) => {
+      const top = element.getBoundingClientRect().top;
+      const row = [...element.querySelectorAll<HTMLElement>(".chat-virtual-row")].find(
+        (row) => row.getBoundingClientRect().bottom > top,
+      );
+      if (!row) {
+        throw new Error("Interaction scenario has no visible transcript row");
+      }
+      return { index: Number(row.dataset.index), top: row.getBoundingClientRect().top };
+    });
     await step("scroll", () => thread.press("PageUp"));
+    // Virtualizer measurement can rebase scrollTop while the reader moves upward.
     await page.waitForFunction((before) => {
       const transcript = document.querySelector(".chat-pane-cache__pane--active .chat-thread");
-      return transcript && transcript.scrollTop < before;
-    }, beforeScroll);
+      if (!transcript) {
+        return false;
+      }
+      const top = transcript.getBoundingClientRect().top;
+      const row = [...transcript.querySelectorAll<HTMLElement>(".chat-virtual-row")].find(
+        (row) => row.getBoundingClientRect().bottom > top,
+      );
+      return (
+        row &&
+        (Number(row.dataset.index) < before.index ||
+          (Number(row.dataset.index) === before.index &&
+            row.getBoundingClientRect().top > before.top))
+      );
+    }, beforeRow);
     await step("scroll", () => thread.press("PageDown"));
     await step("menu", async () => {
       await active.locator(".chat-header-session-menu__trigger").click();
