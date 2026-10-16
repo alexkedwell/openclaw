@@ -4380,7 +4380,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it.each([
-    { id: "media-only-silent-final", finalPayload: { text: "NO_REPLY" } },
+    { id: "media-only-prepared-silent-final", finalPayload: { text: "" } },
     { id: "media-reply-tags", finalPayload: { replyToCurrent: true } },
   ])(
     "keeps image-only final content without leaking $id controls",

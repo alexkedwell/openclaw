@@ -119,11 +119,6 @@ type LinePushOpts = Pick<
   | "assertDirectAdapterHandoff"
 >;
 
-interface LinePushBehavior {
-  errorContext?: string;
-  verboseMessage?: (chatId: string, messageCount: number) => string;
-}
-
 function resolveLineProviderMessageIds(
   response: messagingApi.PushMessageResponse | messagingApi.ReplyMessageResponse,
   operation: "push" | "reply",
@@ -316,21 +311,6 @@ export function createLocationMessage(location: LineLocation): LocationMessage |
   };
 }
 
-function logLineHttpError(err: unknown, context: string): void {
-  if (!err || typeof err !== "object") {
-    return;
-  }
-  const { status, statusText, body } = err as {
-    status?: number;
-    statusText?: string;
-    body?: string;
-  };
-  if (typeof body === "string") {
-    const summary = status ? `${status} ${statusText ?? ""}`.trim() : "unknown status";
-    logVerbose(`line: ${context} failed (${summary}): ${body}`);
-  }
-}
-
 function recordLineOutboundActivity(
   accountId: string,
   delivery: { messageIds: string[]; receipt?: LineSendResult["receipt"] },
@@ -375,7 +355,6 @@ async function pushLineMessages(
   to: string,
   messages: Message[],
   opts: LinePushOpts,
-  behavior: LinePushBehavior = {},
 ): Promise<LineSendResult> {
   if (messages.length === 0) {
     throw new Error("Message must be non-empty for LINE sends");
@@ -390,23 +369,18 @@ async function pushLineMessages(
   // an attempt that was accepted before its outcome reached us.
   const retryKey = randomUUID();
 
-  const response = await runLinePushWithRetries(async () => {
-    try {
-      return await sendLineProviderMessages(
+  const response = await runLinePushWithRetries(
+    () =>
+      sendLineProviderMessages(
         "push",
         token,
         { to: chatId, messages: normalizedMessages },
         retryKey,
         opts.authorize,
         opts.assertDirectAdapterHandoff,
-      );
-    } catch (err) {
-      if (behavior.errorContext) {
-        logLineHttpError(err, behavior.errorContext);
-      }
-      throw err;
-    }
-  }, "line:push");
+      ),
+    "line:push",
+  );
   const { messageId, messageIds } = resolveLineProviderMessageIds(response, "push");
   const result: LineSendResult = {
     messageId,
@@ -421,13 +395,6 @@ async function pushLineMessages(
   };
 
   recordLineOutboundActivity(account.accountId, { messageIds, receipt: result.receipt });
-
-  if (opts.verbose) {
-    const logMessage =
-      behavior.verboseMessage?.(chatId, messages.length) ??
-      `line: pushed ${messages.length} messages to ${chatId}`;
-    logVerbose(logMessage);
-  }
 
   return result;
 }
@@ -460,9 +427,7 @@ export async function pushMessageLine(
     messages.push({ type: "text", text: text.trim() });
   }
 
-  return pushLineMessages(chatId, messages, opts, {
-    verboseMessage: (resolvedChatId) => `line: pushed message to ${resolvedChatId}`,
-  });
+  return pushLineMessages(chatId, messages, opts);
 }
 
 export async function replyMessageLine(
@@ -484,9 +449,6 @@ export async function replyMessageLine(
   );
   const { messageIds } = resolveLineProviderMessageIds(response, "reply");
   recordLineOutboundActivity(account.accountId, { messageIds });
-  if (opts.verbose) {
-    logVerbose(`line: replied with ${messages.length} messages`);
-  }
 }
 
 export async function pushMessagesLine(
@@ -494,9 +456,7 @@ export async function pushMessagesLine(
   messages: Message[],
   opts: LinePushOpts,
 ): Promise<LineSendResult> {
-  return pushLineMessages(to, messages, opts, {
-    errorContext: "push message",
-  });
+  return pushLineMessages(to, messages, opts);
 }
 
 export function createFlexMessage(
@@ -515,9 +475,7 @@ export async function pushLocationMessage(
   location: LineLocation,
   opts: LinePushOpts,
 ): Promise<LineSendResult> {
-  return pushLineMessages(to, [createLocationMessage(location)], opts, {
-    verboseMessage: (chatId) => `line: pushed location to ${chatId}`,
-  });
+  return pushLineMessages(to, [createLocationMessage(location)], opts);
 }
 
 export async function pushFlexMessage(
@@ -526,10 +484,7 @@ export async function pushFlexMessage(
   contents: FlexContainer,
   opts: LinePushOpts,
 ): Promise<LineSendResult> {
-  return pushLineMessages(to, [createFlexMessage(altText, contents)], opts, {
-    errorContext: "push flex message",
-    verboseMessage: (chatId) => `line: pushed flex message to ${chatId}`,
-  });
+  return pushLineMessages(to, [createFlexMessage(altText, contents)], opts);
 }
 
 export async function pushTemplateMessage(
@@ -537,9 +492,7 @@ export async function pushTemplateMessage(
   template: TemplateMessage,
   opts: LinePushOpts,
 ): Promise<LineSendResult> {
-  return pushLineMessages(to, [template], opts, {
-    verboseMessage: (chatId) => `line: pushed template message to ${chatId}`,
-  });
+  return pushLineMessages(to, [template], opts);
 }
 
 export async function pushTextMessageWithQuickReplies(
@@ -552,15 +505,18 @@ export async function pushTextMessageWithQuickReplies(
     to,
     [{ type: "text", text, quickReply: createQuickReplyItems(quickReplyLabels) }],
     opts,
-    { verboseMessage: (chatId) => `line: pushed message with quick replies to ${chatId}` },
   );
 }
 
 export function createQuickReplyItems(labels: string[]): QuickReply {
-  const items: QuickReplyItem[] = labels.slice(0, 13).map((label) => ({
-    type: "action",
-    action: messageAction(label, label),
-  }));
+  const items: QuickReplyItem[] = labels
+    .map((label) => label.trim())
+    .filter(Boolean)
+    .slice(0, 13)
+    .map((label) => ({
+      type: "action",
+      action: messageAction(label, label),
+    }));
   return { items };
 }
 
@@ -576,7 +532,6 @@ export async function showLoadingAnimation(
       chatId: normalizeTarget(chatId),
       loadingSeconds: opts.loadingSeconds ?? 20,
     });
-    logVerbose(`line: showing loading animation to ${chatId}`);
   } catch (err) {
     logVerbose(`line: loading animation failed (non-fatal): ${String(err)}`);
   }

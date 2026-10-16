@@ -122,6 +122,12 @@ old adjacent seal survives. The deployment controller delegates migration and
 restore to these native update owners, so it does not independently preserve
 or validate seals. No database schema change is required for this seal format.
 
+After an agent schema migration, the schema owner registers the database while
+its verified connection is still open. Later opens in the same Doctor process
+can reuse that admission instead of repeating its full integrity scan. The
+pre-migration integrity check, recovery backups, and restart seal requirements
+remain unchanged.
+
 | When                                             | Check                                                                                                                        |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | Startup with a matching, recent clean-close seal | Match checksum, schema identity, file metadata, and empty journals; reuse admitted facts without startup or post-ready scans |
@@ -206,6 +212,9 @@ still owns pending work. Each path still joins its accepted writers, pending ope
 and WAL maintenance before native close. The selected root refuses fresh native
 opens and new resource admission until every path settles, including failed closes;
 accepted cleanup can still use its existing admitted connection.
+Offline maintenance can release an already-owned lease after operation policy is
+revoked while its original physical database custody remains held. That cleanup
+authority does not admit new ordinary work or a replacement database.
 After shutdown grace, cached native handles also retire through their normal idle
 eviction path as soon as their final borrower releases them. They do not wait for
 the restart marker or the ordinary 30-minute idle window. Accepted cleanup can
@@ -439,6 +448,14 @@ databases. Losing shared state must not recreate unknown deletion history as
 fresh state. The released quarantine schema retains its old integrity-receipt
 table, but runtime no longer reads or writes those rows; clean-close proof lives
 only in the adjacent seal files.
+
+Native first-run state receives an empty deletion journal when the shared
+catalog contains only native bootstrap tables and no existing agent history.
+If an older installation omitted that journal, Doctor can migrate configured
+agent stores whose integrity, ownership, and contents prove they contain only
+initial schema and index metadata. Stores with user data, unknown contents, or
+previous recovery holds remain held until their deletion history is resolved.
+Doctor reports failure when a held store prevents a required agent from starting.
 
 Background verification errors retain the original name and message and append bounded Node `code` and SQLite `errcode` values from up to eight cause-chain nodes. These diagnostics do not change the verdict: I/O failures remain inconclusive, while proven corruption is reconfirmed by the database owner before quarantine. A generic `disk I/O error` (`errcode=10`) does not establish disk exhaustion.
 
