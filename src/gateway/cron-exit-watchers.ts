@@ -329,58 +329,53 @@ export function createCronExitWatchers(
             throw failed.settlementFailure.error;
           }
         }
-        while (owns() && !slot.cancelled) {
-          const owner = handlers;
-          const admission = new AbortController();
-          slot.admission = admission;
-          try {
-            await settleOwnerCallback(
-              owner.fireOnExit(
-                slot.job,
-                {
-                  exitCode: exit.exitCode,
-                  reason: exit.reason,
-                  stdout: exit.stdout,
-                  stderr: exit.stderr,
-                  timedOut: exit.timedOut,
-                  noOutputTimedOut: exit.noOutputTimedOut,
+        if (!owns() || slot.cancelled) {
+          return;
+        }
+        const owner = handlers;
+        const admission = new AbortController();
+        slot.admission = admission;
+        try {
+          await settleOwnerCallback(
+            owner.fireOnExit(
+              slot.job,
+              {
+                exitCode: exit.exitCode,
+                reason: exit.reason,
+                stdout: exit.stdout,
+                stderr: exit.stderr,
+                timedOut: exit.timedOut,
+                noOutputTimedOut: exit.noOutputTimedOut,
+              },
+              {
+                signal: admission.signal,
+                commitGuard: () => {
+                  if (admission.signal.aborted || (!slot.fired && (!owns() || slot.cancelled))) {
+                    throw new Error("cron on-exit watcher no longer owns this exit");
+                  }
                 },
-                {
-                  signal: admission.signal,
-                  commitGuard: () => {
-                    if (admission.signal.aborted || (!slot.fired && (!owns() || slot.cancelled))) {
-                      throw new Error("cron on-exit watcher no longer owns this exit");
-                    }
-                  },
-                  onTerminalWriteStarted: () => {
-                    slot.terminalPersisting = true;
-                  },
-                  onReserved: () => {
-                    slot.fired = true;
-                    slot.terminalPersisting = true;
-                  },
+                onTerminalWriteStarted: () => {
+                  slot.terminalPersisting = true;
                 },
-              ),
-            );
-          } catch (err) {
-            if (!owns() || slot.cancelled) {
-              return;
-            }
-            if (owner !== handlers && !slot.fired) {
-              continue;
-            }
-            active.delete(job.id);
-            owner.logger.warn(
-              { err: String(err), jobId: job.id },
-              "cron-exit: fireOnExit after exit failed",
-            );
-          } finally {
-            slot.admission = undefined;
-            slot.terminalPersisting = false;
-          }
-          if (owner === handlers || slot.fired) {
+                onReserved: () => {
+                  slot.fired = true;
+                  slot.terminalPersisting = true;
+                },
+              },
+            ),
+          );
+        } catch (err) {
+          if (!owns() || slot.cancelled) {
             return;
           }
+          active.delete(job.id);
+          owner.logger.warn(
+            { err: String(err), jobId: job.id },
+            "cron-exit: fireOnExit after exit failed",
+          );
+        } finally {
+          slot.admission = undefined;
+          slot.terminalPersisting = false;
         }
       })()
         .catch((error: unknown) => {
@@ -482,16 +477,7 @@ export function createCronExitWatchers(
         ]),
       ),
     updateHandlers: (nextHandlers) => {
-      if (handlers !== nextHandlers) {
-        handlers = nextHandlers;
-        // Rebind receipt admission to the new scheduler while existing
-        // write-capable callbacks still drain through their captured owner.
-        for (const slot of active.values()) {
-          if (!slot.terminalPersisting) {
-            slot.admission?.abort();
-          }
-        }
-      }
+      handlers = nextHandlers;
       if (ownerSettlements.size > 0) {
         // Finish callbacks that already captured the old scheduler, but keep
         // live watched children running under their newly adopted owner.

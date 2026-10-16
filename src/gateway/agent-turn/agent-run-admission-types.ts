@@ -94,7 +94,6 @@ export type PrepareAgentRunDispatchParams = Omit<
   agentDedupeKeys: readonly string[];
   getOwnedAgentDedupeKeys: () => readonly string[];
   io: AgentTurnIo;
-  abortForLifecycleRotation: (target?: { sessionKey?: string; agentId?: string }) => boolean;
   acquireGatewayWorkAdmission: (scope: string) => Promise<void>;
   assertGatewayWorkAdmissionAllowed: () => SessionEntry | undefined;
   hasGatewayAdmissionOutcome: () => boolean;
