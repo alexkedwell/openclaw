@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { redactSensitiveUrlLikeString } from "@openclaw/net-policy/redact-sensitive-url";
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { startGatewayClientWhenEventLoopReady } from "../../packages/gateway-client/src/readiness.js";
 import { resolvePreauthHandshakeTimeoutMs } from "../../packages/gateway-client/src/timeouts.js";
 import {
@@ -12,7 +10,6 @@ import {
   ConnectErrorDetailCodes,
   readConnectErrorDetailCode,
 } from "../../packages/gateway-protocol/src/connect-error-details.js";
-import { readMissingScopeErrorDetails } from "../../packages/gateway-protocol/src/gateway-error-details.js";
 import {
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
@@ -79,9 +76,9 @@ import {
 import {
   CLI_DEFAULT_OPERATOR_SCOPES,
   ADMIN_SCOPE,
-  WRITE_SCOPE,
   isGatewayMethodClassified,
   resolveLeastPrivilegeOperatorScopesForMethod,
+  shouldEscalateSessionCreateCwdScope,
   type OperatorScope,
 } from "./method-scopes.js";
 import { assertGatewayCliMessageContext } from "./operator-cli-message-input.js";
@@ -986,27 +983,6 @@ export async function buildGatewayProbeConnectionDetails(
     ...bootstrap.connectionDetails,
     ...(bootstrap.tlsFingerprint ? { tlsFingerprint: bootstrap.tlsFingerprint } : {}),
   };
-}
-
-function shouldEscalateSessionCreateCwdScope(params: {
-  opts: CallGatewayBaseOptions;
-  scopes: readonly OperatorScope[];
-  error: unknown;
-}): boolean {
-  if (
-    params.opts.method !== "sessions.create" ||
-    !isRecord(params.opts.params) ||
-    !normalizeOptionalString(params.opts.params.cwd) ||
-    params.scopes.length !== 1 ||
-    params.scopes[0] !== WRITE_SCOPE
-  ) {
-    return false;
-  }
-  const errorRecord = isRecord(params.error) ? params.error : undefined;
-  const missingScope = readMissingScopeErrorDetails(errorRecord?.details);
-  return (
-    missingScope?.missingScope === ADMIN_SCOPE && missingScope.requiredScopes.includes(ADMIN_SCOPE)
-  );
 }
 
 async function callGatewayWithScopeEscalation<T>(

@@ -93,6 +93,7 @@ describe("update-startup", () => {
     "getConfig" | "log" | "isNixMode" | "lifecycle" | "applyRemoteCatalogUpdate"
   > & {
     cfg: OpenClawConfig;
+    lifecycle?: Parameters<typeof startGatewayUpdateChecks>[0]["lifecycle"];
     log?: Parameters<typeof startGatewayUpdateChecks>[0]["log"];
     isNixMode?: boolean;
     applyRemoteCatalogUpdate?: Parameters<
@@ -111,9 +112,9 @@ describe("update-startup", () => {
     log = { info: vi.fn() },
     isNixMode = false,
     applyRemoteCatalogUpdate = async () => "unchanged",
+    lifecycle = createTestUpdateLifecycle(),
     ...params
   }: UpdateCheckFixtureParams) {
-    const lifecycle = createTestUpdateLifecycle();
     startGatewayUpdateChecks({
       ...params,
       log,
@@ -131,11 +132,8 @@ describe("update-startup", () => {
     isNixMode = false,
     allowInTests = true,
     ...params
-  }: Omit<Parameters<typeof runGatewayUpdateCheckOwner>[0], "getConfig" | "log" | "isNixMode"> & {
-    cfg: OpenClawConfig;
-    log?: UpdateCheckFixtureParams["log"];
-    isNixMode?: boolean;
-  }) {
+  }: Omit<Parameters<typeof runGatewayUpdateCheckOwner>[0], "getConfig" | "log" | "isNixMode"> &
+    Pick<UpdateCheckFixtureParams, "cfg" | "log" | "isNixMode">) {
     return runGatewayUpdateCheckOwner({
       ...params,
       log,
@@ -927,12 +925,9 @@ describe("update-startup", () => {
       await stopping;
       expect(getUpdateSchedule()).toBeNull();
       await expect(getUpdateEffectiveChannel()).rejects.toMatchObject({ name: "AbortError" });
-      startGatewayUpdateChecks({
+      scheduleGatewayUpdateCheck({
         lifecycle: check,
-        getConfig: () => ({ update: { channel: "dev" } }),
-        applyRemoteCatalogUpdate: async () => "unchanged",
-        log: { info: vi.fn() },
-        isNixMode: false,
+        cfg: { update: { channel: "dev" } },
       });
       await clock.advanceBy(0);
       expect(checkUpdateStatus).toHaveBeenCalledTimes(2);

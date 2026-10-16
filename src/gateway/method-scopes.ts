@@ -1,5 +1,6 @@
-import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { asOptionalRecord, isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { readMissingScopeErrorDetails } from "../../packages/gateway-protocol/src/gateway-error-details.js";
 import {
   isAdminOnlyNodeInvokeCommand,
   isBrowserProxyNodeInvokeCommand,
@@ -190,6 +191,27 @@ export function resolveLeastPrivilegeOperatorScopesForMethod(
   }
   // Default-deny for unclassified methods.
   return [];
+}
+
+export function shouldEscalateSessionCreateCwdScope(params: {
+  opts: { method: string; params?: unknown };
+  scopes: readonly OperatorScope[];
+  error: unknown;
+}): boolean {
+  if (
+    params.opts.method !== "sessions.create" ||
+    !isRecord(params.opts.params) ||
+    !normalizeOptionalString(params.opts.params.cwd) ||
+    params.scopes.length !== 1 ||
+    params.scopes[0] !== WRITE_SCOPE
+  ) {
+    return false;
+  }
+  const errorRecord = isRecord(params.error) ? params.error : undefined;
+  const missingScope = readMissingScopeErrorDetails(errorRecord?.details);
+  return (
+    missingScope?.missingScope === ADMIN_SCOPE && missingScope.requiredScopes.includes(ADMIN_SCOPE)
+  );
 }
 
 /** Projects requested scopes through the original grant and this call's exact scope policy. */

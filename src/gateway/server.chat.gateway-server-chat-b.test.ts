@@ -267,6 +267,26 @@ async function withDirectChatSession(
   }
 }
 
+function createDirectChatAgentEventHandler(
+  context: GatewayRequestContext,
+  serverChat: typeof import("./server-chat.js"),
+) {
+  return serverChat.createAgentEventHandler({
+    broadcast: context.broadcast,
+    broadcastToConnIds: context.broadcastToConnIds,
+    nodeHasSessionSubscribers: () => false,
+    nodeSendToSession: context.nodeSendToSession,
+    agentRunSeq: context.agentRunSeq,
+    chatRunState: context.chatRunState,
+    resolveSessionKeyForRun: () => "main",
+    clearAgentRunContext: vi.fn(),
+    toolEventRecipients: context.chatRunState.toolEventRecipients,
+    sessionEventSubscribers: serverChat.createSessionEventSubscriberRegistry(),
+    sessionMessageSubscribers: serverChat.createSessionMessageSubscriberRegistry(),
+    persistGatewaySessionLifecycleEventForEvent: vi.fn(async () => {}),
+  });
+}
+
 function getDirectChatSessionWorkRelease(sessionKey = "agent:main:main") {
   return getSessionWorkAdmissionRelease({
     scope: resolveSessionStorePathForScope({ sessionKey }, getRuntimeConfig()),
@@ -714,28 +734,11 @@ describe("gateway server chat", () => {
   test.each(["chat.history"] as const)(
     "%s projects embedded identity through the existing run snapshot",
     async (method) => {
-      const {
-        createAgentEventHandler,
-        createSessionEventSubscriberRegistry,
-        createSessionMessageSubscriberRegistry,
-      } = await import("./server-chat.js");
+      const serverChat = await import("./server-chat.js");
       openDirectChatSession();
       await writeMainSessionStore();
       const context = createDirectChatContext();
-      const handler = createAgentEventHandler({
-        broadcast: context.broadcast,
-        broadcastToConnIds: context.broadcastToConnIds,
-        nodeHasSessionSubscribers: () => false,
-        nodeSendToSession: context.nodeSendToSession,
-        agentRunSeq: context.agentRunSeq,
-        chatRunState: context.chatRunState,
-        resolveSessionKeyForRun: () => "main",
-        clearAgentRunContext: vi.fn(),
-        toolEventRecipients: context.chatRunState.toolEventRecipients,
-        sessionEventSubscribers: createSessionEventSubscriberRegistry(),
-        sessionMessageSubscribers: createSessionMessageSubscriberRegistry(),
-        persistGatewaySessionLifecycleEventForEvent: vi.fn(async () => {}),
-      });
+      const handler = createDirectChatAgentEventHandler(context, serverChat);
       const handle: EmbeddedAgentQueueHandle = {
         runId: "run-embedded",
         startedAtMs: 1_700_000_000_000,
@@ -1024,27 +1027,10 @@ describe("gateway server chat", () => {
   test.each(["chat.history"] as const)(
     "%s retains completed tool owner events in bounded inFlightRun replay",
     async (method) => {
-      const {
-        createAgentEventHandler,
-        createSessionEventSubscriberRegistry,
-        createSessionMessageSubscriberRegistry,
-      } = await import("./server-chat.js");
+      const serverChat = await import("./server-chat.js");
       openDirectChatSession();
       const context = createDirectChatContext();
-      const handler = createAgentEventHandler({
-        broadcast: context.broadcast,
-        broadcastToConnIds: context.broadcastToConnIds,
-        nodeHasSessionSubscribers: () => false,
-        nodeSendToSession: context.nodeSendToSession,
-        agentRunSeq: context.agentRunSeq,
-        chatRunState: context.chatRunState,
-        resolveSessionKeyForRun: () => "main",
-        clearAgentRunContext: vi.fn(),
-        toolEventRecipients: context.chatRunState.toolEventRecipients,
-        sessionEventSubscribers: createSessionEventSubscriberRegistry(),
-        sessionMessageSubscribers: createSessionMessageSubscriberRegistry(),
-        persistGatewaySessionLifecycleEventForEvent: vi.fn(async () => {}),
-      });
+      const handler = createDirectChatAgentEventHandler(context, serverChat);
       try {
         await writeMainSessionStore();
         const controller = new AbortController();
