@@ -55,6 +55,8 @@ export type RunEmbeddedAgentInternalParams = RunEmbeddedAgentParams & {
   resolveReplyDeliveryFacts?: ReplyDeliveryFactsObserver;
   /** Reset deferred terminal facts when the host admits a new attempt, before preparation. */
   onAttemptStart?: () => void;
+  /** Retire superseded terminal facts only after the host accepts isolated recovery. */
+  onAttemptTerminalReplaced?: () => void;
   /** Keep a bounded auxiliary tool set directly visible after runtime admission. */
   disableToolSearch?: true;
   /** Restrict history/search to an explicitly observed session, not this run's store key. */

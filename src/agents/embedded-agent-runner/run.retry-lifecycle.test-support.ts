@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { makeTextToolResult } from "../../../test/helpers/text-tool-result.js";
+import { createAgentLifecycleTerminalBackstop } from "../../auto-reply/reply/agent-lifecycle-terminal.js";
 import { makeAssistantMessageFixture } from "../test-helpers/assistant-message-fixtures.js";
 import { makeCompactionSuccess, makeOverflowError } from "./run.overflow-compaction.fixture.js";
 import {
@@ -39,9 +40,15 @@ describe("direct embedded retry lifecycle", () => {
     await session?.cleanup();
   });
 
-  it.each([0, 1])(
-    "honors host retry count %s before native settled-write finalization",
-    async (maxRetries) => {
+  it.each(
+    [0, 1].flatMap((maxRetries) =>
+      [false, true].flatMap((deferred) =>
+        [false, true].map((finalizerStart) => ({ maxRetries, deferred, finalizerStart })),
+      ),
+    ),
+  )(
+    "honors host retry count $maxRetries before settled-write finalization (deferred=$deferred, finalizerStart=$finalizerStart)",
+    async ({ maxRetries, deferred, finalizerStart }) => {
       useOpenAIPlatformAuthFixture();
       const settingsDir = path.join(session.runParams.workspaceDir, ".openclaw");
       await fs.mkdir(settingsDir);
@@ -70,18 +77,42 @@ describe("direct embedded retry lifecycle", () => {
         stopReason: "stop",
         content: [{ type: "text", text: "The write completed once." }],
       });
+      const onAgentEvent = vi.fn();
+      const outerTerminal = createAgentLifecycleTerminalBackstop({
+        runId: session.runParams.runId,
+        getLifecycleGeneration: () => "test-generation",
+        resolveTerminationFields: () => ({}),
+        onTerminalEvent: onAgentEvent,
+      });
+      const onAttemptTerminalReplaced = vi.fn(outerTerminal.replaceAttemptTerminal);
       let failedAttempts = 0;
       let continuations = 0;
       let finalizations = 0;
       mockedRunEmbeddedAttempt.mockImplementation(async (attempt) => {
+        expect(attempt).not.toHaveProperty("onAttemptStart");
+        expect(attempt).not.toHaveProperty("onAttemptTerminalReplaced");
         attempt.hostCapabilities?.prepareContinuationRetryCount?.({
           cwd: attempt.cwd ?? attempt.workspaceDir,
         });
         if (attempt.operation === "settled-tool-finalization") {
           finalizations += 1;
           expect(attempt.disableTools).toBe(true);
+          if (finalizerStart) {
+            await attempt.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+          }
         } else if (failedAttempts === 0) {
           failedAttempts += 1;
+          await attempt.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+          await attempt.onAgentEvent?.({
+            stream: "lifecycle",
+            data: {
+              phase: "finishing",
+              error: "old capacity error",
+              stopReason: "error",
+              errorObservation: { httpStatus: 503 },
+              assistantTranscriptIdempotencyKey: "old-receipt",
+            },
+          });
           return session.makeAttemptResult({
             terminal: {
               kind: "failed",
@@ -101,6 +132,7 @@ describe("direct embedded retry lifecycle", () => {
           });
         } else {
           continuations += 1;
+          await attempt.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
           expect(attempt.skipPreparedUserTurnMessage).toBe(true);
           expect(attempt.prompt).toContain(
             "Continue the current task from the existing transcript",
@@ -109,6 +141,7 @@ describe("direct embedded retry lifecycle", () => {
         }
         return session.makeAttemptResult({
           assistantTexts: ["The write completed once."],
+          assistantTranscriptIdempotencyKey: "selected",
           lastAssistant: answer,
           currentAttemptAssistant: answer,
           currentAttemptCompletedAssistant: answer,
@@ -120,7 +153,36 @@ describe("direct embedded retry lifecycle", () => {
         model: "gpt-5.6-sol",
         agentHarnessRuntimeOverride: "codex",
         prompt: "Write once and summarize.",
+        deferTerminalLifecycle: deferred,
+        onAttemptStart: outerTerminal.beginAttempt,
+        onAttemptTerminalReplaced,
+        onAgentEvent: (event) => {
+          outerTerminal.note(event);
+          onAgentEvent(event);
+        },
       });
+      expect(result.meta.error).toBeUndefined();
+      expect(outerTerminal.getDeferredError()).toBeUndefined();
+      expect(onAttemptTerminalReplaced).toHaveBeenCalledTimes(maxRetries === 0 ? 1 : 0);
+      if (deferred) {
+        outerTerminal.emit("end", result, {
+          assistantTranscriptIdempotencyKey:
+            result.meta.agentMeta?.terminalReceipt?.assistantTranscriptIdempotencyKey,
+        });
+      }
+      const terminals = onAgentEvent.mock.calls
+        .map(([event]) => event)
+        .filter(
+          (event) => event.stream === "lifecycle" && ["end", "error"].includes(event.data.phase),
+        );
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0].data).toMatchObject({
+        phase: "end",
+        executionSettled: true,
+        assistantTranscriptIdempotencyKey: "selected",
+      });
+      expect(terminals[0].data).not.toHaveProperty("error");
+      expect(terminals[0].data).not.toHaveProperty("errorObservation");
       expect(result.payloads).toEqual([{ text: "The write completed once." }]);
       expect(failedAttempts).toBe(1);
       expect(continuations).toBe(maxRetries);

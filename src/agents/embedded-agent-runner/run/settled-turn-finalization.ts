@@ -165,6 +165,7 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
     `settled post-tool turn lacked a final answer: ${describeRun()} — running isolated finalization`,
   );
   let finalizationOutcome: "answered" | "empty" | "failed" = "failed";
+  let finalizerAnswered = false;
   try {
     let finalization: Awaited<ReturnType<typeof runPreparedSettledTurnFinalization>>;
     let finalizationAttempt = 0;
@@ -187,6 +188,7 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
         abortSignal: input.finalization.abortSignal,
       });
       assertFinalizationActive();
+      finalizerAnswered = finalization.outcome === "answered";
       attempt = finalization.attempt;
       mergeUsageIntoAccumulator(input.terminalBase.usageAccumulator, attempt.attemptUsage);
       mergeAttemptRunStatsIntoAccumulator(input.terminalBase.usageAccumulator, attempt);
@@ -304,6 +306,12 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
     failureSignal: prepared.failureSignal,
     terminalToolFailure: prepared.terminalToolFailure,
   };
+  if (finalizerAnswered && finalizationOutcome === "answered") {
+    // Recovery owns the selected terminal only after delivery observation and
+    // authority checks; failed or cancelled summaries retain the original facts.
+    assertFinalizationActive();
+    runParams.onAttemptTerminalReplaced?.();
+  }
   return {
     ...completion,
     prepared,

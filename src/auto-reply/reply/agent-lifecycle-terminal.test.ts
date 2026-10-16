@@ -78,6 +78,51 @@ describe("createAgentLifecycleTerminalBackstop", () => {
     expect(data.executionSettled).toBe(true);
   });
 
+  it.each([false, true])("replaces pending or captured attempt facts (captured=%s)", (captured) => {
+    emitAgentEvent.mockClear();
+    const terminal = createAgentLifecycleTerminalBackstop({
+      runId: "recovered",
+      startedAt: 100,
+      getLifecycleGeneration: () => "generation",
+      resolveTerminationFields: () => ({}),
+    });
+    terminal.note({
+      stream: "lifecycle",
+      data: {
+        phase: "finishing",
+        error: "old capacity error",
+        stopReason: "error",
+        errorObservation: { httpStatus: 503 },
+        timeoutPhase: "provider",
+        providerStarted: true,
+        aborted: true,
+        livenessState: "blocked",
+        replayInvalid: true,
+        suppressErrorNotice: true,
+        assistantTranscriptIdempotencyKey: "old-receipt",
+      },
+    });
+    if (captured) {
+      terminal.capture("error", new Error("old capacity error"));
+    }
+    terminal.replaceAttemptTerminal();
+    expect(terminal.getDeferredError()).toBeUndefined();
+    terminal.emit("end", {
+      meta: { stopReason: "stop", assistantTranscriptIdempotencyKey: "selected" },
+    });
+    terminal.replaceAttemptTerminal();
+    terminal.emit("error", new Error("must not reopen"));
+    expect(emitAgentEvent).toHaveBeenCalledOnce();
+    expect(emitAgentEvent.mock.calls[0][0].data).toEqual({
+      phase: "end",
+      startedAt: 100,
+      endedAt: expect.any(Number),
+      stopReason: "stop",
+      assistantTranscriptIdempotencyKey: "selected",
+      executionSettled: true,
+    });
+  });
+
   it("publishes the provider-owned OAuth summary instead of the wrapped diagnostic", () => {
     emitAgentEvent.mockClear();
     const summary =
