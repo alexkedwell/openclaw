@@ -8,6 +8,7 @@ import {
   createComposerDictationOptions,
 } from "./chat-composer-frame.ts";
 import { createComposerPrediction } from "./chat-composer-prediction.ts";
+import { createComposerQuestionPanel } from "./chat-composer-question.tsx";
 import { getChatComposerState, isChatRunWorking } from "./chat-composer-state.ts";
 import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { renderChatComposerView } from "./chat-composer-view.tsx";
@@ -98,6 +99,7 @@ export function ChatComposer(props: ChatComposerInput) {
       idle: !isChatRunWorking(currentProps) && !currentProps.sending && !currentProps.queue.length,
     };
   });
+  const questionPanel = createComposerQuestionPanel(() => currentProps, state);
   const context = createMemo(() => {
     dictation.read();
     microphone.read();
@@ -106,7 +108,7 @@ export function ChatComposer(props: ChatComposerInput) {
     void props.renderRevision;
     computingFrame = true;
     try {
-      return createChatComposerContext(currentProps, voice, prediction);
+      return createChatComposerContext(currentProps, voice, prediction, questionPanel());
     } finally {
       computingFrame = false;
     }
