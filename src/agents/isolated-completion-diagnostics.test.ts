@@ -68,7 +68,7 @@ it.each(["cli", "v1", "v2"] as const)(
       clock += 20;
       return await prepare();
     });
-    releaseRuntimeLease.mockImplementation(async () => {
+    releaseRuntimeLease.mockImplementation(() => {
       clock += 40;
     });
     const complete = async () => {

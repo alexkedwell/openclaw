@@ -47,6 +47,7 @@ import {
   isRetryableIsolatedQuotaFailure,
   requireIsolatedAssistantText,
 } from "./isolated-completion-output.js";
+import type { IsolatedCompletionPurpose } from "./isolated-completion-purpose.js";
 import {
   resolveIsolatedCompletionAuthorizationOwner,
   selectIsolatedHarnessAuthAttempt,
@@ -68,7 +69,6 @@ import {
   unwrapModelHeaderSentinelsForProviderEgress,
   unwrapSecretSentinelsForProviderEgress,
 } from "./provider-secret-egress.js";
-import type { IsolatedCompletionPurpose } from "./run-trigger.js";
 import { materializePreparedRuntimeModel } from "./runtime-plan/materialize-model.js";
 import {
   canRunPreparedAgentRuntimeAuthAttempt,

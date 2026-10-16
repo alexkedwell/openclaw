@@ -4,7 +4,7 @@ import {
   createQueuedDiagnosticPhaseEmitter,
   isDiagnosticsEnabled,
 } from "../infra/diagnostic-events.js";
-import type { IsolatedCompletionPurpose } from "./run-trigger.js";
+import type { IsolatedCompletionPurpose } from "./isolated-completion-purpose.js";
 
 /** Measure runtime dispatch, not provider-wire inference or an inferred queue wait. */
 export function createIsolatedCompletionDiagnostics(params: {
