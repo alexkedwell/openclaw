@@ -949,7 +949,7 @@ describe("resolveSlackAttachmentContent", () => {
   });
 
   it.each(["forwarded"])(
-    "records one bounded reason and warning for a failed %s file after URL refresh",
+    "returns the bounded %s file failure reason without logging attachment content",
     async (source) => {
       const file = {
         id: "FFAILED",
@@ -977,9 +977,12 @@ describe("resolveSlackAttachmentContent", () => {
       const reason = `Download denied ${"detail ".repeat(100)}`.slice(0, 200);
       expect.soft(result?.files).toEqual([{ ...file, reason }]);
       expect.soft(result).toMatchObject({ unavailableMediaCount: 1 });
-      expect(mediaWarnMock).toHaveBeenCalledExactlyOnceWith(
-        `slack: file missing.png (fileId: FFAILED) unavailable (${reason})`,
-      );
+      expect(mediaWarnMock).toHaveBeenCalledExactlyOnceWith("slack: file unavailable", {
+        fileId: "FFAILED",
+        reason: "download-failed",
+      });
+      expect(JSON.stringify(mediaWarnMock.mock.calls)).not.toContain(file.name);
+      expect(JSON.stringify(mediaWarnMock.mock.calls)).not.toContain(reason);
     },
   );
 

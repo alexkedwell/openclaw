@@ -854,9 +854,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           if (signal?.aborted) {
             throw err;
           }
-          log.warn(
-            `Compaction provider "${compactionProvider.id}" failed, falling back to LLM: ${formatErrorMessage(err)}`,
-          );
+          log.warn(`Compaction provider "${compactionProvider.id}" failed, falling back to LLM.`);
         }
       } else {
         log.warn(
@@ -1105,9 +1103,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         signal.throwIfAborted();
       }
       const message = formatErrorMessage(error);
-      log.warn(
-        `Compaction summarization failed; cancelling compaction to preserve history: ${message}`,
-      );
+      log.warn("Compaction summarization failed; cancelling compaction to preserve history.");
       return cancelCompaction(
         `Compaction safeguard could not summarize the session: ${message}`,
         error,

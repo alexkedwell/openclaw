@@ -245,9 +245,7 @@ async function appendResolvedMediaFromAttachments(
   for (const attachment of params.attachments ?? []) {
     const attachmentUrl = normalizeOptionalString(attachment.url);
     if (!attachmentUrl) {
-      logVerbose(
-        `${params.errorPrefix} ${attachment.id ?? attachment.filename ?? "attachment"}: missing url`,
-      );
+      logVerbose(`${params.errorPrefix} ${attachment.id ?? "attachment"}: missing url`);
       params.out.push(resolveDiscordMediaClassification({ attachment }));
       continue;
     }
