@@ -53,6 +53,7 @@ import {
 import { bindHostToolSurface } from "./host-bound-tool.js";
 import type { AgentHarnessHostCapabilities } from "./host-capability-types.js";
 import {
+  bindHostContinuationRetryCount,
   captureRequiredWorkspaceToolFloor,
   prepareHostWorkspaceReadiness,
 } from "./host-capability-workspace.js";
@@ -460,15 +461,7 @@ export function createAgentHarnessHostCapabilities(params: {
     kind: "agent-harness-host-capability" as const,
     version: 1 as const,
     assertActive,
-    ...(prepareContinuationRetryCount
-      ? {
-          prepareContinuationRetryCount: (workspace: Readonly<{ cwd: string }>) => {
-            assertActive();
-            prepareContinuationRetryCount(workspace);
-            assertActive();
-          },
-        }
-      : {}),
+    ...bindHostContinuationRetryCount(prepareContinuationRetryCount, assertActive),
     captureRequestCustody: () => {
       assertActive();
       return requestCustody;

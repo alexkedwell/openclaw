@@ -20,6 +20,7 @@ import {
   clearPreparedEmbeddedAgentSettings,
   createPreparedEmbeddedAgentSettingsManager,
 } from "./agent-project-settings.js";
+import { SettingsManager } from "./sessions/settings-manager.js";
 
 async function withSettingsWorkspace(
   run: (params: {
@@ -85,6 +86,85 @@ describe("buildEmbeddedAgentSettingsSnapshot", () => {
 });
 
 describe("prepareAgentProviderRetryCount", () => {
+  it.each([undefined, 0, 7])(
+    "preserves released settings across preparation and an intentional write with count %s",
+    async (maxRetries) => {
+      await withSettingsWorkspace(async (params) => {
+        // v2026.10.4 (383c124cc32ffee3f8e56f549b88da94d269a4af) stores these
+        // canonical fields in two scopes; runtime preparation must never rewrite either file.
+        const globalSettings = {
+          theme: "dark",
+          defaultProvider: "openai",
+          shellPath: "/bin/sh",
+          retry: {
+            enabled: true,
+            provider: {
+              ...(maxRetries === undefined ? {} : { maxRetries: 2 }),
+              timeoutMs: 45_000,
+              maxRetryDelayMs: 12_000,
+            },
+          },
+        };
+        const projectSettings = {
+          defaultModel: "gpt-5",
+          hideThinkingBlock: true,
+          retry: {
+            provider: {
+              ...(maxRetries === undefined ? {} : { maxRetries }),
+              timeoutMs: 9_000,
+              maxRetryDelayMs: 2_500,
+            },
+          },
+        };
+        const globalPath = path.join(params.agentDir, "settings.json");
+        const projectPath = path.join(params.cwd, ".openclaw", "settings.json");
+        const globalBytes = `${JSON.stringify(globalSettings, null, 2)}\n`;
+        const projectBytes = `${JSON.stringify(projectSettings, null, 2)}\n`;
+        await fs.writeFile(globalPath, globalBytes);
+        await fs.writeFile(projectPath, projectBytes);
+        const expectedProvider = { maxRetries, timeoutMs: 9_000, maxRetryDelayMs: 2_500 };
+        const assertPrepared = (theme: string) => {
+          // Native preparation runs first, so embedded preparation must reuse its frozen inputs.
+          expect(prepareAgentProviderRetryCount(params)).toBe(maxRetries);
+          const prepared = createPreparedEmbeddedAgentSettingsManager(params);
+          expect(prepared.getProviderRetrySettings()).toEqual(expectedProvider);
+          expect(prepared.getTheme()).toBe(theme);
+          expect(prepared.getDefaultProvider()).toBe("openai");
+          expect(prepared.getDefaultModel()).toBe("gpt-5");
+          expect(prepared.getShellPath()).toBe("/bin/sh");
+          expect(prepared.getHideThinkingBlock()).toBe(true);
+          expect(prepared.getRetryEnabled()).toBe(false);
+          return prepared;
+        };
+        const prepared = assertPrepared("dark");
+        prepared.setTheme("attempt-only");
+        prepared.setRetryEnabled(true);
+        prepared.applyOverrides({ retry: { provider: { maxRetries: 99 } } });
+        await prepared.flush();
+        expect(await fs.readFile(globalPath, "utf8")).toBe(globalBytes);
+        expect(await fs.readFile(projectPath, "utf8")).toBe(projectBytes);
+        assertPrepared("dark");
+
+        const persistent = SettingsManager.create(params.cwd, params.agentDir);
+        persistent.setTheme("light");
+        await persistent.flush();
+        expect(JSON.parse(await fs.readFile(globalPath, "utf8"))).toEqual({
+          ...globalSettings,
+          theme: "light",
+        });
+        expect(await fs.readFile(projectPath, "utf8")).toBe(projectBytes);
+        const reopened = SettingsManager.create(params.cwd, params.agentDir);
+        expect(reopened.getTheme()).toBe("light");
+        expect(reopened.getProviderRetrySettings()).toEqual(expectedProvider);
+        expect(reopened.getGlobalSettings()).toEqual({ ...globalSettings, theme: "light" });
+        expect(reopened.getProjectSettings()).toEqual(projectSettings);
+        assertPrepared("dark");
+        clearPreparedEmbeddedAgentSettings([params.sessionId]);
+        assertPrepared("light");
+      });
+    },
+  );
+
   it.each([undefined, 0, 1, 4])("projects only the explicit count %s", async (maxRetries) => {
     await withSettingsWorkspace(async (params) => {
       await fs.writeFile(

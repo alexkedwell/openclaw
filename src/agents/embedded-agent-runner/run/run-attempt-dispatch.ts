@@ -8,7 +8,6 @@ import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-requ
 import { copyExplicitSkillSelectionFileHost } from "../../../skills/discovery/skill-command-provenance.js";
 import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js";
 import { createAgentHarnessCompletionScope } from "../../agent-harness-completion-scope.js";
-import { prepareAgentProviderRetryCount } from "../../agent-project-settings-prepared.js";
 import { resolveDelegationCapability } from "../../delegation-capability.js";
 import { agentHarnessBuildsOpenClawTools } from "../../harness/tool-surface.js";
 import { applyAuthHeaderOverride, applyLocalNoAuthHeaderOverride } from "../../model-auth.js";
@@ -24,6 +23,7 @@ import { log } from "../logger.js";
 import { remapExplicitSkillSelectionPath, remapSkillReferencePaths } from "../sandbox-skills.js";
 import { prepareEmbeddedSkills } from "../skill-runtime.js";
 import { mapThinkingLevelForProvider } from "../utils.js";
+import { createAttemptContinuationRetryCount } from "./attempt-continuation-retry.js";
 import { prepareExecApprovalContinuationForAttempt } from "./attempt-exec-approval-continuation.js";
 import { withPreparedEmbeddedGatewayTools } from "./attempt-gateway-tools.js";
 import { resolveEmbeddedAttemptMemoryAudience } from "./attempt-memory-audience.js";
@@ -252,27 +252,12 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     : null;
   assertActiveRun();
   const pluginWorkspace = placement?.workspace;
-  let providerRetryMaxRetries: number | undefined;
-  let providerRetrySettingsCwd: string | undefined;
-  const prepareContinuationRetryCount = ({ cwd }: { cwd: string }) => {
-    assertActiveRun();
-    if (providerRetrySettingsCwd !== undefined) {
-      if (providerRetrySettingsCwd !== cwd) {
-        throw new Error("Native execution cwd changed after continuation retry preparation");
-      }
-      return;
-    }
-    // Only the native owner knows the admitted local cwd. Freeze before execution,
-    // including absence, so in-turn settings edits cannot change this attempt's budget.
-    providerRetryMaxRetries = prepareAgentProviderRetryCount({
-      sessionId,
-      cwd,
-      agentDir,
-      cfg: params.config,
-      pluginMetadataSnapshot: runtime.pluginMetadataSnapshot,
-    });
-    providerRetrySettingsCwd = cwd;
-  };
+  const continuationRetryCount = createAttemptContinuationRetryCount(
+    params,
+    runtime,
+    { sessionId, agentDir },
+    assertActiveRun,
+  );
   const promptMedia = pluginWorkspace
     ? await prepareEmbeddedAttemptPromptExecution({
         attempt: { ...params, model: effectiveModel },
@@ -685,7 +670,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
       sessionPromptState.activePrompt.persisted = false;
     },
     prepareAssistantTranscriptMessage: params.prepareAssistantTranscriptMessage,
-    ...(runtime.pluginHarnessOwnsTransport ? { prepareContinuationRetryCount } : {}),
+    ...continuationRetryCount.capability,
   };
   let rawAttempt: EmbeddedRunAttemptResult;
   try {
@@ -722,11 +707,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
   if (pluginWorkspace?.sandboxRuntime) {
     rawAttempt.sandboxRuntime = pluginWorkspace.sandboxRuntime;
   }
-  // Host policy wins only when explicitly configured. Keep public harness result
-  // budgets on omission, and leave native transport delay/timeout policy untouched.
-  if (providerRetryMaxRetries !== undefined) {
-    rawAttempt.providerRetryMaxRetries = providerRetryMaxRetries;
-  }
+  continuationRetryCount.applyTo(rawAttempt);
   return {
     dispatchedAttempt: { rawAttempt, preparedAttempt: attemptParams },
     runtimePlan,
