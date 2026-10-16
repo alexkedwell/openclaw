@@ -209,16 +209,22 @@ export async function runInteractionLatencyScenario(
     if ((await composer.inputValue()) !== "abcdefghij".repeat(round + 1)) {
       throw new Error("Native composer input was lost during live traffic");
     }
-    await active.locator(".chat-thread").focus();
-    const beforeScroll = await active
-      .locator(".chat-thread")
-      .evaluate((element) => element.scrollTop);
-    await step("scroll", () => page.keyboard.press("PageUp"));
+    const thread = active.locator(".chat-thread");
+    // Session handoffs retain reading position; give each upward action room to scroll.
+    await thread.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await frame();
+    const beforeScroll = await thread.evaluate((element) => element.scrollTop);
+    if (beforeScroll <= 0) {
+      throw new Error("Interaction scenario has no upward transcript scroll range");
+    }
+    await step("scroll", () => thread.press("PageUp"));
     await page.waitForFunction((before) => {
       const thread = document.querySelector(".chat-pane-cache__pane--active .chat-thread");
       return thread && thread.scrollTop < before;
     }, beforeScroll);
-    await step("scroll", () => page.keyboard.press("PageDown"));
+    await step("scroll", () => thread.press("PageDown"));
     await step("menu", async () => {
       await active.locator(".chat-header-session-menu__trigger").click();
       await active
