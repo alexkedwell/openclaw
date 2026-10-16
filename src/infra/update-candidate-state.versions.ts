@@ -6,7 +6,34 @@ import {
 import type { OpenClawSchemaVersions } from "../state/openclaw-schema-versions.js";
 import { CLIENT_CREDENTIAL_SCHEMA_VERSION } from "./client-credential-schema.js";
 import { resolveClientCredentialStorePath } from "./client-credential-store.js";
+import type { StateDatabaseDiscovery } from "./update-candidate-paths.js";
 import type { UpdateStateSchemaVersion } from "./update-candidate-state.js";
+import type { StateInput } from "./update-candidate-state.shared.js";
+
+/** Publish exact aliases; released shared/agent callers opt out of local schema versions. */
+export function publishStateDatabaseVersions(
+  files: Map<string, StateDatabaseDiscovery>,
+  inspected: Map<string, Omit<UpdateStateSchemaVersion, "path">>,
+  input: Pick<StateInput, "stateDir" | "includeLocalStoreVersions">,
+): UpdateStateSchemaVersion[] {
+  const versions: UpdateStateSchemaVersion[] = [];
+  for (const [identity, discovery] of files) {
+    const result = inspected.get(identity);
+    if (!result) {
+      continue;
+    }
+    for (const spelling of discovery.spellings) {
+      versions.push({ path: spelling, ...result });
+    }
+  }
+  return input.includeLocalStoreVersions === false
+    ? versions.filter(
+        ({ path: file }) =>
+          file !== resolveClientCredentialStorePath({ OPENCLAW_STATE_DIR: input.stateDir }) &&
+          file !== resolveDaemonRuntimePinStorePath({ OPENCLAW_STATE_DIR: input.stateDir }),
+      )
+    : versions;
+}
 
 export function resolveUpdateStateContentVersion(entry: UpdateStateSchemaVersion): number | null {
   return entry.contentVersion ?? entry.userVersion;

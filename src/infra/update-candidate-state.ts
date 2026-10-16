@@ -64,6 +64,7 @@ import {
   readUpdateStateDatabaseSizesInProcess,
   updateStateDatabaseExists,
 } from "./update-candidate-state.sizes.js";
+import { publishStateDatabaseVersions } from "./update-candidate-state.versions.js";
 import type { UpdateDatabaseGenerations } from "./update-database-generations.js";
 import type { UpdateRecoveryCaptureAcquisition } from "./update-recovery-capture-acquisition.js";
 
@@ -194,31 +195,6 @@ async function collectUpdateCandidateDatabasePaths(input: StateInput) {
     }
   }
   return files;
-}
-
-/** Publish exact aliases; released shared/agent callers opt out of local schema versions. */
-function publishStateDatabaseVersions(
-  files: Map<string, StateDatabaseDiscovery>,
-  inspected: Map<string, Omit<UpdateStateSchemaVersion, "path">>,
-  input: StateInput,
-): UpdateStateSchemaVersion[] {
-  const versions: UpdateStateSchemaVersion[] = [];
-  for (const [identity, discovery] of files) {
-    const result = inspected.get(identity);
-    if (!result) {
-      continue;
-    }
-    for (const spelling of discovery.spellings) {
-      versions.push({ path: spelling, ...result });
-    }
-  }
-  return input.includeLocalStoreVersions === false
-    ? versions.filter(
-        ({ path: file }) =>
-          file !== resolveClientCredentialStorePath({ OPENCLAW_STATE_DIR: input.stateDir }) &&
-          file !== resolveDaemonRuntimePinStorePath({ OPENCLAW_STATE_DIR: input.stateDir }),
-      )
-    : versions;
 }
 
 /** Read registrations and plugin ownership from one private shared copy before budgeting. */
