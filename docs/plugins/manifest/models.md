@@ -237,6 +237,25 @@ Provider fields:
 
 Use `modelPricing` when the hosted catalog publisher needs provider-specific pricing-key behavior. The publisher reads this metadata without importing provider runtime code.
 
+A plugin can declare a policy for each id in its `providers` or `cliBackends`. Policies for other ids are ignored. A CLI backend that runs a vendor's models can map to that vendor's price list. Its usage is then estimated at the vendor's API rates, even when the CLI is billed through a subscription plan. For example, the Anthropic plugin maps its `claude-cli` backend to Anthropic's prices:
+
+```json
+{
+  "providers": ["anthropic"],
+  "cliBackends": ["claude-cli"],
+  "modelPricing": {
+    "providers": {
+      "claude-cli": {
+        "modelsDev": { "provider": "anthropic" },
+        "liteLLM": { "provider": "anthropic" }
+      }
+    }
+  }
+}
+```
+
+Another example:
+
 ```json
 {
   "providers": ["ollama", "openrouter"],
