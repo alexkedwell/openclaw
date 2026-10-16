@@ -41,6 +41,17 @@ function fixture(arch = "arm64", sqlite = "sqlite") {
     path.join(root, "scripts/lib/mac-standalone-runtime.mjs"),
   );
   symlinkSync(process.execPath, path.join(root, "bin/node"));
+  symlinkSync(path.resolve("scripts/tsx.mjs"), path.join(root, "scripts/tsx.mjs"));
+  symlinkSync(
+    path.resolve("scripts/lib/desktop-runtime-plugins.mjs"),
+    path.join(root, "scripts/lib/desktop-runtime-plugins.mjs"),
+  );
+  for (const id of ["codex", "discord", "imessage", "slack", "sms", "voice-call", "whatsapp"]) {
+    const directory = path.join(root, "dist/extensions", id);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, "openclaw.plugin.json"), JSON.stringify({ id }));
+  }
+
   writeFileSync(path.join(root, "input/runtime/lib/libsqlite3.dylib"), sqlite);
   const bytes = '#!/bin/sh\nprintf "OpenClaw 2026.10.14\\n"\n';
   writeFileSync(path.join(root, "input/openclaw"), bytes);
@@ -49,6 +60,10 @@ function fixture(arch = "arm64", sqlite = "sqlite") {
   const manifest = {
     schemaVersion: 1,
     mode: "jit",
+    plugins: {
+      embedded: ["codex", "discord", "imessage", "slack", "sms", "voice-call", "whatsapp"],
+      omitted: [],
+    },
     target: { platform: "darwin", arch },
     bun: compilerIdentity(arch),
     openclaw: { version: "2026.10.14", commit },
@@ -146,6 +161,46 @@ describe.skipIf(process.platform !== "darwin")("standalone Mac runtime staging",
     const result = f.run();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(`Standalone Bun ${field} mismatch`);
+    expect(existsSync(f.output)).toBe(false);
+  });
+
+  it("passes the desktop selection to the builder when no prebuilt output is supplied", () => {
+    const f = fixture();
+    writeFileSync(
+      path.join(f.root, "scripts/stage-openclaw-bun.sh"),
+      '#!/bin/bash\nmkdir -p "$1/bin"\ncp "' +
+        path.join(f.root, "fake-builder") +
+        '" "$1/bin/bun"\n',
+    );
+    writeFileSync(
+      path.join(f.root, "fake-builder"),
+      `#!/bin/bash
+printf '%s\\n' "$@" > "${path.join(f.root, "builder-args")}"
+cp -R "${path.join(f.root, "input")}" "$2"
+`,
+    );
+    chmodSync(path.join(f.root, "fake-builder"), 0o755);
+    const result = f.run({ OPENCLAW_MAC_RUNTIME_PREBUILT: "" });
+    expect(result.status, result.stderr).toBe(0);
+    const args = readFileSync(path.join(f.root, "builder-args"), "utf8").trim().split("\n");
+    expect(args.slice(2)).toEqual([
+      "--plugins",
+      "codex,discord,imessage,slack,sms,voice-call,whatsapp",
+    ]);
+  });
+
+  it.each([
+    { reason: "missing", embedded: undefined },
+    { reason: "empty", embedded: [] },
+    { reason: "extra", embedded: ["codex", "unexpected"] },
+    { reason: "duplicate", embedded: ["codex", "codex"] },
+  ])("rejects a prebuilt runtime with a $reason embedded plugin set", ({ embedded }) => {
+    const f = fixture();
+    Object.assign(f.manifest, { plugins: { embedded, omitted: [] } });
+    f.save();
+    const result = f.run();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Standalone desktop plugin selection mismatch");
     expect(existsSync(f.output)).toBe(false);
   });
 

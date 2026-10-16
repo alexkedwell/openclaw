@@ -12,6 +12,12 @@ OpenClaw.app bundles a standalone `openclaw` executable, a loose companion
 The CLI, Gateway, Doctor, app-owned node worker, and local Chrome-extension
 setup use this executable. No separate Node or Bun interpreter ships in the app.
 
+The macOS executable embeds every plugin without an official external install
+route, except development and QA plugins. It also embeds Codex, Discord, iMessage,
+Slack, SMS, Voice Call, and WhatsApp. Other published official plugins are fetched
+on first use. Packaging derives this selection from the repository's plugin
+metadata and rejects builder output whose embedded plugin list differs.
+
 The payload lives in `Contents/Resources/runtime/`. The builder manifest binds
 its executable and sidecar to the same OpenClaw commit and records the selected
 JIT or bytecode mode. Packaging validates both checksums and source identity;

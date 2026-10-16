@@ -35,7 +35,7 @@ export function readMacStandaloneManifest(root) {
   return manifest;
 }
 
-export async function verifyMacStandaloneRuntime(root, expected, mode, arch) {
+export async function verifyMacStandaloneRuntime(root, expected, mode, arch, pluginIds) {
   const manifest = readMacStandaloneManifest(root);
   assert.match(expected.commit, /^[a-f\d]{40}$/u, "App commit must be an exact source SHA");
   assert.equal(manifest.openclaw?.commit, expected.commit, "Standalone OpenClaw commit mismatch");
@@ -50,6 +50,13 @@ export async function verifyMacStandaloneRuntime(root, expected, mode, arch) {
     arch === "x86_64" ? "x64" : arch,
     "Standalone architecture mismatch",
   );
+  if (pluginIds !== undefined) {
+    assert.deepEqual(
+      manifest.plugins?.embedded,
+      pluginIds,
+      "Standalone desktop plugin selection mismatch",
+    );
+  }
   assert(
     fs.lstatSync(path.join(root, "runtime")).isDirectory(),
     "Standalone sidecar must be a directory",
@@ -139,12 +146,13 @@ function writeEntitlements(root, destination) {
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [operation, root, ...args] = process.argv.slice(2);
   if (operation === "verify") {
-    const [buildInfo, mode, arch] = args;
+    const [buildInfo, mode, arch, pluginIds] = args;
     await verifyMacStandaloneRuntime(
       root,
       JSON.parse(fs.readFileSync(buildInfo, "utf8")),
       mode,
       arch,
+      pluginIds?.split(","),
     );
   } else if (operation === "stage") {
     await refreshMacStandaloneManifest(root, true);
