@@ -186,7 +186,7 @@ export function createFollowupRunner(
       const turn: AdmittedFollowupTurn = admission.turn;
       admittedTurn = turn;
       operation = turn.operation;
-      if (turn.session.kind === "session") {
+      if (turn.session.kind === "session" && turn.session.storePath) {
         activitySummaryCompletion =
           resolveGatewayContext?.()?.sessionActivitySummaries?.beginCompletion(
             {
