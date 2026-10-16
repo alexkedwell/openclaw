@@ -48,16 +48,24 @@ function readRigProbeSnapshot() {
 function installWidgetReadiness() {
   const ready = new Map<string, number>();
   window.addEventListener("message", (event) => {
-    if (event.data?.type === "team-scale-widget-ready") {
-      const key = `${event.data.kind}:${event.data.index}`;
-      if (!ready.has(key)) {
+    if (event.data?.method !== "ui/notifications/sandbox-resource-loaded") {
+      return;
+    }
+    for (const [kind, selector] of [
+      ["board", ".board-widget__frame"],
+      ["inline", ".chat-tool-card__preview-frame"],
+    ] as const) {
+      const frames = [...document.querySelectorAll<HTMLIFrameElement>(selector)];
+      const index = frames.findIndex((frame) => frame.contentWindow === event.source);
+      const key = `${kind}:${index}`;
+      if (index >= 0 && !ready.has(key)) {
         ready.set(key, performance.now());
       }
     }
   });
   Reflect.set(window, "__readWidgetReadiness", () => ({
     measurement:
-      "fixture content painted through two animation frames before notifying the top window",
+      "sandbox resource-loaded notification after the widget document load; not a paint timestamp",
     firstInlineReadyMs: [...ready].find(([key]) => key.startsWith("inline:"))?.[1] ?? null,
     firstBoardReadyMs: [...ready].find(([key]) => key.startsWith("board:"))?.[1] ?? null,
     ready: Object.fromEntries(ready),
@@ -445,7 +453,7 @@ try {
         .waitFor();
       await page.waitForFunction(() => {
         const ready = Reflect.get(window, "__readWidgetReadiness")();
-        return ready.firstInlineReadyMs !== null && ready.firstBoardReadyMs !== null;
+        return ready.firstBoardReadyMs !== null;
       });
       await page.waitForFunction(
         (eventCount) => {

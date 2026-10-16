@@ -59,12 +59,11 @@ function personId(index: number) {
   return `team-person-${String(index + 1).padStart(3, "0")}`;
 }
 
-function widgetHtml(index: number, kind = "inline") {
+function widgetHtml(index: number) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Team metric ${index + 1}</title>
 <style>:root{color-scheme:dark light;font-family:system-ui}body{margin:0;padding:20px}h2{font-size:18px}progress{width:100%}</style></head>
 <body><h2>Team metric ${index + 1}</h2><p>Synthetic completed work: ${60 + index}%</p>
-<progress value="${60 + index}" max="100"></progress><p>All fixture systems are available.</p>
-<script>requestAnimationFrame(() => requestAnimationFrame(() => window.top.postMessage({type:"team-scale-widget-ready",kind:${JSON.stringify(kind)},index:${index}},"*")));</script></body></html>`;
+<progress value="${60 + index}" max="100"></progress><p>All fixture systems are available.</p></body></html>`;
 }
 
 /** One deterministic inventory shared by browser benchmarks and focused UI proofs. */
@@ -188,6 +187,13 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
   }
   pinnedRows[0]!.sharingRole = "admin";
   pinnedRows[0]!.visibility = "shared";
+  if (options.duplicateBootReads) {
+    pinnedRows[0]!.worktree = {
+      id: "team-scale-worktree",
+      branch: "fixture/duplicate-reads",
+      repoRoot: "/synthetic/team-scale-project",
+    };
+  }
   if (options.liveRun) {
     Object.assign(pinnedRows[0]!, {
       hasActiveRun: true,
@@ -368,7 +374,7 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     };
   });
   const boardPath = `/__openclaw__/board/${encodeURIComponent(selectedSessionKey)}/team-overview/index.html`;
-  assets.set(boardPath, { contentType: "text/html", body: widgetHtml(0, "board") });
+  assets.set(boardPath, { contentType: "text/html", body: widgetHtml(0) });
   const sandbox = { sandboxUrl: options.sandboxUrl, sandboxPort: options.sandboxPort };
   const board: BoardSnapshot = {
     sessionKey: selectedSessionKey,
@@ -442,7 +448,9 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
       "board.get",
       "canvas.document.view",
       "progressCard.get",
-      ...(options.duplicateBootReads ? ["session.suggestions.list"] : []),
+      ...(options.duplicateBootReads
+        ? ["session.suggestions.list", "sessions.github.publish"]
+        : []),
     ],
     methodResponses: {
       "question.list": { questions: [] },
