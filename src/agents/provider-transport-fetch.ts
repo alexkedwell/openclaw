@@ -9,10 +9,7 @@ import {
   clampPositiveTimerTimeoutMs,
   parseStrictFiniteNumber,
 } from "@openclaw/normalization-core/number-coercion";
-import {
-  fetchWithSsrFGuard,
-  withTrustedEnvProxyGuardedFetchMode,
-} from "../infra/net/fetch-guard.js";
+import { withTrustedEnvProxyGuardedFetchMode } from "../infra/net/fetch-guard.js";
 import { wrapGuardedBodyStream } from "../infra/net/guarded-body-stream.js";
 import { shouldUseEnvHttpProxyForUrl } from "../infra/net/proxy-env.js";
 import { formatModelTransportContext } from "../llm/model-transport-context.js";
@@ -38,7 +35,7 @@ import {
   mergeModelProviderRequestOverrides,
   resolveProviderRequestPolicyConfig,
 } from "./provider-request-config.js";
-import { getProviderTransportDispatcherPool } from "./provider-transport-dispatcher-pool.js";
+import { fetchWithProviderHttpGuard } from "./provider-transport-dispatcher-pool.js";
 import { requestBodyHasStreamTrue } from "./provider-transport-request-body.js";
 import { swapSecretSentinelsForEgress } from "./provider-transport-secret-egress.js";
 import {
@@ -343,7 +340,6 @@ export function buildGuardedModelFetch(
         },
       },
       dispatcherPolicy,
-      dispatcherPool: getProviderTransportDispatcherPool(),
       timeoutMs: requestTimeoutMs,
       ...(baseSignal ? { signal: baseSignal } : {}),
       // Provider transport intentionally keeps the secure default and never
@@ -351,7 +347,7 @@ export function buildGuardedModelFetch(
       allowCrossOriginUnsafeRedirectReplay: false,
       ...(policy ? { policy } : {}),
     };
-    let result: Awaited<ReturnType<typeof fetchWithSsrFGuard>>;
+    let result: Awaited<ReturnType<typeof fetchWithProviderHttpGuard>>;
     const fetchStartedAt = Date.now();
     const useEnvProxy = !dispatcherPolicy && shouldUseEnvHttpProxyForUrl(url);
     emitModelTransportDebug(
@@ -368,7 +364,7 @@ export function buildGuardedModelFetch(
         rawHeaders,
         localServiceSignal,
       );
-      result = await fetchWithSsrFGuard(
+      result = await fetchWithProviderHttpGuard(
         useEnvProxy
           ? withTrustedEnvProxyGuardedFetchMode(guardedFetchOptions)
           : guardedFetchOptions,
