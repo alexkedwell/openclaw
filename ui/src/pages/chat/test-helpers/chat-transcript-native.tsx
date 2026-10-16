@@ -15,7 +15,7 @@ import {
   type ChatThreadProps,
 } from "../components/chat-thread-interactions.ts";
 import { ChatThread } from "../components/chat-thread-view.tsx";
-import type { ChatTranscriptController } from "../components/chat-transcript-controller.ts";
+import type { ChatTranscript } from "../components/chat-transcript-controller.ts";
 import { TranscriptSearch } from "../components/chat-transcript-search.tsx";
 import type { ChatTranscriptSession } from "../components/chat-transcript-session.ts";
 import {
@@ -26,7 +26,7 @@ import {
 class ThreadFixture {
   constructor(
     readonly props: ChatThreadProps,
-    readonly transcript: ChatTranscriptController,
+    readonly transcript: ChatTranscript,
     readonly search?: () => void,
   ) {}
 }
@@ -79,7 +79,7 @@ function Content(props: { value: NativeContent }) {
 
 export function renderChatThread(
   props: ChatThreadProps,
-  transcript: ChatTranscriptController,
+  transcript: ChatTranscript,
   options?: { search: () => void },
 ) {
   return new ThreadFixture(props, transcript, options?.search);
