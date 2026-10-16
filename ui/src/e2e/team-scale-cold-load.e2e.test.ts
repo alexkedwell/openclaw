@@ -134,7 +134,9 @@ suite.define(() => {
           const bottomPadding = Number.parseFloat(padding.paddingBottom);
           const frames: Array<{ scrollTop: number; covered: boolean }> = [];
           for (let frame = 0; frame < 20; frame++) {
-            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            await new Promise<void>((resolve) => {
+              requestAnimationFrame(() => resolve());
+            });
             const viewport = element.getBoundingClientRect();
             const rows = [...element.querySelectorAll(".chat-virtual-row")].map((row) =>
               row.getBoundingClientRect(),
