@@ -877,6 +877,7 @@ describe("runAgentHarnessAttempt", () => {
         hostAuthorityActive = isHostScopedAgentToolActive("openclaw");
         expect(attempt.operation).toBe("settled-tool-finalization");
         expect(attempt).not.toHaveProperty("hostCapabilities");
+        expect(attempt).not.toHaveProperty("onSettledTurn");
         for (const { field } of privateHarnessParamCases) {
           expect(attempt).not.toHaveProperty(field);
         }
@@ -897,6 +898,7 @@ describe("runAgentHarnessAttempt", () => {
       createAttemptParams(providerRuntimeConfig("codex", "codex")),
       Object.fromEntries(privateHarnessParamCases.map(({ field, value }) => [field, value])),
     );
+    params.onSettledTurn = vi.fn();
     const settledAttempt = createAttemptResult("settled");
 
     await expect(

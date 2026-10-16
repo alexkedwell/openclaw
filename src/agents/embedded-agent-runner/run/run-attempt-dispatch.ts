@@ -39,11 +39,12 @@ import type { EmbeddedRunAttemptInternalParams } from "./internal-params.js";
 import { prepareEmbeddedAttemptPromptExecution } from "./prompt-image-preparation.js";
 import { projectEmbeddedMessageContext } from "./shared-run-context.js";
 import { MAX_BEFORE_AGENT_FINALIZE_REVISIONS } from "./terminal-retry-state.js";
-import type { EmbeddedRunAttemptResult } from "./types.js";
+import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 /** Prepares the selected runtime and dispatches an attempt under its admitted lifecycle. */
 export async function prepareAndDispatchEmbeddedRunAttempt(
   input: PreparedEmbeddedAttemptDispatchInput,
+  onSettledTurn?: EmbeddedRunAttemptParams["onSettledTurn"],
 ) {
   const { runInput, preparedRuntime, contextEngine, sessionPromptState, terminalRetryState } =
     input;
@@ -574,6 +575,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     onAttemptDeadlineChanged: attemptControls.onAttemptDeadlineChanged,
     onAttemptTimeout: attemptControls.onAttemptTimeout,
     onAttemptAbort: attemptControls.onAttemptAbort,
+    onSettledTurn,
     replyOperation: params.replyOperation,
     shouldEmitToolResult: params.shouldEmitToolResult,
     shouldEmitToolOutput: params.shouldEmitToolOutput,
