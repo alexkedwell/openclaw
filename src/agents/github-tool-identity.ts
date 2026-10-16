@@ -442,6 +442,7 @@ async function prepareSharedGitHubIdentity(
     startCurrent?: GitHubReadIdentityStarter;
     allowAnonymous?: boolean;
     allowAppInstallation?: boolean;
+    requestedRepository?: string;
     allowStale?: boolean;
   },
   identity: ResolvedGitHubToolIdentity,

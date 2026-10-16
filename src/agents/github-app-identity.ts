@@ -12,6 +12,7 @@ export async function prepareAppGitHubIdentity(
   params: GitHubIdentityPreparation & {
     assertCurrent?: () => void;
     allowAppInstallation?: boolean;
+    requestedRepository?: string;
     readNativeCredential?: GitHubCredentialReader;
   },
   selection: GitHubAppSelection,
@@ -36,14 +37,37 @@ export async function prepareAppGitHubIdentity(
     }
   };
   assertCurrent();
+  let requestedSelection = selection;
+  const requestedRepository = params.requestedRepository?.toLowerCase();
+  if (requestedRepository !== undefined) {
+    const repository = selection.app.repositories.find(
+      (repo) => repo.fullName.toLowerCase() === requestedRepository,
+    );
+    if (!repository) {
+      throw new GitHubIdentityError("unavailable");
+    }
+    // Retain the complete selection above for currency checks. Only the grant
+    // and broker receipt are narrowed to the repository this request reads.
+    requestedSelection = { ...selection, app: { ...selection.app, repositories: [repository] } };
+  }
   if (process.env.FACTORY_AUTH_MODE === "github") {
     if (!params.readNativeCredential) {
       throw new GitHubIdentityError("unavailable");
     }
-    await params.readNativeCredential(env, { kind: "repository-admission", host, selection });
+    await params.readNativeCredential(env, {
+      kind: "repository-admission",
+      host,
+      selection: requestedSelection,
+    });
     assertCurrent();
   }
-  const issued = await prepareGitHubAppInstallation({ selection, host, apiBaseUrl, assertCurrent });
+  const issued = await prepareGitHubAppInstallation({
+    selection,
+    repositories: requestedSelection.app.repositories,
+    host,
+    apiBaseUrl,
+    assertCurrent,
+  });
   try {
     assertCurrent();
     const prepared = Object.freeze({

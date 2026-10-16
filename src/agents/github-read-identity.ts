@@ -264,6 +264,8 @@ export type GitHubReadIdentityPreparation = GitHubIdentityPreparation & {
   issuer?: "github.com";
   /** Only request owners that await revoke before returning may mint App credentials. */
   allowAppInstallation?: boolean;
+  /** Restrict App admission and issuance to this configured owner/repository. */
+  requestedRepository?: string;
   /** Account display facts may refresh in the background; never grants write authority. */
   allowStale?: boolean;
   getCurrentConfig: () => OpenClawConfig;

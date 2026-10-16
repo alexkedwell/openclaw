@@ -26,6 +26,13 @@ Select a native or OAuth identity to run agent tools; App selections support
 foreground session reads only. OAuth and native GitHub selections retain their
 existing behavior.
 
+An individual repository read can select one configured repository by its full
+name. Admission and the installation token cover only that repository, even
+when the App configuration lists several. Changes to the complete configured
+App selection still invalidate the pending read. App signing-key SecretRefs
+from the system and every agent are excluded from agent execution, including
+when the executing agent selects OAuth or native credentials instead.
+
 In Factory GitHub mode, session reads additionally require the current person's
 verified account on the configured Enterprise host. A one-use, short-lived proof
 binds that account, profile, session lifetime, and item digest to the existing

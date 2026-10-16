@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveGitHubToolIdentityStatus } from "../agents/github-tool-identity.js";
 import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { prepareGatewayProjectGitHubIdentity } from "./project-github-identity.js";
@@ -97,12 +98,13 @@ async function redeem(proof: string) {
   return result[1];
 }
 
-function prepare(caller = client()) {
+function prepare(caller = client(), requestedRepository?: string) {
   return prepareGatewayProjectGitHubIdentity({
     agentId: "main",
     config,
     context: { getRuntimeConfig: () => config },
     client: caller,
+    requestedRepository,
     assertActive,
     factoryCredential: { claim: structuredClone(claim), assertCurrent: assertActive },
   });
@@ -211,29 +213,117 @@ afterEach(() => {
 });
 
 describe("Factory project read admission composition", () => {
-  it("redeems human session proof before minting an exact App grant, reads, and closes custody", async () => {
-    const identity = await prepare();
-    expect(brokerVerdict).toEqual({
-      version: 1,
-      audience: "lobster.github.system-token",
-      actorId: 42,
-      actorPrincipal: `github:${host}:42`,
-      profileId: "person-1",
-      ...claim,
-    });
-    expect(identity).toBeDefined();
-    const response = await identity!.start(() =>
-      fetch(`${apiBaseUrl}/repos/example/project/issues/1`, {
-        method: "GET",
-        headers: { authorization: `Bearer ${identity!.token}` },
-      }),
-    );
-    expect(await response.json()).toEqual({ title: "Private issue" });
-    await identity!.revoke?.();
-    await expect(identity!.revalidate()).rejects.toThrow("changed");
-    expect(requests[0]).toBe("GET /__factory__/github/repository-admission");
-    expect(requests.at(-1)).toBe("DELETE /installation/token");
-  });
+  function configureMultipleRepositories() {
+    const selected = config.tools?.github;
+    if (selected?.kind !== "app-installation") {
+      throw new Error("Expected App fixture");
+    }
+    selected.app.repositories.unshift({ id: 405, fullName: "example/other" });
+    return selected;
+  }
+
+  it.each(["unconfigured", "wrong admission"])(
+    "refuses a multi-repository read with %s repository before minting",
+    async (failure) => {
+      configureMultipleRepositories();
+      if (failure === "wrong admission") {
+        receiptPatch.repository = { id: 405, fullName: "example/other" };
+      }
+      await expect(
+        prepare(client(), failure === "unconfigured" ? "example/missing" : "example/project"),
+      ).rejects.toThrow(
+        failure === "unconfigured" ? "unavailable" : "Factory repository admission failed",
+      );
+      expect(requests).toEqual(
+        failure === "unconfigured" ? [] : ["GET /__factory__/github/repository-admission"],
+      );
+    },
+  );
+
+  it.each(["admission", "read"])(
+    "retires a narrowed grant when the full configured selection changes during %s",
+    async (phase) => {
+      const selected = configureMultipleRepositories();
+      const changeOtherRepository = () => {
+        selected.app.repositories[0]!.id = 406;
+      };
+      if (phase === "admission") {
+        onRequest = (path) => {
+          if (path === "/__factory__/github/repository-admission") {
+            changeOtherRepository();
+          }
+        };
+        await expect(prepare(client(), "example/project")).rejects.toThrow("changed");
+        expect(requests).toEqual(["GET /__factory__/github/repository-admission"]);
+        return;
+      }
+      const identity = await prepare(client(), "example/project");
+      config = {
+        ...config,
+        tools: {
+          github: {
+            ...selected,
+            app: {
+              ...selected.app,
+              repositories: [
+                { id: 406, fullName: "example/other" },
+                { id: 404, fullName: "example/project" },
+              ],
+            },
+          },
+        },
+      };
+      setRuntimeConfigSnapshot(config);
+      try {
+        await expect(
+          identity!.start(() => fetch(`${apiBaseUrl}/repos/example/project/issues/1`)),
+        ).rejects.toThrow("changed");
+        expect(requests.some((request) => request.includes("/issues/"))).toBe(false);
+      } finally {
+        await identity?.revoke?.();
+      }
+      expect(requests.at(-1)).toBe("DELETE /installation/token");
+    },
+  );
+
+  it.each([false, true])(
+    "admits an exact App grant, reads, and closes custody (multiple repositories: %s)",
+    async (multiple) => {
+      if (multiple) {
+        configureMultipleRepositories();
+      }
+      const identity = await prepare(client(), multiple ? "Example/Project" : undefined);
+      expect(brokerVerdict).toEqual({
+        version: 1,
+        audience: "lobster.github.system-token",
+        actorId: 42,
+        actorPrincipal: `github:${host}:42`,
+        profileId: "person-1",
+        ...claim,
+      });
+      expect(identity).toBeDefined();
+      const response = await identity!.start(() =>
+        fetch(`${apiBaseUrl}/repos/example/project/issues/1`, {
+          method: "GET",
+          headers: { authorization: `Bearer ${identity!.token}` },
+        }),
+      );
+      expect(await response.json()).toEqual({ title: "Private issue" });
+      expect(
+        (
+          await resolveGitHubToolIdentityStatus({
+            config,
+            agentId: "main",
+            selectedScope: "system",
+          })
+        ).effective,
+      ).toMatchObject({ credentialState: "available", account: { login: "factory[bot]" } });
+      await identity!.revoke?.();
+      await expect(identity!.revalidate()).rejects.toThrow("changed");
+      expect(requests[0]).toBe("GET /__factory__/github/repository-admission");
+      expect(requests.at(-1)).toBe("DELETE /installation/token");
+    },
+  );
 
   it.each(["denied", "foreign repository", "foreign host", "actor mismatch"])(
     "rejects %s admission before any App token request",

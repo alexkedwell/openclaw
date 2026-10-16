@@ -100,6 +100,8 @@ function jwt(appId: number, key: string): string {
 /** Each execution retains its own bounded installation token and revocation owner. */
 export async function prepareGitHubAppInstallation(params: {
   selection: GitHubAppSelection;
+  /** A caller-admitted subset; the original selection still owns display metadata and currency. */
+  repositories?: GitHubAppSelection["app"]["repositories"];
   host: string;
   apiBaseUrl: string;
   assertCurrent: () => void;
@@ -155,6 +157,7 @@ export async function prepareGitHubAppInstallation(params: {
 
 async function issueGitHubAppInstallation(params: {
   selection: GitHubAppSelection;
+  repositories?: GitHubAppSelection["app"]["repositories"];
   host: string;
   apiBaseUrl: string;
   snapshot: GitHubAppSelection;
@@ -162,6 +165,7 @@ async function issueGitHubAppInstallation(params: {
   assertCurrent: () => void;
 }): Promise<{ value: PreparedAppCredential }> {
   const { selection, apiBaseUrl, snapshot, verificationStartedAt } = params;
+  const repositories = params.repositories ?? selection.app.repositories;
   const requestedPermissions = { metadata: "read" as const, ...selection.app.permissions };
   const assertCurrent = () => {
     params.assertCurrent();
@@ -245,7 +249,7 @@ async function issueGitHubAppInstallation(params: {
       bearer,
       tokenSchema,
       {
-        repository_ids: selection.app.repositories.map((value) => value.id),
+        repository_ids: repositories.map((value) => value.id),
         permissions: requestedPermissions,
       },
     );
@@ -269,9 +273,9 @@ async function issueGitHubAppInstallation(params: {
       repositoriesSchema,
     );
     if (
-      repos.total_count !== selection.app.repositories.length ||
+      repos.total_count !== repositories.length ||
       repos.repositories.length !== repos.total_count ||
-      !selection.app.repositories.every((expected) =>
+      !repositories.every((expected) =>
         repos.repositories.some(
           (actual) =>
             actual.id === expected.id &&
@@ -291,7 +295,9 @@ async function issueGitHubAppInstallation(params: {
         appId: app.id,
         installationId: installation.id,
         accountId: installation.account.id,
-        repositories: snapshot.app.repositories,
+        repositories: snapshot.app.repositories.filter((repo) =>
+          repositories.some((requested) => requested.id === repo.id),
+        ),
         permissions: requestedPermissions,
         suspended: false,
       },
