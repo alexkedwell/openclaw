@@ -9,6 +9,12 @@ extension GatewayProcessManager {
             guard let self else { return }
             defer { self.runtimePreparationTask = nil }
             do {
+                let pin = try await GatewayLaunchAgentManager.runtimePinRecord(
+                    stateDirectory: AppProfile.current.stateDirectoryURL(), profile: .current)
+                guard pin?.status != .migrationPending else {
+                    self.appendLog("[gateway] runtime preparation deferred until pin migration completes\n")
+                    return
+                }
                 if (try? BundledRuntime.readySeed()) == nil {
                     self.appendLog("[gateway] preparing the persistent runtime in the background\n")
                     _ = try await BundledRuntime.seed()

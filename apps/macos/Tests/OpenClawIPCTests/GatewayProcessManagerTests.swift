@@ -14,6 +14,20 @@ struct GatewayProcessManagerTests {
     /// unit test owns its manager so readiness state cannot leak into their requests.
     private let manager = GatewayProcessManager()
 
+    @Test func `pending pin migration defers background preparation without error`() async throws {
+        try await self.withLaunchAgentEnvironment(statusPayload:
+            #"{"service":{"runtimeIntent":{"status":"migrationPending","nextStep":"run openclaw doctor"}}}"#)
+        {
+            let manager = self.manager
+            manager.preparePersistentRuntimeAfterHealth()
+            await manager.runtimePreparationTask?.value
+
+            #expect(manager.log.contains("runtime preparation deferred until pin migration completes"))
+            #expect(!manager.log.contains("preparing the persistent runtime"))
+            #expect(!manager.log.contains("warning:"))
+        }
+    }
+
     @Test func `colliding profile ports cannot attach another profile gateway`() {
         let first = AppProfile(environment: ["OPENCLAW_PROFILE": "p1402"])
         let second = AppProfile(environment: ["OPENCLAW_PROFILE": "p2380"])
