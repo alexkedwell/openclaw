@@ -95,7 +95,8 @@ export function resolveInboundPathRoot(params: {
     return undefined;
   }
   const roots = normalizeInboundPathRoots(params.roots);
-  const effectiveRoots = roots.length > 0 ? roots : normalizeInboundPathRoots(params.fallbackRoots);
+  const effectiveRoots =
+    roots.length > 0 ? roots : normalizeInboundPathRoots(params.fallbackRoots ?? undefined);
   const candidateSegments = splitPathSegments(candidatePath);
   for (const rootPattern of effectiveRoots) {
     const rootSegments = splitPathSegments(rootPattern);

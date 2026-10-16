@@ -339,9 +339,7 @@ export async function listMemoryFiles(
     let key = entry;
     try {
       key = await fs.realpath(entry);
-    } catch {
-      // If canonicalization fails, deduplicate by the original path instead.
-    }
+    } catch {}
     if (seen.has(key)) {
       continue;
     }

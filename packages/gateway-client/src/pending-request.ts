@@ -58,8 +58,9 @@ export class GatewayPendingRequests {
   private bootstrapPause:
     | {
         timer?: ReturnType<typeof setTimeout>;
-        probe?: GatewayPendingRequest;
+        probe?: { pending: GatewayPendingRequest; revision: number };
         retryAtMs: number;
+        revision: number;
         announced: boolean;
       }
     | undefined;
@@ -84,8 +85,9 @@ export class GatewayPendingRequests {
         ? retryAfterMs
         : GATEWAY_SUSPEND_IDENTITY_RETRY_AFTER_MS,
     );
-    const pause = (this.bootstrapPause ??= { retryAtMs: nowMs, announced });
+    const pause = (this.bootstrapPause ??= { retryAtMs: nowMs, revision: 0, announced });
     pause.announced ||= announced;
+    pause.revision += 1;
     pause.retryAtMs = Math.max(pause.retryAtMs, nowMs + delayMs);
     clearTimeout(pause.timer);
     pause.timer = undefined;
@@ -168,7 +170,7 @@ export class GatewayPendingRequests {
           clearTimeout(timeout);
         }
         options?.signal?.removeEventListener("abort", onAbort);
-        if (this.bootstrapPause?.probe === pending) {
+        if (this.bootstrapPause?.probe?.pending === pending) {
           this.bootstrapPause.probe = undefined;
           this.drainBootstrapRequests();
         }
@@ -227,9 +229,11 @@ export class GatewayPendingRequests {
           }
           const pause = pending.resend ? this.bootstrapPause : undefined;
           if (pause && !pause.announced && !pause.timer && !pause.probe) {
-            pause.probe = pending;
+            pause.probe = { pending, revision: pause.revision };
           }
-          pending.waitingForResume = Boolean(pause && (pause.announced || pause.probe !== pending));
+          pending.waitingForResume = Boolean(
+            pause && (pause.announced || pause.probe?.pending !== pending),
+          );
           if (pending.waitingForResume) {
             return;
           }
@@ -288,7 +292,7 @@ export class GatewayPendingRequests {
         isGatewayRestartUnavailableError(frame.error))
     ) {
       // The admission fence refused execution. Keep the original deadline and cancellation.
-      if (this.bootstrapPause?.probe === pending) {
+      if (this.bootstrapPause?.probe?.pending === pending) {
         this.bootstrapPause.probe = undefined;
       }
       this.pauseBootstrapRequests(
@@ -303,8 +307,11 @@ export class GatewayPendingRequests {
       return;
     }
     this.pending.delete(frame.id);
-    // Successful reads may release refusal pauses; announced drains still require readiness.
-    if (frame.ok && this.bootstrapPause?.probe === pending && !this.bootstrapPause.announced) {
+    if (
+      frame.ok &&
+      this.bootstrapPause?.probe?.pending === pending &&
+      this.bootstrapPause.probe.revision === this.bootstrapPause.revision
+    ) {
       this.resumeBootstrapRequests();
     }
     pending.cleanup?.();

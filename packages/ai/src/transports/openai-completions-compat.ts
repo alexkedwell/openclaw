@@ -96,7 +96,7 @@ export function isOpenAICodexResponsesModel(model: {
 }
 
 function isNativeOpenAICodexResponsesBaseUrl(baseUrl?: string): boolean {
-  const trimmed = baseUrl?.trim() ?? "";
+  const trimmed = typeof baseUrl === "string" ? baseUrl.trim() : "";
   const url = URL.parse(trimmed);
   if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) {
     return false;
@@ -273,7 +273,10 @@ export function detectOpenAICompletionsCompat(
     capability: "llm",
     transport: "stream",
     modelId: model.id,
-    compat: model.compat ?? undefined,
+    compat:
+      model.compat && typeof model.compat === "object"
+        ? (model.compat as { supportsStore?: boolean })
+        : undefined,
   });
   return {
     capabilities,

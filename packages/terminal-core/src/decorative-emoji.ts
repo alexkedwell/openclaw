@@ -29,7 +29,9 @@ function isKnownEmojiTerminal(env: NodeJS.ProcessEnv): boolean {
 
 /** Return true when locale variables indicate UTF-8 output support. */
 function hasUtf8Locale(env: NodeJS.ProcessEnv): boolean {
-  const locale = [env.LC_ALL, env.LC_CTYPE, env.LANG].find((value) => value?.trim());
+  const locale = [env.LC_ALL, env.LC_CTYPE, env.LANG].find(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  );
   if (!locale) {
     return true;
   }

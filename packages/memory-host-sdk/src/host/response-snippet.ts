@@ -142,9 +142,7 @@ async function readResponsePrefix(
   } finally {
     try {
       reader.releaseLock();
-    } catch {
-      // Cleanup must not replace a read, abort, or size-limit failure.
-    }
+    } catch {}
   }
 
   return {

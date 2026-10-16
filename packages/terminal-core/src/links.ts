@@ -8,7 +8,7 @@ export function formatDocsLink(
   label?: string,
   opts?: { fallback?: string; force?: boolean },
 ): string {
-  const trimmed = path?.trim() ?? "";
+  const trimmed = typeof path === "string" ? path.trim() : "";
   const url = trimmed
     ? ABSOLUTE_HTTP_URL_RE.test(trimmed)
       ? trimmed

@@ -426,6 +426,7 @@ export async function prepareSynologyHostedMedia(params: {
     );
   }
   try {
+    await store.cleanupExpired();
     const stagedUrl = new URL(
       await store.prepareUrl({
         mediaUrl: params.mediaUrl,

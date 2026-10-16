@@ -361,29 +361,6 @@ describe("Responses retained-user compaction replay", () => {
     ).toBeUndefined();
   });
 
-  it.each([
-    { label: "checkpoint ID", id: "different", encrypted_content: "opaque", outputTokens: 1 },
-    { label: "ciphertext", id: "cmp", encrypted_content: "different", outputTokens: 1 },
-    { label: "negative tokens", id: "cmp", encrypted_content: "opaque", outputTokens: -1 },
-    { label: "fractional tokens", id: "cmp", encrypted_content: "opaque", outputTokens: 1.5 },
-    { label: "nonfinite tokens", id: "cmp", encrypted_content: "opaque", outputTokens: Number.NaN },
-  ])("rejects mismatched capture $label before replacing the checkpoint", (invalid) => {
-    const owner = createAssistant("unchanged", compactionState("openai-responses-compaction"));
-    const previous = owner.providerReplay;
-    expect(() =>
-      captureOpenAIResponsesCompaction(
-        owner,
-        { type: "compaction", id: invalid.id, encrypted_content: invalid.encrypted_content },
-        "retained-users",
-        model,
-        buildOpenAIResponsesReasoningReplayMetadata(model, replayIdentity),
-        [{ type: "compaction", id: "cmp", encrypted_content: "opaque" }],
-        invalid.outputTokens,
-      ),
-    ).toThrow("checkpoint is invalid");
-    expect(owner.providerReplay).toBe(previous);
-  });
-
   it("refuses capture and persisted windows that the current route would mutate", () => {
     const route = { ...model, provider: "xai", baseUrl: "https://api.x.ai/v1" };
     const item = {

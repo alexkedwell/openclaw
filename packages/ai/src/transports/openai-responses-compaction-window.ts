@@ -13,7 +13,7 @@ import {
 import { sanitizeResponsesImagePayload } from "./responses-image-payload-sanitizer.js";
 
 // This is the host's response/storage ceiling, not a provider context-token limit.
-export const COMPACTION_WINDOW_MAX_BYTES = 16 * 1024 * 1024;
+const COMPACTION_WINDOW_MAX_BYTES = 16 * 1024 * 1024;
 export type OpenAIResponsesCompactionOutput = Array<
   ResponseInputItem.Message | ReplayableResponseOutputMessage | ReplayableResponseCompactionItem
 >;
