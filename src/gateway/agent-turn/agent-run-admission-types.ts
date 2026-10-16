@@ -68,7 +68,10 @@ export type PrepareAgentRunDispatchParams = Omit<
   | "deferTimeoutCompletion"
   | "admittedSessionId"
   | "resolvedThreadId"
+  | "freshChildStorePath"
 > & {
+  /** Consumed host-bound child creation facts, never a wire-request option. */
+  freshChild?: boolean;
   assertAdmissionCurrent?: () => void;
   hasCurrentClientAuthority?: () => boolean;
   promptedAt: number;
