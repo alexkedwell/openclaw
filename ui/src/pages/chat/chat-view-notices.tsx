@@ -163,29 +163,31 @@ function ChatErrorNotice(props: {
             </div>
           )}
         </Show>
-      <Show
-        when={hasDetails()}
-        fallback={
-          <span class="chat-error__content">
-            <strong>{title()}</strong>
-            <CopyButton text={props.error} idleLabel={t("chat.copyError")} />
-          </span>
-        }
-      >
-        <details class="chat-error__content">
-          <summary class="chat-error__summary">
-            <Show when={!startup()}><strong>{title()}</strong></Show>
-            <span>{t("chat.details")}</span>
-            <span class="chat-error__chevron" aria-hidden="true">
-              <Icon name="chevronDown" />
+        <Show
+          when={hasDetails()}
+          fallback={
+            <span class="chat-error__content">
+              <strong>{title()}</strong>
+              <CopyButton text={props.error} idleLabel={t("chat.copyError")} />
             </span>
-            <CopyButton text={props.error} idleLabel={t("chat.copyError")} />
-          </summary>
-          <pre class="chat-error__diagnostic" tabindex={0} aria-label={t("chat.errorDetails")}>
-            {displayError()}
-          </pre>
-        </details>
-      </Show>
+          }
+        >
+          <details class="chat-error__content">
+            <summary class="chat-error__summary">
+              <Show when={!startup()}>
+                <strong>{title()}</strong>
+              </Show>
+              <span>{t("chat.details")}</span>
+              <span class="chat-error__chevron" aria-hidden="true">
+                <Icon name="chevronDown" />
+              </span>
+              <CopyButton text={props.error} idleLabel={t("chat.copyError")} />
+            </summary>
+            <pre class="chat-error__diagnostic" tabindex={0} aria-label={t("chat.errorDetails")}>
+              {displayError()}
+            </pre>
+          </details>
+        </Show>
       </div>
       {props.action}
     </div>

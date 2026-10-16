@@ -153,6 +153,7 @@ async function reports() {
 describe("durable pre-reply run failure", () => {
   it("retains startup diagnostics in history while keeping the session summary actionable", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      setRuntimeConfigSnapshot({});
       await seed();
       const diagnostic = "thread not loaded: synthetic-thread";
       await persistGatewaySessionLifecycleEvent({

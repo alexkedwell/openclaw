@@ -83,7 +83,6 @@ import { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.j
 import { tryResolveSessionCompatibilityOwnerAgentId } from "./session-request-agent.js";
 import type { SessionRowProjection } from "./session-row-projection.js";
 import { resolveSessionSubscriptionKeys } from "./session-subscription-keys.js";
-import { formatForLog } from "./ws-log.js";
 
 export {
   createChatAbortMarker,
