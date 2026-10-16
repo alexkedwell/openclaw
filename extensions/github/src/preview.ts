@@ -18,6 +18,13 @@ import {
   withOptionalGitHubAuth,
 } from "./github-api.js";
 import type { ControlUiGitHubPreview } from "./preview-contract.js";
+import {
+  assertSessionGitHubTarget,
+  assertSessionRepositoryUrl,
+  readSessionGitHubRepository,
+  rejectSessionGitHubRedirect,
+  type SessionGitHubReadIdentity,
+} from "./session-reader.js";
 import { parseGitHubItemTarget, type GitHubItemTarget } from "./targets.js";
 
 const GITHUB_AVATAR_HOST = "avatars.githubusercontent.com";
@@ -274,7 +281,9 @@ async function fetchPreview(
   token?: string,
   identity?: ControlUiGitHubPreviewIdentity,
   previous?: CachedPreview,
+  session?: SessionGitHubReadIdentity,
 ): Promise<CachedPreview> {
+  const apiBaseUrl = session?.apiBaseUrl ?? GITHUB_API_ORIGIN;
   const startedAt = performance.now();
   const request = (url: string, beforeRedirect?: (url: URL) => Promise<void>, etag?: string) =>
     fetchGitHubApi(
@@ -286,26 +295,33 @@ async function fetchPreview(
       etag,
       signal,
       undefined,
-      GITHUB_API_ORIGIN,
+      apiBaseUrl,
     );
-  const assertPublicRepository = (url: string) =>
-    assertPublicGitHubRepository(url, fetchImpl, token, identity, signal);
-  const repositoryUrl = `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
+  const assertRepository = (url: string) => {
+    if (session) {
+      assertSessionRepositoryUrl(url, session);
+      return readSessionGitHubRepository(session, fetchImpl, signal);
+    }
+    return assertPublicGitHubRepository(url, fetchImpl, token, identity, signal);
+  };
+  const repositoryUrl = `${apiBaseUrl}/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
   const itemUrl = `${repositoryUrl}/${target.kind === "pull" ? "pulls" : "issues"}/${target.number}`;
   if (token) {
-    await assertPublicRepository(repositoryUrl);
+    await assertRepository(repositoryUrl);
   }
   // Every credentialed fetch below shares this guard: a rename or transfer can
   // redirect into a repository the token can read but the viewer may not see.
-  const beforeRedirect = token
-    ? async (url: URL) => {
-        const redirectedRepositoryUrl = redirectedRepositoryApiUrl(target, url);
-        if (!redirectedRepositoryUrl) {
-          throw new ControlUiGitHubError(502, "GitHub item returned an unsafe redirect");
+  const beforeRedirect = session
+    ? rejectSessionGitHubRedirect
+    : token
+      ? async (url: URL) => {
+          const redirectedRepositoryUrl = redirectedRepositoryApiUrl(target, url);
+          if (!redirectedRepositoryUrl) {
+            throw new ControlUiGitHubError(502, "GitHub item returned an unsafe redirect");
+          }
+          await assertRepository(redirectedRepositoryUrl);
         }
-        await assertPublicRepository(redirectedRepositoryUrl);
-      }
-    : undefined;
+      : undefined;
   // Validators live with the preview, so eviction, failed refresh, and credential
   // rotation retire both together. Never reuse public-visibility admission.
   const credentialScope = githubApiCredentialCacheScope(token);
@@ -368,7 +384,9 @@ async function fetchPreview(
       }
       return fetchCoAuthors(preview.login, page?.value, fetchImpl, signal);
     }),
-    token && assertPublicRepository(previewRepositoryApiUrl(target, parsed)),
+    session
+      ? assertSessionRepositoryUrl(previewRepositoryApiUrl(target, parsed), session)
+      : token && assertRepository(previewRepositoryApiUrl(target, parsed)),
   ]);
   const finishedAt = performance.now();
   if (finishedAt - startedAt >= 500) {
@@ -461,4 +479,28 @@ export async function loadControlUiGitHubPreview(
   return result.stale || identity?.stale
     ? { ...result.value.preview, stale: true }
     : result.value.preview;
+}
+
+/** Foreground session reads finish inline; no background refresh outlives caller authority. */
+export async function loadSessionGitHubPreview(
+  target: ControlUiGitHubPreviewTarget,
+  identity: SessionGitHubReadIdentity,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ControlUiGitHubPreview> {
+  assertSessionGitHubTarget(target, identity);
+  await identity.revalidate();
+  const timeout = AbortSignal.timeout(GITHUB_PREVIEW_TIMEOUT_MS);
+  const signal = identity.signal ? AbortSignal.any([timeout, identity.signal]) : timeout;
+  const result = await fetchPreview(
+    target,
+    fetchImpl,
+    signal,
+    identity.token,
+    identity,
+    undefined,
+    identity,
+  );
+  await identity.revalidate();
+  identity.assertSelected();
+  return result.preview;
 }
