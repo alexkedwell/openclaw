@@ -1,4 +1,3 @@
-import dns from "node:dns/promises";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +11,6 @@ import {
   type DiagnosticEventPayload,
 } from "../infra/diagnostic-events.js";
 import { markTrustedOtelDiagnosticListener } from "../infra/diagnostic-otel-listener-provenance.js";
-import type { LookupFn } from "../infra/net/ssrf.js";
 import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
 import { loadAndActivateRootPluginRegistry } from "../plugins/loader.js";
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
@@ -85,16 +83,6 @@ it.each([
     let cost: number | undefined = 0.000019992;
     let upstreamProvider: string | undefined = "TypeSafe";
     let status = 200;
-    let onLookup: (() => void) | undefined;
-    if (route === "canonical") {
-      // The registered plugin still uses the real guarded fetch. Keep DNS
-      // hermetic and exercise admission changes during its asynchronous preparation.
-      vi.spyOn<{ lookup: LookupFn }, "lookup">(dns, "lookup").mockImplementation(async () => {
-        await Promise.resolve();
-        onLookup?.();
-        return [{ address: "93.184.216.34", family: 4 }];
-      });
-    }
     const responseBody = () => ({
       model: "typesafe/jev-1.13-20260917",
       provider: upstreamProvider,
@@ -456,21 +444,33 @@ it.each([
             });
             expect(received).toHaveLength(calls);
             setRuntimeConfigSnapshot(cfg, sourceConfig);
-            if (route === "canonical") {
-              let closedDuringLookup = false;
-              onLookup = () => {
-                onLookup = undefined;
-                closedDuringLookup = true;
-                setRuntimeConfigSnapshot({
-                  ...cfg,
-                  agents: { defaults: { ...cfg.agents?.defaults, decisionModel: "" } },
+            if (route === "declared-proxy") {
+              const provider = registry.decisionProviders.find(
+                (entry) => entry.host.provider.id === "openrouter",
+              )?.host.provider;
+              if (provider?.contractVersion !== 2) {
+                throw new Error("Missing registered OpenRouter V2 provider");
+              }
+              const evaluate = provider.evaluate.bind(provider);
+              let closedDuringPreparation = false;
+              vi.spyOn(provider, "evaluate").mockImplementationOnce((offered, context) => {
+                // The real adapter runs synchronously until guarded fetch preparation
+                // yields. Close its live authority before the physical dispatch check.
+                queueMicrotask(() => {
+                  closedDuringPreparation = true;
+                  setRuntimeConfigSnapshot({
+                    ...cfg,
+                    agents: { defaults: { ...cfg.agents?.defaults, decisionModel: "" } },
+                  });
                 });
-              };
-              expect(await runtime.evaluateV2(batch, options())).toMatchObject({
+                return evaluate(offered, context);
+              });
+              const interrupted = await runtime.evaluateV2(batch, options());
+              expect(closedDuringPreparation).toBe(true);
+              expect(interrupted).toMatchObject({
                 status: "unavailable",
                 reason: "retiring",
               });
-              expect(closedDuringLookup).toBe(true);
               expect(received).toHaveLength(calls);
               setRuntimeConfigSnapshot(cfg, sourceConfig);
             }
