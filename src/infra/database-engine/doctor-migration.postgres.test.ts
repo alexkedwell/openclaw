@@ -13,7 +13,10 @@ import {
   verifyMatchedPostgresBackup,
 } from "../../snapshot/database-backup.js";
 import { preflightOpenClawDatabaseSchemas } from "../../state/openclaw-database-preflight.js";
-import { stateEngineSchema } from "../../state/openclaw-state-db-engine.js";
+import {
+  ensureStatePostgresFragment,
+  stateEngineSchema,
+} from "../../state/openclaw-state-db-engine.js";
 import { withOpenClawStateReadOnlyLocation } from "../../state/openclaw-state-db-read-connection.js";
 import {
   closeOpenClawStateDatabaseForTest,
@@ -354,6 +357,21 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       const updateEnv = { ...env, OPENCLAW_CONFIG_PATH: configPath };
       vi.stubEnv("OPENCLAW_STATE_DIR", updateEnv.OPENCLAW_STATE_DIR);
       vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath);
+      withEngineStoreAdmission(() =>
+        runOpenClawStateWriteTransaction(
+          ({ db }) => {
+            if (!isPostgresSqlConnection(db)) {
+              throw new Error("Expected PostgreSQL updater history");
+            }
+            ensureStatePostgresFragment(db, "update_runs");
+            db.prepare(
+              "INSERT INTO update_runs (run_id, created_at_ms, updated_at_ms, trigger, phase, status, origin_json, target_json, before_json, after_json, steps_json, verification_json, repair_json) VALUES (?, 1, 1, 'cli', 'requested', 'running', '{}', '{}', '{}', '{}', '[]', '{}', '[]')",
+            ).run(`doctor-schema-roundtrip-${foreignWrite}`);
+          },
+          { env: updateEnv },
+        ),
+      );
+      closeOpenClawStateDatabaseForTest();
       await client.query(
         `UPDATE "${namespace}".config_machine_state SET value_json = '"before"' WHERE state_key = 'doctor.fixture';
          SELECT setval('"${namespace}".audit_events_sequence_seq', 71, true);`,
@@ -486,10 +504,9 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
         namespaces.add(restored.namespace);
         namespace = restored.namespace;
         expect(await readRows()).toEqual([{ value_json: '"before"' }]);
-        expect(await readMeta()).toEqual({
-          version: String(target),
-          fingerprint: targetFingerprint,
-        });
+        expect(await readMeta()).toMatchObject({ version: String(target) });
+        // Relocation reseals the catalog for its new namespace under the installed schema.
+        expect(admit(installed)?.version).toBe(target);
         expect(
           (
             await client.query(

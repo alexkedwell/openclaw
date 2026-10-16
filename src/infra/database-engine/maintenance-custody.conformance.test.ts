@@ -214,7 +214,9 @@ describe.skipIf(!connection)("PostgreSQL Doctor maintenance custody", () => {
       `ALTER TABLE "${namespace}".state_leases RENAME COLUMN payload_json TO future_payload`,
     );
     try {
-      await expect(maintenanceLock(env)).rejects.toThrow(
+      const refusal: unknown = await maintenanceLock(env).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(Error);
+      expect(formatGatewayLockFailure(refusal)).toContain(
         "PostgreSQL Gateway owner lease table is missing or incompatible",
       );
     } finally {
