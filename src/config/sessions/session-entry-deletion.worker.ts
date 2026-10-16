@@ -15,7 +15,7 @@ import { transferSessionEntryWorkerCandidate } from "./session-entry-patch.worke
 import { runSessionNativeBindingTransaction } from "./session-native-binding.worker.js";
 import type { SessionEntry } from "./types.js";
 
-export function deleteSessionEntry(
+export function deleteSessionEntryInAgentWorker(
   input: SessionEntryDeletionInput,
   context: AgentWorkerOperationContext,
 ) {

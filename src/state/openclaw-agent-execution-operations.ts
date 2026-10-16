@@ -360,7 +360,9 @@ export async function loadAgentCompoundOperations() {
 
 export async function loadAgentEntryDeletionOperations() {
   const deletion = await import("../config/sessions/session-entry-deletion.worker.js");
-  return { "session.lifecycle.delete": deletion.deleteSessionEntry } satisfies Handlers;
+  return {
+    "session.lifecycle.delete": deletion.deleteSessionEntryInAgentWorker,
+  } satisfies Handlers;
 }
 
 export async function loadAgentPurgeOperations() {

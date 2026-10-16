@@ -308,7 +308,7 @@ async function deleteSqliteSessionEntryLifecycleLocked(
   // transaction compares it once; transcript reclamation still needs planning.
   const metadataTarget =
     execution &&
-    params.archiveTranscript === false &&
+    !params.archiveTranscript &&
     !params.deleteTranscriptWithoutArchive &&
     !allowLockedEntryRemoval &&
     !expectedPluginOwnerId &&
