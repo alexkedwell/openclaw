@@ -29,6 +29,7 @@ import type {
   ControlUiMockGateway,
   ControlUiMockPresenceUser,
   ControlUiMockRequestHandler,
+  ControlUiMockSessionTranscript,
   MockGatewayControls,
   MockGatewayRequest,
   MockGatewayRequestSelector,
@@ -427,27 +428,14 @@ export type ControlUiMockGatewayScenario = {
   historyMessages?: unknown[];
   sessionReactions?: Record<string, Record<string, MessageReactionSummary[]>>;
   /** Canonical per-session transcripts, shared by history and startup reads. */
-  sessionTranscripts?: Record<
-    string,
-    {
-      messages: unknown[];
-      thinkingLevel?: string | null;
-      inFlightRun?: ControlUiMockGatewayScenario["inFlightRun"];
-    }
-  >;
+  sessionTranscripts?: Record<string, ControlUiMockSessionTranscript>;
   maxPayload?: number;
   /** Static payloads, parameter-matched cases, or call-ordered sequences. */
   methodResponses?: Record<string, unknown>;
   /** URL prefixes that retain the browser's real WebSocket transport. */
   webSocketPassthroughPrefixes?: string[];
   /** Replayed in-flight run snapshot served by chat.history and chat.startup. */
-  inFlightRun?: {
-    runId: string;
-    text?: string;
-    startedAt?: number;
-    events?: unknown[];
-    plan?: unknown;
-  } | null;
+  inFlightRun?: ControlUiMockSessionTranscript["inFlightRun"];
   /** Online users included in the connect snapshot's presence list. The entry
    * flagged `self` adopts the connecting client's instanceId so presence
    * surfaces (footer facepile, who's-online roster) resolve "you". */
