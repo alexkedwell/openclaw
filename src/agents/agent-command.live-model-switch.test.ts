@@ -10,10 +10,12 @@ import { setReplyPayloadMetadata, type ReplyPayload } from "../auto-reply/reply-
 import type { SessionEntry } from "../config/sessions.js";
 import { resolveInternalSessionEffectsIdentity } from "../config/sessions/internal-session-key.js";
 import * as sessionAccessor from "../config/sessions/session-accessor.js";
+import * as sessionEntryRuntime from "../config/sessions/session-accessor.sqlite-entry.js";
 import {
   resolveSqliteScope,
   runExclusiveSqliteSessionWrite,
 } from "../config/sessions/session-accessor.sqlite-scope.js";
+import { reduceSessionEntryPatch } from "../config/sessions/session-entry-patch-operation.js";
 import { withInstallationTarget } from "../infra/installation-target-context.js";
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
 import { createUserTurnTranscriptRecorder } from "../sessions/user-turn-transcript.js";
@@ -1175,6 +1177,34 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     );
     state.resolveMessageChannelSelectionMock.mockRejectedValue(new Error("channel required"));
     await resetTestSessionReaders(state);
+    // Keep command metadata writes on the fixture's persistence owner, including native recovery cases.
+    vi.spyOn(sessionEntryRuntime, "applySessionEntryOperation").mockImplementation(
+      async (scope, operation, options) => {
+        if (operation.kind !== "fields") {
+          throw new Error(`Unexpected command session patch: ${operation.kind}`);
+        }
+        const entry = state.loadSessionEntryMock(scope) as SessionEntry | undefined;
+        if (!entry) {
+          return null;
+        }
+        const patch = reduceSessionEntryPatch(operation, entry, entry);
+        if (!patch) {
+          return entry;
+        }
+        const persisted = (await state.persistSessionEntryMock({
+          agentId: scope.agentId,
+          sessionKey: scope.sessionKey,
+          storePath: scope.storePath,
+          sessionStore: state.sessionStoreMock ?? { [scope.sessionKey]: entry },
+          initialEntry: entry,
+          entry: { ...entry, ...patch },
+        })) as SessionEntry | undefined;
+        if (persisted) {
+          options?.onCommitted?.(persisted);
+        }
+        return persisted ?? null;
+      },
+    );
     state.resolveAgentDeliveryPlanMock.mockImplementation(
       (params: {
         accountId?: string;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { drainFormattedSystemEvents } from "../auto-reply/reply/session-system-events.js";
+import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "../config/io.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import { SessionSchema } from "../config/zod-schema.session-config.js";
 import { SqliteWorkerError } from "../infra/sqlite-worker-contract.js";
@@ -41,11 +42,13 @@ function entry(overrides: Partial<SessionEntry> = {}): SessionEntry {
 
 beforeEach(() => {
   vi.stubEnv("OPENCLAW_STATE_DIR", tempDirs.make("openclaw-created-notice-"));
+  setRuntimeConfigSnapshot({});
 });
 
 afterEach(async () => {
   await closeOpenClawStateDatabaseAsync();
   resetSystemEventsForTest();
+  clearRuntimeConfigSnapshot();
   vi.unstubAllEnvs();
 });
 
@@ -67,12 +70,12 @@ describe("Home session creation notices", () => {
     };
     try {
       await recordSessionCreated({}, params);
+      expect(records).toBe(1);
       const events = (await listSessionStateEventsSince(sessionKey, "ops", 0)).events;
       expect(events).toMatchObject([
         { kind: "created", actorId: mainSessionKey },
         { kind: "child_spawned", actorId: mainSessionKey, runId: "child-run" },
       ]);
-      expect(records).toBe(1);
       expect(peekSystemEvents(mainSessionKey)).toHaveLength(1);
       expect(
         openOpenClawStateDatabase()

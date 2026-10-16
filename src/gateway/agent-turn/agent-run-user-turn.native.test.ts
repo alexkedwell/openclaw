@@ -5,6 +5,7 @@ import {
   loadTranscriptEvents,
   upsertSessionEntryCore,
 } from "../../config/sessions/session-accessor.js";
+import { isIndexedSessionEntry } from "../../config/sessions/session-entry-codec.js";
 import { useTempSessionsFixture } from "../../config/sessions/test-helpers.js";
 import { createTrackedDispatch } from "./agent-run-dispatch.test-support.js";
 import { prepareAgentRunUserTurn, releasePreparedAgentRunUserTurn } from "./agent-run-user-turn.js";
@@ -60,7 +61,7 @@ describe("fresh child input custody", () => {
       expect(await turn.recorder!.persistApproved()).toMatchObject({ appended: true });
       expect(await turn.recorder!.persistApproved()).toMatchObject({ appended: true });
       const messages = (await loadTranscriptEvents(target)).filter(
-        (event) => event.type === "message",
+        (event) => isIndexedSessionEntry(event) && event.type === "message",
       );
       expect(messages).toHaveLength(1);
       expect(messages[0]).toMatchObject({ message: { role: "user", content: "Child task" } });
