@@ -174,6 +174,11 @@ export type PluginDoctorMigrationBackupWarning = {
 export type PluginDoctorStateMigration = {
   id: string;
   label: string;
+  /** Retired SQLite sources must be migrated before this family is ported. */
+  sqliteOnly?: {
+    family: "state" | "agent" | "workboard" | "logbook" | "team-reports";
+    postgresNote?: string;
+  };
   /** Import retired file state only during explicit `doctor --fix` repair. */
   doctorOnly?: boolean;
   phase?: "after-session-repair";
@@ -285,6 +290,16 @@ function coercePluginDoctorStateMigrations(value: unknown): PluginDoctorStateMig
   return value.filter(isPluginDoctorStateMigration).map((migration) => ({
     id: migration.id.trim(),
     label: migration.label.trim(),
+    ...(migration.sqliteOnly === undefined
+      ? {}
+      : {
+          sqliteOnly: z
+            .strictObject({
+              family: z.enum(["state", "agent", "workboard", "logbook", "team-reports"]),
+              postgresNote: z.string().trim().min(1).optional(),
+            })
+            .parse(migration.sqliteOnly),
+        }),
     doctorOnly: migration.doctorOnly === true ? true : undefined,
     phase: migration.phase === "after-session-repair" ? migration.phase : undefined,
     collectBackupResources: migration.collectBackupResources,
