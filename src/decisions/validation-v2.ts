@@ -1,6 +1,11 @@
 import type { ModelDecisionCapabilities } from "@openclaw/model-catalog-core/model-catalog-types";
 import type { DecisionBatchResultV2, DecisionBatchV2 } from "./types-v2.js";
-import { decisionEntry, decisionJsonLimits, finiteJson, record } from "./validation-common.js";
+import {
+  decisionEntry,
+  decisionJsonLimits,
+  finiteJson,
+  isPlainDecisionRecord,
+} from "./validation-common.js";
 import { DecisionContractError } from "./validation.js";
 
 const MAX_JSON_BYTES = decisionJsonLimits.maxBytes;
@@ -30,7 +35,7 @@ function confidence(value: unknown): boolean {
   return value === undefined || value === null || finite(value);
 }
 function metadata(value: unknown): boolean {
-  return value === undefined || record(value);
+  return value === undefined || isPlainDecisionRecord(value);
 }
 
 /** Syntax/canonical encoding only: no file reads, network access, or image decoding. */
@@ -73,10 +78,10 @@ export function validateDecisionBatchV2(batch: unknown): batch is DecisionBatchV
     return false;
   }
   if (
-    !record(batch) ||
+    !isPlainDecisionRecord(batch) ||
     !fields(batch, ["state", "questions"]) ||
-    !record(batch.state) ||
-    !record(batch.questions)
+    !isPlainDecisionRecord(batch.state) ||
+    !isPlainDecisionRecord(batch.questions)
   ) {
     throw new DecisionContractError();
   }
@@ -106,7 +111,7 @@ export function validateDecisionBatchV2(batch: unknown): batch is DecisionBatchV
     const ids = new Set<string>();
     for (const item of state.items) {
       if (
-        !record(item) ||
+        !isPlainDecisionRecord(item) ||
         !fields(item, ["id", "content"]) ||
         typeof item.id !== "string" ||
         !item.id ||
@@ -128,7 +133,7 @@ export function validateDecisionBatchV2(batch: unknown): batch is DecisionBatchV
   for (const [id, q] of questions) {
     if (
       !id ||
-      !record(q) ||
+      !isPlainDecisionRecord(q) ||
       !fields(
         q,
         q.type === "sort" ? ["type", "instructions"] : ["type", "instructions", "criteria"],
@@ -139,7 +144,7 @@ export function validateDecisionBatchV2(batch: unknown): batch is DecisionBatchV
     }
     if (q.type === "choice" || q.type === "tags") {
       if (
-        !record(q.criteria) ||
+        !isPlainDecisionRecord(q.criteria) ||
         Object.keys(q.criteria).length < (q.type === "choice" ? 2 : 1) ||
         !Object.entries(q.criteria).every(
           ([label, entry]) => label.length > 0 && decisionEntry(entry),
@@ -155,7 +160,7 @@ export function validateDecisionBatchV2(batch: unknown): batch is DecisionBatchV
       if (
         q.criteria !== undefined &&
         q.criteria !== null &&
-        (!record(q.criteria) ||
+        (!isPlainDecisionRecord(q.criteria) ||
           !Object.entries(q.criteria).every(
             ([key, entry]) => (key === "true" || key === "false") && decisionEntry(entry),
           ))
@@ -196,12 +201,12 @@ export function validateDecisionResultV2(
   }
   if (
     finiteJson(value, { rejectProxies: true }) !== "valid" ||
-    !record(value) ||
+    !isPlainDecisionRecord(value) ||
     !fields(value, ["model", "answers", "usage", "metadata"]) ||
     typeof value.model !== "string" ||
     !value.model.length ||
     value.model.length > 256 ||
-    !record(value.answers) ||
+    !isPlainDecisionRecord(value.answers) ||
     !exactKeys(batch.questions, value.answers) ||
     !metadata(value.metadata)
   ) {
@@ -210,7 +215,7 @@ export function validateDecisionResultV2(
   if (value.usage !== undefined) {
     const usage = value.usage;
     if (
-      !record(usage) ||
+      !isPlainDecisionRecord(usage) ||
       !fields(usage, ["inputTokens", "outputTokens", "costUsd", "units", "raw"]) ||
       [usage.inputTokens, usage.outputTokens, usage.costUsd].some(
         (n) => n !== undefined && !nonnegative(n),
@@ -220,7 +225,7 @@ export function validateDecisionResultV2(
     }
     if (
       usage.units !== undefined &&
-      (!record(usage.units) ||
+      (!isPlainDecisionRecord(usage.units) ||
         !fields(usage.units, ["unit", "amount"]) ||
         (usage.units.unit !== "decision-units" && usage.units.unit !== "requests") ||
         !nonnegative(usage.units.amount))
@@ -230,7 +235,7 @@ export function validateDecisionResultV2(
   }
   for (const [id, q] of Object.entries(batch.questions)) {
     const answer = value.answers[id];
-    if (!record(answer)) {
+    if (!isPlainDecisionRecord(answer)) {
       return false;
     }
     if (answer.type === "error") {
@@ -315,7 +320,7 @@ export function validateDecisionResultV2(
         (answer.choice !== null &&
           (typeof answer.choice !== "string" || !Object.hasOwn(q.criteria, answer.choice))) ||
         (answer.probabilities !== undefined &&
-          (!record(answer.probabilities) ||
+          (!isPlainDecisionRecord(answer.probabilities) ||
             !exactKeys(q.criteria, answer.probabilities) ||
             !Object.values(answer.probabilities).every(probability))) ||
         (answer.probability !== undefined &&
@@ -367,7 +372,7 @@ export function validateDecisionResultV2(
       const ids = new Set<string>();
       for (const tag of answer.tags) {
         if (
-          !record(tag) ||
+          !isPlainDecisionRecord(tag) ||
           !fields(tag, ["id", "probability", "applies"]) ||
           typeof tag.id !== "string" ||
           !Object.hasOwn(q.criteria, tag.id) ||

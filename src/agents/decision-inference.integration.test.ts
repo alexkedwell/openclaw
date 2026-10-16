@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, expect, it, onTestFinished } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { setRuntimeConfigSnapshot, clearRuntimeConfigSnapshot } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { DecisionProviderContextV2 } from "../decisions/provider-context.js";
 import type { DecisionBatchResultV2, DecisionRuntimeV2 } from "../decisions/types-v2.js";
 import {
   onTrustedInternalDiagnosticEvent,
@@ -15,6 +16,11 @@ import { loadAndActivateRootPluginRegistry } from "../plugins/loader.js";
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import {
+  assertProviderAuthAuthority,
+  getProviderAuthAuthority,
+} from "../plugins/provider-auth-authority.js";
+import { getPluginRuntimeGenerationRegistry } from "../plugins/runtime/generation-state.js";
+import {
   createColdPluginFixture,
   createColdPluginHermeticEnv,
 } from "../plugins/test-helpers/cold-plugin-fixtures.js";
@@ -23,6 +29,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
+import { executePreparedDecision } from "./decision-inference.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runtime.test-support.js";
 
 const roots = useAutoCleanupTempDirTracker(afterEach);
@@ -31,6 +38,8 @@ let profileState: OpenClawTestState | undefined;
 type Trace = {
   calls: number;
   onDispatch?: () => void;
+  beforeRequest?: (context: DecisionProviderContextV2) => void;
+  fetch?: typeof fetch;
   work?: Promise<void>;
   authenticated: boolean;
   usage?: DecisionBatchResultV2["usage"];
@@ -58,9 +67,19 @@ afterEach(async () => {
   profileState = undefined;
 });
 
-it.each(["plugin", "agent", "profile", "missing", "exchange"] as const)(
+it.each([
+  "plugin",
+  "agent",
+  "profile",
+  "missing",
+  "exchange",
+  "plugin-revoked-context",
+  "plugin-revoked-model",
+  "plugin-revoked-disabled",
+] as const)(
   "runs the retained decision SDK through real preparation without primary fallback or fabricated chat fields (%s auth)",
   async (authScope) => {
+    const pluginAuth = authScope.startsWith("plugin");
     const root = roots.make("decision-prepared-integration-");
     const pluginRoot = path.join(root, "plugin");
     const emptyBundled = path.join(root, "bundled");
@@ -79,8 +98,8 @@ it.each(["plugin", "agent", "profile", "missing", "exchange"] as const)(
         modelCatalog: {
           providers: {
             [id]: {
-              authScope: authScope === "plugin" ? "plugin" : "agent",
-              ...(authScope === "plugin"
+              authScope: pluginAuth ? "plugin" : "agent",
+              ...(pluginAuth
                 ? {}
                 : { api: "openai-completions", baseUrl: "https://catalog.fixture.invalid/v1" }),
               models: [
@@ -122,7 +141,7 @@ it.each(["plugin", "agent", "profile", "missing", "exchange"] as const)(
         "module.exports = { id: " + JSON.stringify(id) + ", register(api) {",
         "api.registerDecisionProvider({ id: " + JSON.stringify(id) + ", contractVersion: 2,",
         'provider: { label: "Synthetic", auth: [], authScope: ' +
-          JSON.stringify(authScope === "plugin" ? "plugin" : "agent") +
+          JSON.stringify(pluginAuth ? "plugin" : "agent") +
           ", " +
           (authScope === "profile" || authScope === "missing"
             ? ""
@@ -134,7 +153,7 @@ it.each(["plugin", "agent", "profile", "missing", "exchange"] as const)(
             ? 'normalizeResolvedModel(context) { return { ...context.model, api: "openai-responses" }; }, prepareRuntimeAuth(context) { trace.preparedApi=context.model.api; return { apiKey: context.apiKey, baseUrl: "https://entitlement.fixture.invalid/v1", request: { headers: { "x-fixture-entitlement": "synthetic-entitlement" }, auth: { mode: "header", headerName: "x-fixture-auth", value: "synthetic-exchanged-header" } } }; },'
             : "") +
           "} ,",
-        'async evaluate(batch, context) { trace.calls++; trace.profileId=context.auth.profileId; trace.agentId=context.agentId; trace.onDispatch?.(); await trace.work; trace.authenticated = context.auth.apiKey === "synthetic-prepared-token"; trace.modelKeys = Object.keys(context.model); trace.modelContextWindow = context.model.contextWindow; trace.modelBilling=context.model.inference?.decision?.billing; trace.modelBaseUrl=context.model.baseUrl; trace.modelHeaders=context.model.headers; trace.modelRequest=context.model[Symbol.for("openclaw.modelProviderRequestTransport")]; trace.modelApi=context.model.api; let reads = 0; return { status: "ok", get result() { trace.resultReads = ++reads; return { model: context.model.id, answers: { q: reads === 1 ? { type: "boolean", answer: null } : { type: "boolean", probabilityTrue: 0.75 } }, usage: trace.usage }; } }; }',
+        'async evaluate(batch, context) { trace.calls++; trace.profileId=context.auth.profileId; trace.agentId=context.agentId; trace.onDispatch?.(); await trace.work; trace.beforeRequest?.(context); if (!context.isAdmissible()) return { status: "unavailable", reason: "unsupported-input" }; await trace.fetch?.("https://dispatch.fixture.invalid/v1/decisions", { method: "POST" }); trace.authenticated = context.auth.apiKey === "synthetic-prepared-token"; trace.modelKeys = Object.keys(context.model); trace.modelContextWindow = context.model.contextWindow; trace.modelBilling=context.model.inference?.decision?.billing; trace.modelBaseUrl=context.model.baseUrl; trace.modelHeaders=context.model.headers; trace.modelRequest=context.model[Symbol.for("openclaw.modelProviderRequestTransport")]; trace.modelApi=context.model.api; let reads = 0; return { status: "ok", get result() { trace.resultReads = ++reads; return { model: context.model.id, answers: { q: reads === 1 ? { type: "boolean", answer: null } : { type: "boolean", probabilityTrue: 0.75 } }, usage: trace.usage }; } }; }',
         "}); trace.evaluate = api.runtime.decisions.evaluateV2; } };",
       ].join("\n"),
     );
@@ -158,7 +177,7 @@ it.each(["plugin", "agent", "profile", "missing", "exchange"] as const)(
       });
     }
     const cfg: OpenClawConfig = {
-      ...(authScope !== "plugin"
+      ...(!pluginAuth
         ? {
             models: {
               providers: {
@@ -232,8 +251,52 @@ it.each(["plugin", "agent", "profile", "missing", "exchange"] as const)(
           }),
         ),
       );
+      const http = vi.fn<typeof fetch>(async () => new Response("{}"));
+      let admitted = true;
+      if (authScope.startsWith("plugin-revoked")) {
+        trace.fetch = http;
+        trace.beforeRequest = (context) => {
+          expect(context.auth.apiKey).toBe("synthetic-prepared-token");
+          expect(getProviderAuthAuthority(context.model)).toBeTypeOf("function");
+          // Revoke the captured prepared owner; a replaced root registry cannot revoke retained work.
+          const prepared = getPluginRuntimeGenerationRegistry();
+          expect(prepared).toBeDefined();
+          const provider = prepared!.providers.find((entry) => entry.provider.id === id)!.provider;
+          provider.resolveSyntheticAuth = undefined;
+          if (authScope === "plugin-revoked-disabled") {
+            admitted = false;
+          }
+          if (authScope !== "plugin-revoked-context") {
+            assertProviderAuthAuthority(context.model);
+          }
+        };
+      }
+      const invoke: DecisionRuntimeV2["evaluateV2"] =
+        authScope === "plugin-revoked-disabled"
+          ? async (batch, options) => {
+              const provider = registry.decisionProviders[0]!.host.provider;
+              if (provider.contractVersion !== 2) {
+                throw new Error("Fixture requires prepared Decision execution");
+              }
+              const outcome = await executePreparedDecision({
+                provider,
+                batch,
+                modelId: "native",
+                registration: registry.providers.find((entry) => entry.provider.id === id)!,
+                config: cfg,
+                options,
+                signal: options.signal,
+                deadlineMonotonicMs: performance.now() + options.timeoutMs,
+                isAdmissible: () => admitted,
+              });
+              if (outcome.status === "ok") {
+                throw new Error("Revoked prepared admission unexpectedly returned a result");
+              }
+              return outcome;
+            }
+          : evaluate;
       const evaluateFixture = () =>
-        evaluate(
+        invoke(
           {
             state: { type: "text", text: "synthetic evidence" },
             questions: { q: { type: "boolean" } },
@@ -247,6 +310,20 @@ it.each(["plugin", "agent", "profile", "missing", "exchange"] as const)(
           },
         );
       const outcome = await evaluateFixture();
+      if (authScope.startsWith("plugin-revoked")) {
+        expect(outcome).toEqual({
+          status: "unavailable",
+          reason:
+            authScope === "plugin-revoked-disabled"
+              ? "unsupported-input"
+              : "credentials-unavailable",
+        });
+        expect(trace.calls).toBe(1);
+        expect(http).not.toHaveBeenCalled();
+        expect(usageEvents).toEqual([]);
+        expect(registry.decisionProviders[0]!.host.inspect(cfg).callable).toBe(true);
+        return;
+      }
       if (authScope === "missing") {
         expect(outcome).toEqual({ status: "unavailable", reason: "credentials-unavailable" });
         expect(trace.calls).toBe(0);

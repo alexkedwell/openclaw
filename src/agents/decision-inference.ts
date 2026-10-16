@@ -13,6 +13,11 @@ import type {
   ProviderDecisionOutcomeV2,
 } from "../decisions/types-v2.js";
 import { validateDecisionResultV2 } from "../decisions/validation-v2.js";
+import {
+  assertProviderAuthAuthority,
+  attachProviderAuthAuthority,
+  getProviderAuthAuthority,
+} from "../plugins/provider-auth-authority.js";
 import { createProviderModelCatalogIdNormalizer } from "../plugins/provider-model-routes.js";
 import type { PluginProviderRegistration } from "../plugins/provider-plugin.types.js";
 import { normalizeProviderTransportWithPlugin } from "../plugins/provider-runtime.js";
@@ -21,7 +26,7 @@ import {
   sanitizeModelHeaders,
 } from "./embedded-agent-runner/model.inline-provider.js";
 import { resolveApiKeyForProviderCore } from "./model-auth-provider.js";
-import type { ResolvedProviderAuth } from "./model-auth-runtime-shared.js";
+import { isProviderAuthError, type ResolvedProviderAuth } from "./model-auth-runtime-shared.js";
 import { applySecretRefHeaderSentinels } from "./model-auth.js";
 import type { ModelCatalogEntry } from "./model-catalog.types.js";
 import { modelTransportRoutesMatch } from "./model-compat-catalog.js";
@@ -133,11 +138,12 @@ export async function executePreparedDecision(params: {
   const selected = splitTrailingAuthProfile(params.modelId);
   const modelId = selected.model;
   const profileId = params.profileId ?? selected.profile;
-  return withPreparedModelInference(
+  return withPreparedModelInference<ProviderDecisionOutcomeV2>(
     { cfg: params.config, agentId: params.options.agentId, signal: params.signal },
     { provider: params.registration.provider.id, modelId },
     async (context) => {
       const prepared = context.preparedModelRuntime;
+      let auth: ResolvedProviderAuth | undefined;
       const assertPrepared = () => {
         if (!assertCurrent()) {
           return false;
@@ -145,6 +151,7 @@ export async function executePreparedDecision(params: {
         if (!prepared.isCurrent()) {
           throw new Error("Decision model generation is no longer current.");
         }
+        assertProviderAuthAuthority(auth);
         return true;
       };
       if (!assertPrepared()) {
@@ -232,7 +239,6 @@ export async function executePreparedDecision(params: {
           prepared.config,
         );
       }
-      let auth: ResolvedProviderAuth;
       try {
         if (canonical.provider.prepareRuntimeAuth) {
           // Existing exchange hooks have a chat Model contract. Never fabricate its costs or limits.
@@ -290,6 +296,8 @@ export async function executePreparedDecision(params: {
         assertPrepared();
         return { status: "unavailable", reason: "credentials-unavailable" };
       }
+      const assertAuthAuthority = getProviderAuthAuthority(auth);
+      model = attachProviderAuthAuthority(model, assertAuthAuthority);
       if (!assertPrepared()) {
         return { status: "unavailable", reason: "unsupported-input" };
       }
@@ -305,9 +313,12 @@ export async function executePreparedDecision(params: {
       );
       const request = getModelProviderRequestTransport(egressModel);
       // Structured cloning omits symbol-attached exchange overrides. Preserve their private owner facts too.
-      const privateModel = attachModelProviderRequestTransport(
-        structuredClone(egressModel),
-        request ? structuredClone(request) : undefined,
+      const privateModel = attachProviderAuthAuthority(
+        attachModelProviderRequestTransport(
+          structuredClone(egressModel),
+          request ? structuredClone(request) : undefined,
+        ),
+        assertAuthAuthority,
       );
       const providerContext: DecisionProviderContextV2 = {
         model: privateModel,
@@ -360,5 +371,15 @@ export async function executePreparedDecision(params: {
       assertPrepared();
       return { status, reason, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
     },
-  );
+  ).catch((error: unknown): ProviderDecisionOutcomeV2 => {
+    // Caller, cancellation and generation checks run before the credential fence.
+    // A retired physical credential owner is unavailable auth, never a caller contract failure.
+    if (!assertCurrent()) {
+      return { status: "unavailable", reason: "unsupported-input" };
+    }
+    if (isProviderAuthError(error, "missing-provider-auth")) {
+      return { status: "unavailable", reason: "credentials-unavailable" };
+    }
+    throw error;
+  });
 }

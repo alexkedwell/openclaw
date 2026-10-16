@@ -9,6 +9,10 @@ import type { PinnedDispatcherPolicy } from "../infra/net/ssrf.js";
 import type { Api } from "../llm/types.js";
 import type { PluginMetadataSnapshotOwnerMaps } from "../plugins/plugin-metadata-snapshot.types.js";
 import {
+  attachProviderAuthAuthority,
+  getProviderAuthAuthority,
+} from "../plugins/provider-auth-authority.js";
+import {
   type ProviderRequestCapabilities,
   type ProviderRequestCapability,
   type ProviderRequestTransport,
@@ -371,7 +375,7 @@ export function applyPreparedRuntimeAuthToModel<
     | undefined,
 ): T {
   if (!preparedAuth?.baseUrl && !preparedAuth?.request) {
-    return model;
+    return attachProviderAuthAuthority(model, getProviderAuthAuthority(preparedAuth));
   }
   const providerHeaders = preparedAuth.request?.auth
     ? Object.fromEntries(
@@ -401,12 +405,15 @@ export function applyPreparedRuntimeAuthToModel<
   };
   // Private transport readers must observe the same exchanged auth/headers as the model.
   // Keep authored network policy while replacing credential-bearing request facts.
-  return inheritModelProviderRequestRouteFacts(
-    model,
-    attachModelProviderRequestTransport(
-      next,
-      request ? { ...request, headers: requestConfig.headers } : undefined,
+  return attachProviderAuthAuthority(
+    inheritModelProviderRequestRouteFacts(
+      model,
+      attachModelProviderRequestTransport(
+        next,
+        request ? { ...request, headers: requestConfig.headers } : undefined,
+      ),
     ),
+    getProviderAuthAuthority(preparedAuth),
   );
 }
 

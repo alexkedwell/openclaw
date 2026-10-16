@@ -1,5 +1,5 @@
 import type { DecisionBatch, DecisionBatchResult } from "./types.js";
-import { decisionEntry, finiteJson, record } from "./validation-common.js";
+import { decisionEntry, finiteJson, isPlainDecisionRecord } from "./validation-common.js";
 
 /** A caller contract defect is not a provider outage. Never include evidence in errors. */
 export class DecisionContractError extends Error {
@@ -18,7 +18,11 @@ export function validateDecisionBatch(batch: unknown): batch is DecisionBatch {
   if (shape === "oversized") {
     return false;
   }
-  if (!record(batch) || !decisionEntry(batch.state) || !record(batch.questions)) {
+  if (
+    !isPlainDecisionRecord(batch) ||
+    !decisionEntry(batch.state) ||
+    !isPlainDecisionRecord(batch.questions)
+  ) {
     throw new DecisionContractError();
   }
   const questions = Object.entries(batch.questions);
@@ -29,12 +33,16 @@ export function validateDecisionBatch(batch: unknown): batch is DecisionBatch {
     return false;
   }
   for (const [id, q] of questions) {
-    if (!id || !record(q) || (q.instructions !== undefined && !decisionEntry(q.instructions))) {
+    if (
+      !id ||
+      !isPlainDecisionRecord(q) ||
+      (q.instructions !== undefined && !decisionEntry(q.instructions))
+    ) {
       throw new DecisionContractError();
     }
     if (q.type === "choice") {
       if (
-        !record(q.criteria) ||
+        !isPlainDecisionRecord(q.criteria) ||
         Object.keys(q.criteria).length < 2 ||
         !Object.entries(q.criteria).every(
           ([label, description]) => label.length > 0 && decisionEntry(description),
@@ -50,7 +58,7 @@ export function validateDecisionBatch(batch: unknown): batch is DecisionBatch {
       if (
         q.criteria !== undefined &&
         q.criteria !== null &&
-        (!record(q.criteria) ||
+        (!isPlainDecisionRecord(q.criteria) ||
           !Object.entries(q.criteria).every(
             ([key, value]) => (key === "true" || key === "false") && decisionEntry(value),
           ))
@@ -84,18 +92,18 @@ export function validateDecisionResult(
 ): value is DecisionBatchResult {
   if (
     finiteJson(value) !== "valid" ||
-    !record(value) ||
+    !isPlainDecisionRecord(value) ||
     typeof value.model !== "string" ||
     !value.model.length ||
     value.model.length > 256 ||
-    !record(value.answers) ||
+    !isPlainDecisionRecord(value.answers) ||
     !exactKeys(batch.questions, value.answers)
   ) {
     return false;
   }
   if (
     value.usage !== undefined &&
-    (!record(value.usage) ||
+    (!isPlainDecisionRecord(value.usage) ||
       !Object.entries(value.usage).every(
         ([key, n]) =>
           (key === "inputTokens" || key === "outputTokens") &&
@@ -108,7 +116,7 @@ export function validateDecisionResult(
   }
   for (const [id, question] of Object.entries(batch.questions)) {
     const answer = value.answers[id];
-    if (!record(answer) || answer.type !== question.type) {
+    if (!isPlainDecisionRecord(answer) || answer.type !== question.type) {
       return false;
     }
     if (
@@ -125,7 +133,7 @@ export function validateDecisionResult(
       if (
         typeof answer.choice !== "string" ||
         !Object.hasOwn(question.criteria, answer.choice) ||
-        !record(answer.probabilities) ||
+        !isPlainDecisionRecord(answer.probabilities) ||
         !exactKeys(question.criteria, answer.probabilities)
       ) {
         return false;

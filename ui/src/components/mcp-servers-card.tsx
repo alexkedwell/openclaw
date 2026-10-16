@@ -105,10 +105,7 @@ export function McpServersCard(props: McpServersCardProps) {
     }
     return null;
   };
-  const canMutate = () => {
-    revision();
-    return mutationBlockedReason() === null && login.state().phase === "idle";
-  };
+  const canMutate = () => mutationBlockedReason() === null && login.state().phase === "idle";
   const signIn = (server: McpServerSummary) => {
     if (
       state.busy ||
@@ -135,13 +132,17 @@ export function McpServersCard(props: McpServersCardProps) {
     state.busy = true;
     state.message = null;
     invalidate();
-    const result = await patchMcpServers(context.runtimeConfig, options);
-    state.busy = false;
-    state.message = result.ok
-      ? { kind: "success", text: options.successText }
-      : { kind: "error", text: result.error };
-    invalidate();
-    return result.ok;
+    try {
+      await patchMcpServers(context.runtimeConfig, options);
+      state.message = { kind: "success", text: options.successText };
+      return true;
+    } catch (error) {
+      state.message = { kind: "error", text: formatUiError(error) };
+      return false;
+    } finally {
+      state.busy = false;
+      invalidate();
+    }
   };
   const addServer = async (form: McpServerForm) => {
     if (!MCP_SERVER_NAME_PATTERN.test(form.name)) {
@@ -231,7 +232,7 @@ export function McpServersCard(props: McpServersCardProps) {
           <Show when={view().message}>
             {(message) => (
               <div
-                class={`mcp-server-message mcp-server-message--${message().kind}`}
+                class={["mcp-server-message", `mcp-server-message--${message().kind}`]}
                 role={message().kind === "error" ? "alert" : "status"}
               >
                 {message().text}
