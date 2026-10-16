@@ -18,6 +18,7 @@ type ComposerDictationFailure = {
 type ComposerDictationOwnerOptions = {
   client: GatewayBrowserClient | null;
   sessionKey?: string;
+  draftKey?: string;
   connected: boolean;
   enabled: boolean;
   dictationAvailable?: boolean;
@@ -117,6 +118,9 @@ export class ComposerDictationOwner extends EventTarget {
   }
 
   update(options: ComposerDictationOwnerOptions): void {
+    if (this.options.draftKey !== options.draftKey) {
+      this.cancel();
+    }
     this.options = options;
     if (!options.connected) {
       this.pendingCommitSession?.markGatewayDisconnected();
@@ -169,15 +173,13 @@ export class ComposerDictationOwner extends EventTarget {
   handleClick(event: MouseEvent): void {
     if (this.suppressedPointerId !== null) {
       this.clearClickSuppression();
-      event.preventDefault();
+    } else if (this.active) {
+      void this.finishActive();
     } else if (this.phase === "idle") {
       this.options.onTap?.();
-    } else {
-      event.preventDefault();
-      if (this.active) {
-        void this.finishActive();
-      }
+      return;
     }
+    event.preventDefault();
   }
 
   handleContextMenu(event: MouseEvent): void {

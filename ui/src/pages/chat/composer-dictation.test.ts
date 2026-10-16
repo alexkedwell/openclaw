@@ -297,6 +297,24 @@ afterEach(() => {
 });
 
 describe("ComposerDictationOwner", () => {
+  it("retires capture before a retained owner adopts another draft's callbacks", async () => {
+    const { controller, options, onCommit } = createHarness({ draftKey: "first" });
+    const stopTrack = vi.fn();
+    getUserMedia.mockResolvedValue(microphone(stopTrack));
+    await startDirect(controller);
+    emit({ type: "partial", text: "Old draft words" });
+    const nextCommit = vi.fn();
+
+    controller.update({ ...options, draftKey: "next", onCommit: nextCommit });
+    transcript("Old draft final words");
+
+    expect(controller.active).toBe(false);
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(nextCommit).not.toHaveBeenCalled();
+    await waitForFast(() => expectClosed("dictation-1", true));
+  });
+
   it("surfaces final transcription failure and discards its pending result", async () => {
     const { controller, onCommit, onError } = createHarness();
     const publishedErrors: unknown[] = [];

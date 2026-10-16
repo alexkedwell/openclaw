@@ -98,7 +98,6 @@ export function createChatComposerContext(
     state.textareaRef?.();
     state.composerComposing = false;
     state.composingDraft = null;
-    voice.dictation.cancel();
     state.dictationSelection = null;
   }
   if (state.composerDraftScope?.key !== draftKey) {
@@ -474,7 +473,6 @@ export function createChatComposerContext(
     props.onTypingChange?.(false);
   };
   const devicePicker = voice.picker;
-  devicePicker.syncCatalog(props.gatewayClient ?? null, props.connected, props.sessionKey);
   const startRealtimeTalk = () => {
     // Catalog help does not require history; only starting Talk does.
     if (devicePicker.realtimeStatus !== "ready") {
@@ -528,15 +526,11 @@ export function createChatComposerContext(
         onOpenDictationSettings: props.onOpenDictationSettings,
       }
     : undefined;
-  voice.dictation.update(
-    createComposerDictationOptions(
-      props,
-      state,
-      devicePicker,
-      visibleDraft.trim() || props.attachments?.length
-        ? startRealtimeTalk
-        : handleVoicePrimaryAction,
-    ),
+  const dictationOptions = createComposerDictationOptions(
+    props,
+    state,
+    devicePicker,
+    visibleDraft.trim() || props.attachments?.length ? startRealtimeTalk : handleVoicePrimaryAction,
   );
   const dictation =
     props.onToggleRealtimeTalk && props.composerHoldToRecord !== false
@@ -648,6 +642,7 @@ export function createChatComposerContext(
     handleCompositionEnd,
     handleBlur,
     dictation,
+    dictationOptions,
     runControlsProps,
     menus,
     mentionMenuHost,
@@ -669,6 +664,7 @@ export function createComposerDictationOptions(
   return {
     client: props.gatewayClient ?? null,
     sessionKey: props.sessionKey,
+    draftKey: composerDraftKey(props),
     connected: props.connected,
     enabled: props.composerHoldToRecord !== false,
     dictationAvailable: devicePicker.dictationStatus === "ready",

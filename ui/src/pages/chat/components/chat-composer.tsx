@@ -121,11 +121,12 @@ export function ChatComposer(props: ChatComposerInput) {
     },
   );
   createEffect(
-    () => {
-      context();
-      return currentProps.composerPredictions;
+    () => [context().dictationOptions, currentProps.composerPredictions] as const,
+    ([options]) => {
+      voice.picker.syncCatalog(options.client, options.connected, options.sessionKey);
+      voice.dictation.update(options);
+      untrack(() => prediction.sync());
     },
-    () => untrack(() => prediction.sync()),
   );
   onSettled(() => listen(document, "visibilitychange", () => prediction.sync()));
   onCleanup(() => {
