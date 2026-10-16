@@ -20,7 +20,6 @@ import {
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import type { SqliteSessionReclamationAdmissionDiagnostics } from "./session-accessor.sqlite-contract.js";
 import { revokeSqliteReclamationCommit } from "./session-accessor.sqlite-reclamation-commit.js";
-import type { SqliteMutationWorkerCoordination } from "./session-accessor.sqlite-worker-coordination.js";
 import {
   observeSqliteMutationWorkerEnd,
   terminateSqliteMutationWorker,
@@ -140,7 +139,7 @@ export function runSqliteMutationWorkerRequest<Result>(params: {
   validationPath?: string;
   /** Opening proof remains revocable and is adopted only against the worker's native identity. */
   readOpeningValidation?: () => OpenClawAgentDatabaseValidation | undefined;
-  dispatch?: (opening: NonNullable<SqliteMutationWorkerCoordination["opening"]>) => void;
+  dispatch?: () => void;
   getFailure?: () => Error | undefined;
   onExit?: (code: number) => void;
 }): Promise<Result> {
@@ -303,7 +302,19 @@ export function runSqliteMutationWorkerRequest<Result>(params: {
               workerError ??= toStringifiedError(refusal.error);
             }
             const allowed = refusal === undefined && workerError === undefined;
-            worker.postMessage({ type: "admission", operationId, allowed }, []);
+            worker.postMessage(
+              {
+                type: "admission",
+                operationId,
+                allowed,
+                validation: allowed ? readValidation() : undefined,
+                integrityRevoked:
+                  allowed && validationPath !== undefined
+                    ? hasRevokedOpenClawAgentDatabaseValidation(validationPath)
+                    : false,
+              },
+              [],
+            );
             if (transport.kind === "pooled") {
               recordWorkerMessage("admission", "to_worker");
             }
@@ -351,13 +362,7 @@ export function runSqliteMutationWorkerRequest<Result>(params: {
     worker.once("error", error);
     worker.once("messageerror", messageError);
     try {
-      params.dispatch?.({
-        validation: readValidation(),
-        integrityRevoked:
-          validationPath !== undefined
-            ? hasRevokedOpenClawAgentDatabaseValidation(validationPath)
-            : false,
-      });
+      params.dispatch?.();
     } catch (failure) {
       // Uncertain dispatch is terminal; never replay on a successor Worker.
       fail(failure);

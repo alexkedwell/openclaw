@@ -145,9 +145,9 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(
           onExit: (code) => {
             exitCode = code;
           },
-          dispatch: (opening) =>
+          dispatch: () =>
             worker.postMessage(
-              { type: "mutate", coordination: { ...coordination, opening } },
+              { type: "mutate", coordination },
               coordination.databaseAdmission ? [coordination.databaseAdmission] : [],
             ),
         }),

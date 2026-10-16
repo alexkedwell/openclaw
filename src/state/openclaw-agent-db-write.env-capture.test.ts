@@ -1,9 +1,12 @@
-import { writeFileSync } from "node:fs";
+import { once } from "node:events";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { MessageChannel } from "node:worker_threads";
 import { afterEach, expect, it, vi } from "vitest";
 import { awaitGateBeforeSettlement } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
+import { withWorkerWriteAdmission } from "../config/sessions/session-accessor.sqlite-worker-admission.runtime.js";
 import type { SqliteIntegrityOperation } from "../infra/sqlite-integrity.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { withMockedPlatform } from "../test-utils/vitest-spies.js";
@@ -156,6 +159,30 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 const dirs = useAutoCleanupTempDirTracker(afterEach);
+
+it("waits for the worker's writer grant before opening and validating its native database", async () => {
+  const { port1: parentPort, port2: worker } = new MessageChannel();
+  const options = {
+    agentId: "main",
+    path: path.join(dirs.make("agent-db-worker-admission-"), "agent.sqlite"),
+  };
+  const requested = once(parentPort, "message");
+  const result = withWorkerWriteAdmission(worker, 1, options, (database) => database.path);
+  try {
+    expect(
+      await awaitGateBeforeSettlement(requested, result, "Worker never requested admission"),
+    ).toEqual([{ type: "admission-request", operationId: 1 }]);
+    expect(existsSync(options.path)).toBe(false);
+    parentPort.postMessage({ type: "admission", operationId: 1, allowed: true }, []);
+    await expect(result).resolves.toBe(options.path);
+    expect(boundary.open).toHaveBeenCalledOnce();
+  } finally {
+    parentPort.postMessage({ type: "admission", operationId: 1, allowed: false }, []);
+    await result.catch(() => undefined);
+    parentPort.close();
+    worker.close();
+  }
+});
 
 it.each([
   { driver: "write", platform: "win32", stateKey: "OpenClaw_State_Dir", input: "plain" },

@@ -194,7 +194,6 @@ export function startOpenClawStateReadOperation(
     if ("error" in read) {
       throw read.error;
     }
-    selection.callerSignal?.throwIfAborted();
     return read.value;
   }
 
@@ -338,6 +337,7 @@ export function startOpenClawStateReadOperation(
       errors.push(error);
     }
     throwSqliteLifecycleErrors(errors, "Shared-state read and cleanup failed");
+    selection.callerSignal?.throwIfAborted();
     return value;
   })().catch((error: unknown) => {
     throw selection.mapError ? selection.mapError(error, receipt.phase) : error;

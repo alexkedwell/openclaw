@@ -68,8 +68,8 @@ export type OpenClawAgentDatabaseWriteAdmission = <T>(
   ) => T | Promise<T>,
 ) => Promise<T>;
 
-export type OpenClawAgentDatabaseStartupAdmission = {
-  assertCurrent(): void;
+type OpenClawAgentDatabaseStartupAdmission = {
+  assertCurrent: () => void;
   validation?: OpenClawAgentDatabaseValidation;
   integrityRevoked?: boolean;
 };
@@ -364,12 +364,11 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
     return work;
   }
 
-  /** Run on a Worker to keep its same-connection integrity check outside the parent writer. */
+  /** One writer grant covers native preparation and the operation that consumes it. */
   function withOpenClawAgentDatabaseAdmission<T>(
     inputOptions: OpenClawAgentDatabaseOptions,
     withAdmission: OpenClawAgentDatabaseWriteAdmission,
     operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
-    startup?: OpenClawAgentDatabaseStartupAdmission,
   ): Promise<T> {
     const env = cloneEnvWithPlatformSemantics(inputOptions.env ?? process.env);
     const agentId = normalizeAgentId(inputOptions.agentId);
@@ -379,26 +378,20 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
       env,
       path: resolveOpenClawAgentSqlitePath({ ...inputOptions, agentId, env }),
     };
-    // Native compatibility callers retain their lexical admission. Workers prepare
-    // through their request lifetime before reserving the foreground writer once.
     const run = () =>
-      startup
-        ? runAgentDatabaseAdmission(options, withAdmission, operation, startup)
-        : withAdmission((assertCurrent, validation, integrityRevoked) =>
-            runAgentDatabaseAdmission(
-              options,
-              (admitted) => Promise.resolve(admitted(assertCurrent)),
-              operation,
-              { assertCurrent, validation, integrityRevoked },
-            ),
-          );
+      withAdmission((assertCurrent, validation, integrityRevoked) =>
+        runAgentDatabaseAdmission(options, operation, {
+          assertCurrent,
+          validation,
+          integrityRevoked,
+        }),
+      );
     const scope = getOpenClawDatabaseMaintenanceScope();
     return scope ? scope.run(() => scope.track(run())) : run();
   }
 
   async function runAgentDatabaseAdmission<T>(
     options: OpenClawAgentDatabaseOptions & { path: string; env: NodeJS.ProcessEnv },
-    withAdmission: OpenClawAgentDatabaseWriteAdmission,
     operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
     startup: OpenClawAgentDatabaseStartupAdmission,
   ): Promise<T> {
@@ -419,7 +412,7 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
           throw error;
         }
       }
-      return runAgentDatabaseAdmission(options, withAdmission, operation, startup);
+      return runAgentDatabaseAdmission(options, operation, startup);
     }
     const admission = createOpenClawAgentDatabaseAdmission(agentId, pathname);
     const { pending } = admission;
@@ -438,19 +431,17 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
       );
       pending.releaseBorrow = retainAgentDatabase(database.db);
       admission.complete(database);
-      return await withAdmission(async (assertCurrent) => {
-        const assertOperationCurrent = () =>
-          assertAgentDatabaseOperationCurrent(database, options, pending, assertCurrent);
-        assertOperationCurrent();
-        const flushMaintenance =
-          isMainThread || isPostgresSqlConnection(database.db)
-            ? undefined
-            : registerDeferredSqliteWalWriteAdmission(database.db);
-        flushMaintenance?.(assertOperationCurrent);
-        const result = await operation(database);
-        flushMaintenance?.(assertOperationCurrent);
-        return result;
-      });
+      const assertOperationCurrent = () =>
+        assertAgentDatabaseOperationCurrent(database, options, pending, startup.assertCurrent);
+      assertOperationCurrent();
+      const flushMaintenance =
+        isMainThread || isPostgresSqlConnection(database.db)
+          ? undefined
+          : registerDeferredSqliteWalWriteAdmission(database.db);
+      flushMaintenance?.(assertOperationCurrent);
+      const result = await operation(database);
+      flushMaintenance?.(assertOperationCurrent);
+      return result;
     } catch (error) {
       admission.fail(error);
       throw error;

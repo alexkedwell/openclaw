@@ -357,14 +357,11 @@ export class SqliteReclamationWorker {
           validationOwner: params.validationOwner,
           validationPath: this.options.path,
           readOpeningValidation: params.readOpeningValidation,
-          dispatch: (opening) => {
-            transport.channel.postMessage(
-              params.request(operationId, { ...coordination, opening }),
-              [
-                ...params.transferList,
-                ...(coordination.databaseAdmission ? [coordination.databaseAdmission] : []),
-              ],
-            );
+          dispatch: () => {
+            transport.channel.postMessage(params.request(operationId, coordination), [
+              ...params.transferList,
+              ...(coordination.databaseAdmission ? [coordination.databaseAdmission] : []),
+            ]);
             if (transport.kind === "pooled") {
               recordWorkerMessage("sqlite_request", "to_worker");
             }

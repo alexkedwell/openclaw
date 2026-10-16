@@ -480,11 +480,12 @@ Before draining heartbeats for a file capture, each state-lease owner attempts a
 
 Asynchronous agent-database admission runs the first full-file integrity check in a read-only child process when that check is outside a write transaction. Later ordinary opens reuse remembered verification. Maintenance retains its independent full check. The connection and owning scope remain held until the native reader closes; cancellation and timeout wait for process exit. Schema changes, index repairs, and compaction retain their synchronous phases.
 
-Session mutation workers prepare their native connection and integrity checks
-under the request's lifecycle coordinator before entering the foreground writer
-FIFO. One writer grant then lasts through result publication or native exit;
-integrity stages do not release and reacquire that grant. Physical-target and
-effect-time authority checks remain in force.
+Session mutation workers enter the foreground writer FIFO before opening their
+native connection. The grant carries the Gateway's current validation facts,
+so later workers reuse completed integrity and schema checks for that physical database.
+One writer grant lasts through preparation, result publication, or native exit;
+integrity stages do not release and reacquire it. The first cold validation can
+delay queued writes. Physical-target and effect-time authority checks remain in force.
 
 An agent maintenance lease reuses one integrity-check process across its queued
 checks. Each request opens and closes its own database, reads fresh file identity,

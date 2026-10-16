@@ -15,7 +15,6 @@ import {
   withSqliteWorkerOperationAdmissionAsync,
 } from "../../infra/sqlite-worker-operation-admission.js";
 import type { SqliteWorkerStateContext } from "../../infra/sqlite-worker-state-context.js";
-import type { OpenClawAgentDatabaseValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db.js";
 import { resolveQuarantineStorePath } from "../../state/openclaw-state-db.paths.js";
 import type { OpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.types.js";
@@ -31,10 +30,6 @@ export type SqliteMutationWorkerCoordination = {
   stateContext: SqliteWorkerStateContext;
   databaseAdmission?: MessagePort;
   reconciliation?: { identity: string };
-  opening?: {
-    validation?: OpenClawAgentDatabaseValidation;
-    integrityRevoked?: boolean;
-  };
 };
 
 /** The request owns its native worker until a result or confirmed exit settles. */

@@ -2153,12 +2153,12 @@ committed during preparation. Existing entries and alias adoption retain their
 replacement snapshots.
 
 Session reclamation keeps its deletion transaction on a worker connection.
-The worker prepares its native connection and any required first full integrity,
-foreign-key, or schema work under the request's lifecycle coordinator, outside
-the foreground writer FIFO. Unrelated session writes can continue during those
-checks. Workers can borrow the Gateway's remembered verification for the same
-physical agent database. One foreground writer grant then lasts through result
-publication or native exit, with current authority checked at the write effect.
+The worker enters the foreground writer FIFO before opening its native connection
+and receives the Gateway's current validation facts with that grant. Later workers
+reuse completed integrity and schema checks for that physical database instead of
+preparing concurrently from missing proof. First cold validation can delay queued
+writes. One foreground writer grant lasts through preparation, result publication,
+or native exit, with current authority checked at the write effect.
 The process retains at most one validated reclamation worker connection and lease per physical store,
 with a 30-minute idle retirement. Each deletion keeps its own transaction, retained
 parent claim, numbered write admission, and current-authority checks in its own
