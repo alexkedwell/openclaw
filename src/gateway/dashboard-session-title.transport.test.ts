@@ -1,8 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import * as completionRoute from "../agents/isolated-completion-route.js";
 import { traceIsolatedCompletionColdStart } from "../agents/isolated-completion.cold.test-support.js";
+import * as isolatedCompletion from "../agents/isolated-completion.js";
 import { runIsolatedCompletion } from "../agents/isolated-completion.js";
+import * as simpleCompletion from "../agents/simple-completion-runtime.js";
 import { slugifyWorktreeTitle, validateName } from "../agents/worktrees/name.js";
 import { generateConversationLabel } from "../auto-reply/reply/conversation-label-generator.js";
 import {
@@ -111,7 +114,11 @@ describe("generated titles over the real OpenAI-compatible transport", () => {
     });
   });
   it("disables configured native Ollama thinking only for the utility request", async () => {
-    await using trace = traceIsolatedCompletionColdStart("native-title");
+    await using trace = traceIsolatedCompletionColdStart("native-title", {
+      completion: isolatedCompletion,
+      route: completionRoute,
+      preparation: simpleCompletion,
+    });
     await withTitleProvider(
       "Utility thinking disabled",
       async ({ cfg, agentDir, requests }) => {

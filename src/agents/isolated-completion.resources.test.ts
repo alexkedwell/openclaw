@@ -17,10 +17,13 @@ import { createSyncSuiteTempRootTracker } from "../plugins/test-helpers/fs-fixtu
 import { getAsyncWorkSignal, trackAsyncWork } from "../shared/async-work-scope.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { clearRuntimeAuthProfileStoreSnapshots } from "./auth-profiles/runtime-snapshots.js";
+import * as completionRoute from "./isolated-completion-route.js";
 import { traceIsolatedCompletionColdStart } from "./isolated-completion.cold.test-support.js";
+import * as isolatedCompletion from "./isolated-completion.js";
 import { runIsolatedCompletion } from "./isolated-completion.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runtime.test-support.js";
 import { ModelRegistry } from "./sessions/model-registry.js";
+import * as simpleCompletion from "./simple-completion-runtime.js";
 
 it.for(["overlap", "callback-tail", "cancel-tail", "auth-tail", "auth-failure"] as const)(
   "retains standalone isolated completion resources through %s",
@@ -30,7 +33,13 @@ it.for(["overlap", "callback-tail", "cancel-tail", "auth-tail", "auth-failure"] 
       testContext.skip();
     }
     await using trace =
-      mode === "overlap" ? traceIsolatedCompletionColdStart("resources-overlap") : undefined;
+      mode === "overlap"
+        ? traceIsolatedCompletionColdStart("resources-overlap", {
+            completion: isolatedCompletion,
+            route: completionRoute,
+            preparation: simpleCompletion,
+          })
+        : undefined;
     const roots = createSyncSuiteTempRootTracker("isolated-completion-resources");
     const root = fs.realpathSync(roots.makeTempDir());
     const providerDir = path.join(root, "provider");

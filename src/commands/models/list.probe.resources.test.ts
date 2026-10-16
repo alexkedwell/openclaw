@@ -12,6 +12,7 @@ import {
 } from "../../agents/auth-profiles/persisted.js";
 import * as authProfileSqlite from "../../agents/auth-profiles/sqlite.js";
 import type { OAuthCredential } from "../../agents/auth-profiles/types.js";
+import { traceIsolatedCompletionColdStart } from "../../agents/isolated-completion.cold.test-support.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "../../agents/prepared-model-runtime.test-support.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { getPluginInstance } from "../../plugins/plugin-instance-scope.js";
@@ -46,6 +47,10 @@ it.each([
   "checks $source credentials ($status) with sessionless credential custody",
   async (scenario) => {
     const { source: credentialSource, status } = scenario;
+    await using trace =
+      credentialSource === "direct" && status === "ok"
+        ? traceIsolatedCompletionColdStart("direct-probe")
+        : undefined;
     const state = await createOpenClawTestState({
       label: "probe-sessionless-resources",
       env: { OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" },
@@ -200,6 +205,7 @@ it.each([
     const timeout = new AbortController();
     const timeoutSignal = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeout.signal);
     complete.mockImplementation(async (params) => {
+      trace?.mark("provider-arrival");
       if (oauth) {
         expect(params.auth.apiKey).toBe(
           oauth === "expired" ? rotatedOAuth.access : originalOAuth.access,
@@ -251,6 +257,8 @@ it.each([
     const credentialWrites = vi.spyOn(authProfileSqlite, "writePersistedAuthProfileStoreRaw");
     const stateWrites = vi.spyOn(authProfileSqlite, "writePersistedAuthProfileStateRaw");
     try {
+      trace?.mark("fixture-ready");
+      trace?.mark("probe-start");
       const result = await parent.track(() =>
         runAuthProbes({
           cfg,

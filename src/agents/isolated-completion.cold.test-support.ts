@@ -4,14 +4,20 @@ import {
   onTrustedInternalDiagnosticEvent,
   waitForDiagnosticEventsDrained,
 } from "../infra/diagnostic-events.js";
-import * as completionRoute from "./isolated-completion-route.js";
-import * as isolatedCompletion from "./isolated-completion.js";
+import * as pluginProfile from "../plugins/plugin-load-profile.js";
 import * as runtimeBuild from "./prepared-model-runtime.build.js";
+import * as runtimeFacts from "./prepared-model-runtime.facts.js";
 import * as preparedRuntime from "./prepared-model-runtime.js";
-import * as simpleCompletion from "./simple-completion-runtime.js";
 
 /** Observe already-imported owners without preloading the cold harness or provider graph. */
-export function traceIsolatedCompletionColdStart(scenario: "resources-overlap" | "native-title") {
+export function traceIsolatedCompletionColdStart(
+  scenario: "resources-overlap" | "native-title" | "direct-probe",
+  completionOwners?: {
+    completion: typeof import("./isolated-completion.js");
+    route: typeof import("./isolated-completion-route.js");
+    preparation: typeof import("./simple-completion-runtime.js");
+  },
+) {
   const startedAt = performance.now();
   const events: Array<Record<string, number | string>> = [];
   const spies: Array<{ mockRestore(): void }> = [];
@@ -59,46 +65,106 @@ export function traceIsolatedCompletionColdStart(scenario: "resources-overlap" |
     },
     { include: ["diagnostic.phase.completed"] },
   );
-  let calls = 0;
-  const run = isolatedCompletion.runIsolatedCompletion;
-  spies.push(
-    vi.spyOn(isolatedCompletion, "runIsolatedCompletion").mockImplementation((params) => {
-      const id = ++calls;
-      record("caller-start", { id, timeoutMs: params.timeoutMs });
-      return observe(run(params), "caller-result", id);
-    }),
-  );
+  // Direct probes import completion lazily; their trace must not move that cold boundary.
+  if (completionOwners) {
+    const { completion, route, preparation } = completionOwners;
+    let calls = 0;
+    const run = completion.runIsolatedCompletion;
+    spies.push(
+      vi.spyOn(completion, "runIsolatedCompletion").mockImplementation((params) => {
+        const id = ++calls;
+        record("caller-start", { id, timeoutMs: params.timeoutMs });
+        return observe(run(params), "caller-result", id);
+      }),
+    );
+    let routes = 0;
+    const resolveRoute = route.resolveIsolatedCompletionRoute;
+    spies.push(
+      vi.spyOn(route, "resolveIsolatedCompletionRoute").mockImplementation((params) => {
+        const id = ++routes;
+        record("route-start", { id });
+        return observe(resolveRoute(params), "route-result", id);
+      }),
+    );
+    let preparations = 0;
+    const prepare = preparation.prepareSimpleCompletionModel;
+    spies.push(
+      vi.spyOn(preparation, "prepareSimpleCompletionModel").mockImplementation((...args) => {
+        const id = ++preparations;
+        record("prepare-start", { id });
+        return observe(prepare(...args), "prepare-result", id);
+      }),
+    );
+  }
   let acquisitions = 0;
-  const acquire = preparedRuntime.acquireAgentRunPreparedModelRuntime;
-  spies.push(
-    vi
-      .spyOn(preparedRuntime, "acquireAgentRunPreparedModelRuntime")
-      .mockImplementation((...args) => {
+  for (const owner of [
+    "acquireAgentRunPreparedModelRuntime",
+    "acquireReadOnlyPreparedModelRuntime",
+  ] as const) {
+    const acquire = preparedRuntime[owner];
+    spies.push(
+      vi.spyOn(preparedRuntime, owner).mockImplementation((...args) => {
         const id = ++acquisitions;
-        record("acquire-start", { id });
+        record("acquire-start", {
+          id,
+          mode: owner === "acquireReadOnlyPreparedModelRuntime" ? "read-only" : "run",
+        });
         const signal = args[1]?.abortSignal;
         const aborted = () => record("signal-abort", { id });
         signal?.addEventListener("abort", aborted, { once: true });
         removeListeners.push(() => signal?.removeEventListener("abort", aborted));
         return observe(acquire(...args), "acquire-result", id);
       }),
-  );
-  let routes = 0;
-  const route = completionRoute.resolveIsolatedCompletionRoute;
+    );
+  }
+  const workspaceBuild = runtimeFacts.prepareWorkspaceBuildGroup;
   spies.push(
-    vi.spyOn(completionRoute, "resolveIsolatedCompletionRoute").mockImplementation((params) => {
-      const id = ++routes;
-      record("route-start", { id });
-      return observe(route(params), "route-result", id);
+    vi.spyOn(runtimeFacts, "prepareWorkspaceBuildGroup").mockImplementation((...args) => {
+      const options = args[2];
+      args[2] = {
+        ...options,
+        onStage: (stage) => {
+          options?.onStage?.(stage);
+          const label = [
+            "workspace plugins",
+            "static provider catalog",
+            "ambient credentials",
+            "agent facts",
+            "configured model projection",
+          ].find((label) => stage === label || stage.startsWith(`${label};`));
+          record("build-stage", { stage: label ?? "other" });
+        },
+      };
+      return workspaceBuild(...args);
     }),
   );
-  let preparations = 0;
-  const prepare = simpleCompletion.prepareSimpleCompletionModel;
+  let loads = 0;
+  const profile = pluginProfile.withProfile;
   spies.push(
-    vi.spyOn(simpleCompletion, "prepareSimpleCompletionModel").mockImplementation((...args) => {
-      const id = ++preparations;
-      record("prepare-start", { id });
-      return observe(prepare(...args), "prepare-result", id);
+    vi.spyOn(pluginProfile, "withProfile").mockImplementation((...args) => {
+      const id = ++loads;
+      const labels = [
+        "full",
+        "discovery",
+        "tool-discovery",
+        "setup-only",
+        "setup-runtime",
+        "cli-metadata",
+        "runtime-module",
+      ];
+      const phase =
+        labels
+          .flatMap((label) => [label, `${label}:register`])
+          .find((label) => label === args[1]) ?? "other";
+      record("plugin-load-start", { id, phase });
+      let outcome = "error";
+      try {
+        const result = profile(...args);
+        outcome = "completed";
+        return result;
+      } finally {
+        record("plugin-load-result", { id, phase, outcome });
+      }
     }),
   );
   let builds = 0;
@@ -120,7 +186,7 @@ export function traceIsolatedCompletionColdStart(scenario: "resources-overlap" |
   );
   record("fixture-start");
   return {
-    mark(event: "fixture-ready" | "provider-arrival" | "provider-auth", id = 0) {
+    mark(event: "fixture-ready" | "provider-arrival" | "provider-auth" | "probe-start", id = 0) {
       record(event, { id });
     },
     async [Symbol.asyncDispose]() {
