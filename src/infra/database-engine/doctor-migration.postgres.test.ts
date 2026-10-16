@@ -5,9 +5,11 @@ import { getEnvironmentData } from "node:worker_threads";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { recordUpdateDatabaseWrites } from "../../cli/update-cli/update-command-database-receipts.js";
 import { prepareDoctorDatabaseMigrations } from "../../commands/doctor-schema-migrations.js";
 import {
   preparePostgresRestore,
+  readBackupEngine,
   verifyMatchedPostgresBackup,
 } from "../../snapshot/database-backup.js";
 import { preflightOpenClawDatabaseSchemas } from "../../state/openclaw-database-preflight.js";
@@ -32,6 +34,9 @@ import { acquireGatewayStateOwner } from "../gateway-state-owner.js";
 import { openNodeSqliteDatabase } from "../node-sqlite.js";
 import { isPostgresSqlConnection } from "../sql-connection.js";
 import { publishSqliteDatabaseSchemaChange } from "../sqlite-database-admission.js";
+import { createUpdateDatabaseBackup } from "../update-database-backup.js";
+import { restoreUpdateDatabaseBackup } from "../update-database-restore.js";
+import { createUpdateDoctorDatabaseWriteCapture } from "../update-doctor-result.js";
 import { withEngineStoreAdmission } from "./admission-scope.js";
 import { installDatabaseEngineSelection } from "./context.js";
 import { resetDatabaseEngineSelectionForTest } from "./context.test-support.js";
@@ -338,4 +343,163 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       gateway.release();
     }
   });
+  it.each([false, true])(
+    "keeps installed-driver schema rollback exact (foreign write: %s)",
+    async (foreignWrite) => {
+      await prepare();
+      await runDoctor();
+      closeOpenClawStateDatabaseForTest();
+      const configPath = path.join(env.OPENCLAW_STATE_DIR!, "openclaw.json");
+      fs.writeFileSync(configPath, JSON.stringify(config));
+      const updateEnv = { ...env, OPENCLAW_CONFIG_PATH: configPath };
+      vi.stubEnv("OPENCLAW_STATE_DIR", updateEnv.OPENCLAW_STATE_DIR);
+      vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath);
+      await client.query(
+        `UPDATE "${namespace}".config_machine_state SET value_json = '"before"' WHERE state_key = 'doctor.fixture';
+         SELECT setval('"${namespace}".audit_events_sequence_seq', 71, true);`,
+      );
+      const installed = { ...stateEngineSchema };
+      const descriptor = await statePortProvider.loadDescriptor();
+      const lock = await acquireGatewayLock({
+        env: updateEnv,
+        allowInTests: true,
+        role: "sqlite-maintenance",
+        timeoutMs: 0,
+      });
+      expect(lock).not.toBeNull();
+      let saved: Awaited<ReturnType<typeof createUpdateDatabaseBackup>>;
+      const warnings: string[] = [];
+      try {
+        try {
+          saved = await lock!.run(() =>
+            createUpdateDatabaseBackup({
+              backupRoot: path.join(env.OPENCLAW_STATE_DIR!, `update-capture-${foreignWrite}`),
+              stateDir: env.OPENCLAW_STATE_DIR!,
+              config,
+              env: updateEnv,
+              acquisition: { mode: "maintenance-owner" },
+            }),
+          );
+          expect(saved.warnings).toEqual([]);
+          const capture = createUpdateDoctorDatabaseWriteCapture(saved.sourceGenerations, {
+            env: updateEnv,
+            signal: new AbortController().signal,
+            assertCurrent: () => lock!.assertCurrent(),
+            warn: (message) => warnings.push(message),
+          })!;
+          await lock!.run(() => capture.admit());
+          const futureIndex =
+            'CREATE INDEX "idx_doctor_future" ON config_machine_state(updated_at_ms);';
+          const futureSchema = `${installed.postgres}\n${futureIndex}`;
+          Object.assign(stateEngineSchema, {
+            version: target + 1,
+            postgres: futureSchema,
+            postgresMigrations: [
+              {
+                version: target + 1,
+                fromSchema: {
+                  postgres: installed.postgres!,
+                  postgresFragments: installed.postgresFragments,
+                },
+                schema: { postgres: futureSchema, postgresFragments: installed.postgresFragments },
+                backup: descriptor,
+                sql: `${futureIndex}
+                UPDATE config_machine_state SET value_json = '"after"' WHERE state_key = 'doctor.fixture';
+                SELECT nextval('audit_events_sequence_seq');
+                UPDATE schema_meta SET schema_version = ${target + 1};
+                UPDATE config_machine_state SET value_json = '${target + 1}' WHERE state_key = 'state.schema.contentVersion';`,
+              },
+            ],
+          });
+          await lock!.run(() =>
+            capture.run(() =>
+              prepareDoctorDatabaseMigrations({
+                env: updateEnv,
+                pendingDatabasePaths: [pathname],
+                databasePaths: [pathname],
+                pendingMigrations: [
+                  {
+                    kind: "state",
+                    path: pathname,
+                    foundVersion: target,
+                    supportedVersion: target + 1,
+                  },
+                ],
+              }),
+            ),
+          );
+          closeOpenClawStateDatabaseForTest();
+          expect(await readRows()).toEqual([{ value_json: '"after"' }]);
+          expect(await readMeta()).toMatchObject({ version: String(target + 1) });
+          expect(
+            (
+              await client.query(
+                `SELECT last_value, is_called FROM "${namespace}".audit_events_sequence_seq`,
+              )
+            ).rows,
+          ).toEqual([{ last_value: "72", is_called: true }]);
+          if (foreignWrite) {
+            await client.query(
+              `UPDATE "${namespace}".config_machine_state SET value_json = '"foreign"' WHERE state_key = 'doctor.fixture'`,
+            );
+          }
+          // The installed driver's descriptor has no knowledge of the candidate's schema.
+          Object.assign(stateEngineSchema, installed);
+          await lock!.run(() => capture.settle());
+          expect(warnings).toEqual([]);
+          expect(capture.receipt?.unchanged).toBe(!foreignWrite);
+          const step = {
+            name: "candidate Doctor",
+            command: "doctor --fix",
+            cwd: env.OPENCLAW_STATE_DIR!,
+            durationMs: 0,
+            exitCode: 0,
+          };
+          recordUpdateDatabaseWrites(saved, capture.receipt, step);
+          expect(saved.restoreRefusal !== undefined).toBe(foreignWrite);
+          if (!foreignWrite) {
+            expect(saved.migration?.to).toEqual(capture.receipt?.generations);
+          }
+        } finally {
+          Object.assign(stateEngineSchema, installed);
+          closeOpenClawStateDatabaseForTest();
+          await lock!.release();
+        }
+        const result = await restoreUpdateDatabaseBackup({
+          backup: saved!,
+          runId: `doctor-schema-roundtrip-${foreignWrite}`,
+          env: updateEnv,
+          assertCurrent() {},
+          expectedGenerations: saved!.migration?.to ?? saved!.sourceGenerations,
+        });
+        if (foreignWrite) {
+          expect(result).toBeNull();
+          expect(await readRows()).toEqual([{ value_json: '"foreign"' }]);
+          return;
+        }
+        expect(result).not.toBeNull();
+        const restored = readBackupEngine(pathname);
+        expect(restored.engine).toBe("postgres");
+        if (restored.engine !== "postgres") {
+          throw new Error("Rollback did not retain its PostgreSQL anchor");
+        }
+        namespaces.add(restored.namespace);
+        namespace = restored.namespace;
+        expect(await readRows()).toEqual([{ value_json: '"before"' }]);
+        expect(await readMeta()).toEqual({
+          version: String(target),
+          fingerprint: targetFingerprint,
+        });
+        expect(
+          (
+            await client.query(
+              `SELECT last_value, is_called FROM "${namespace}".audit_events_sequence_seq`,
+            )
+          ).rows,
+        ).toEqual([{ last_value: "71", is_called: true }]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 });
