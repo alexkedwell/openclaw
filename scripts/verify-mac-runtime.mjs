@@ -140,16 +140,17 @@ try {
     `Bundled CLI version mismatch: ${version}`,
   );
   launch(["gateway", "--help"]);
-  // Doctor's own process must select the bundled extension-capable SQLite.
-  const doctor = stripVTControlCharacters(launch(["doctor", "--non-interactive"]))
-    .split("\n")
-    .map((line) => line.replace(/^[\s│┃]+|[\s│┃]+$/gu, ""))
-    .join(" ");
-  const doctorSelection =
-    /SQLite \(doctor process\): (.+?) \(([^)]+), extension loading enabled\)/u.exec(doctor);
+  // Normalize panel wrapping before checking Doctor's own extension-capable SQLite.
+  const doctor = stripVTControlCharacters(launch(["doctor", "--non-interactive"])).replaceAll(
+    /[│┃\s]/gu,
+    "",
+  );
+  const doctorSelection = /SQLite\(doctorprocess\):(.+?)\(([^)]+),extensionloadingenabled\)/u.exec(
+    doctor,
+  );
   assert.equal(
     doctorSelection?.[1],
-    sqliteLibrary,
+    sqliteLibrary.replaceAll(/\s/gu, ""),
     "Doctor SQLite did not select the bundled library",
   );
   // --index selects the writable CLI owner so an empty profile gets an index.

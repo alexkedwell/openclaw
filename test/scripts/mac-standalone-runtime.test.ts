@@ -397,8 +397,10 @@ int main(int argc, char **argv) {
     if (getenv("OPENCLAW_SQLITE_LIBRARY")) { fputs("unexpected SQLite override", stderr); return 92; }
     char sqlite[PATH_MAX];
     snprintf(sqlite, sizeof(sqlite), "%s/runtime/lib/libsqlite3.dylib", root);
-    printf("SQLite (doctor process): %s (3.53.0, extension loading enabled)\\n",
-      !strcmp(mode, "wrong-sqlite") ? "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib" : sqlite);
+    const char *selected = !strcmp(mode, "wrong-sqlite") ? "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib" : sqlite;
+    int split = strlen(selected) / 2;
+    printf("│ SQLite (doctor process):\\n│ %.*s\\n│ %s (3.53.0, extension loading enabled)\\n",
+      split, selected, selected + split);
     return 0;
   }
   if (argc > 1 && !strcmp(argv[1], "memory")) {

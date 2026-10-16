@@ -313,20 +313,18 @@ describe("maybeRepairGatewayDaemon", () => {
     await runScheduledGatewayRepairAndExpectVerificationSkipped("Restart gateway service now?");
   });
 
-  it("reports SQLite for isolated state without touching host services", async () => {
-    const paths = await vi.importActual<typeof import("../config/paths.js")>("../config/paths.js");
+  it("skips every service-manager seam for a non-default install identity", async () => {
     await withEnvAsync(
       {
         OPENCLAW_STATE_DIR: "/tmp/openclaw-copied-state",
         OPENCLAW_CONFIG_PATH: "/tmp/openclaw-copied-state/openclaw.json",
       },
       async () => {
-        isDefaultInstallIdentity.mockImplementation(paths.isDefaultInstallIdentity);
+        isDefaultInstallIdentity.mockReturnValue(false);
         await runNonInteractiveRepair();
       },
     );
 
-    expect(note).toHaveBeenCalledWith(doctorSqliteDiagnostic, "SQLite");
     expect(service.isLoaded).not.toHaveBeenCalled();
     expect(service.readRuntime).not.toHaveBeenCalled();
     expect(service.readCommand).not.toHaveBeenCalled();
@@ -482,6 +480,7 @@ describe("maybeRepairGatewayDaemon", () => {
       });
 
       if (unsupportedReason) {
+        expect(note).toHaveBeenCalledTimes(1);
         expect(note).toHaveBeenCalledWith(unsupportedReason, "Gateway");
       } else {
         expect(renderSystemdUnavailableHints).toHaveBeenCalledWith({
@@ -532,7 +531,7 @@ describe("maybeRepairGatewayDaemon", () => {
     expect(service.isLoaded).not.toHaveBeenCalled();
     expect(service.readCommand).not.toHaveBeenCalled();
     expect(prompter.confirmRuntimeRepair).not.toHaveBeenCalled();
-    expect(note).toHaveBeenCalledExactlyOnceWith(doctorSqliteDiagnostic, "SQLite");
+    expect(note).not.toHaveBeenCalled();
   });
 
   it("does not start loaded services with unknown runtime when health was skipped", async () => {
