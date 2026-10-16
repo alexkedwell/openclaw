@@ -21,7 +21,7 @@ const host = "engineering.ghe.com";
 const apiBaseUrl = "https://api.engineering.ghe.com";
 function selection(): GitHubAppSelection {
   return {
-    profileId: "ghp_6128c113c0df8c1a366dfe690c062d8e",
+    profileId: "ghp_00000000000000000000000000000001",
     kind: "app-installation",
     app: {
       appId: 101,
