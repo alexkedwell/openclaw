@@ -241,7 +241,7 @@ export async function runInteractionLatencyScenario(
     });
     await page.keyboard.press("Escape");
     for (const key of [input.otherSessionKey, input.selectedSessionKey]) {
-      const sessionId = await page.evaluate(
+      const expectedSessionId = await page.evaluate(
         (sessionKey) =>
           Reflect.get(window, "openclawControlUiE2eGateway").getSessionRow(sessionKey).sessionId,
         key,
@@ -258,7 +258,7 @@ export async function runInteractionLatencyScenario(
               Reflect.get(pane, "transcriptReady")
             );
           },
-          { sessionKey: key, sessionId },
+          { sessionKey: key, sessionId: expectedSessionId },
         );
         await composer.waitFor();
       });
