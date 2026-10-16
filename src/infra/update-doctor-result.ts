@@ -150,17 +150,9 @@ export function collectUpdateDoctorFailureFacts(error: unknown): UpdateFailureFa
 
 /** Keep optional health diagnostics bounded across Doctor and its update parent. */
 export function normalizeUpdatePostInstallDoctorWarnings(warnings: readonly string[]): string[] {
-  const normalized: string[] = [];
-  for (const warning of warnings) {
-    const message = truncateUtf16Safe(warning.trim(), 500);
-    if (message) {
-      normalized.push(message);
-      if (normalized.length === 32) {
-        break;
-      }
-    }
-  }
-  return normalized;
+  return [
+    ...new Set(warnings.map((warning) => truncateUtf16Safe(warning.trim(), 500)).filter(Boolean)),
+  ].slice(0, 32);
 }
 
 export type DoctorConfigCapture = {
@@ -178,6 +170,7 @@ export type UpdateDoctorWriteAuthority = {
   commandAuthority?: import("./update-managed-command-custody.js").ManagedCommandProcessAuthority;
   postCoreSchemaRepair?: { runId: string; assertCurrent: () => void };
   databaseGenerations?: UpdateDatabaseGenerations;
+  databasePluginOwners?: import("./database-engine/port-descriptor.js").DatabasePortPluginOwners;
   originalRecoveryCapture?: {
     runId: string;
     installRoot: string;
@@ -194,6 +187,7 @@ export function createUpdateDoctorDatabaseWriteCapture(
     signal: AbortSignal;
     assertCurrent?: () => void;
     warn: (message: string) => void;
+    pluginOwners?: import("./database-engine/port-descriptor.js").DatabasePortPluginOwners;
   },
 ) {
   if (!input) {

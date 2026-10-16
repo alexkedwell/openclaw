@@ -1,8 +1,9 @@
 /* @vitest-environment jsdom */
 
+import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../../test/helpers/promise.js";
-import { ImageLightboxGalleryController } from "../../../components/image-lightbox-gallery.ts";
+import { createImageLightboxGallery } from "../../../components/image-lightbox-gallery.ts";
 import type { ImageLightboxItem } from "../../../components/image-lightbox.types.ts";
 import { cleanupSolid } from "../../../test-helpers/mount-solid.ts";
 import { mountSolid } from "../../../test-helpers/solid-render.tsx";
@@ -23,6 +24,9 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   onRequestUpdate = vi.fn();
+  vi.stubGlobal("devicePixelRatio", 1);
+  vi.stubGlobal("innerWidth", 390);
+  vi.stubGlobal("innerHeight", 844);
   imageView = undefined;
 });
 
@@ -67,17 +71,26 @@ function imageResponse() {
 }
 
 function createGallery() {
-  const controller = new ImageLightboxGalleryController(vi.fn());
+  let controller: ReturnType<typeof createImageLightboxGallery>;
+  let close = () => {};
   let opened: ImageLightboxItem | undefined;
   return {
-    controller,
+    get controller() {
+      return controller;
+    },
+    close: () => close(),
     onOpenImage: vi.fn((item: ImageLightboxItem) => {
       opened?.release?.();
       opened = item;
+      close();
+      controller = createRoot((dispose) => {
+        close = dispose;
+        return createImageLightboxGallery();
+      });
       controller.reset(item.gallery, item);
     }),
     dispose: () => {
-      controller.dispose();
+      close();
       opened?.release?.();
     },
   };
@@ -144,7 +157,10 @@ describe("message image gallery loading", () => {
     const expectedSrc = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source)}&mediaTicket=ticket-inbound&${new URLSearchParams({ filename })}`;
     expect(
       container.querySelector<HTMLImageElement>(".chat-message-image")?.getAttribute("src"),
-    ).toBe(`${expectedSrc}&variant=thumbnail`);
+    ).toBe(`${expectedSrc}&variant=thumbnail&width=480&v=4`);
+    expect(container.querySelector(".chat-message-image")?.getAttribute("srcset")).toBe(
+      `${expectedSrc}&variant=thumbnail&width=480&v=4 1x, ${expectedSrc}&variant=thumbnail&width=960&v=4 2x`,
+    );
     const tile = container.querySelector<HTMLButtonElement>(".chat-message-image-button");
     expect(tile).not.toBeNull();
     expect(tile?.getAttribute("aria-label")).toBe(`Open image ${filename}`);
@@ -153,13 +169,55 @@ describe("message image gallery loading", () => {
     await opened.promise;
     expect(onOpenImage).toHaveBeenCalledWith(
       expect.objectContaining({
-        src: new URL(expectedSrc, window.location.href).href,
+        src: new URL(`${expectedSrc}&variant=thumbnail&width=480&v=4`, window.location.href).href,
         title: filename,
       }),
     );
   });
 
-  it("opens the cached preview immediately, upgrades after decoding, and reuses the full image", async () => {
+  it.each(["png", "gif"] as const)(
+    "keeps legacy local %s images on one native source without an upgrade",
+    async (extension) => {
+      const source = "/workspace/legacy-" + crypto.randomUUID() + "." + extension;
+      const fetchMetadata = vi.fn(async () =>
+        Response.json({
+          available: true,
+          mediaTicket: "legacy-ticket",
+          mediaTicketExpiresAt: new Date(Date.now() + 300_000).toISOString(),
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMetadata);
+      const ready = createDeferred();
+      const observer = new MutationObserver(() => {
+        if (container.querySelector(".chat-message-image")) {
+          ready.resolve();
+        }
+      });
+      observer.observe(container, { childList: true, subtree: true });
+      const onOpenImage = vi.fn<(item: ImageLightboxItem) => void>();
+      try {
+        renderImages([{ url: source, mimeType: "image/" + extension }], {
+          onOpenImage,
+          onRequestUpdate,
+        });
+        await ready.promise;
+        const image = container.querySelector<HTMLImageElement>("img")!;
+        const url = new URL(image.src);
+        expect(url.searchParams.get("source")).toBe(source);
+        expect(url.searchParams.has("variant")).toBe(false);
+        expect(url.searchParams.has("width")).toBe(false);
+        expect(image.getAttribute("srcset")).toBeNull();
+        container.querySelector<HTMLButtonElement>(".chat-message-image-button")!.click();
+        expect(onOpenImage).toHaveBeenCalledOnce();
+        expect(onOpenImage.mock.calls[0]![0].loadDisplayImage).toBeUndefined();
+        expect(fetchMetadata).toHaveBeenCalledOnce();
+      } finally {
+        observer.disconnect();
+      }
+    },
+  );
+
+  it("opens the cached preview immediately, upgrades a bounded rendition after decoding, and reuses it", async () => {
     const source = `/api/chat/media/outgoing/agent%3Amain%3Amain/${crypto.randomUUID()}/full`;
     const full = createDeferred<Response>();
     const decoded = createDeferred();
@@ -167,10 +225,11 @@ describe("message image gallery loading", () => {
     const blobPrefix = `blob:progressive-${crypto.randomUUID()}`;
     stubImageDecoding(blobPrefix, decode);
     const fetch = vi.fn((url: string) =>
-      url === source ? full.promise : Promise.resolve(imageResponse()),
+      url.includes("width=960") ? full.promise : Promise.resolve(imageResponse()),
     );
     vi.stubGlobal("fetch", fetch);
-    const { controller, onOpenImage, dispose } = createGallery();
+    const gallery = createGallery();
+    const { onOpenImage, dispose } = gallery;
     try {
       renderImages([{ url: source, alt: "Detailed screenshot" }], {
         onOpenImage,
@@ -181,19 +240,26 @@ describe("message image gallery loading", () => {
       tile.click();
 
       expect(onOpenImage).toHaveBeenCalledOnce();
-      expect(controller.current?.src).toBe(`${blobPrefix}-0`);
+      expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-0`);
       full.resolve(imageResponse());
       await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
-      expect(controller.current?.src).toBe(`${blobPrefix}-0`);
+      expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-0`);
       decoded.resolve();
-      await vi.waitFor(() => expect(controller.current?.src).toBe(`${blobPrefix}-1`));
+      await vi.waitFor(() =>
+        expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-1`),
+      );
 
-      controller.dispose();
+      gallery.close();
       tile.click();
       expect(onOpenImage).toHaveBeenCalledTimes(2);
-      expect(controller.current?.src).toBe(`${blobPrefix}-0`);
-      await vi.waitFor(() => expect(controller.current?.src).toBe(`${blobPrefix}-1`));
-      expect(fetch.mock.calls.filter(([url]) => url === source)).toHaveLength(1);
+      expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-0`);
+      await vi.waitFor(() =>
+        expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-1`),
+      );
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        source.replace(/\/full$/u, "/thumbnail?v=4&width=480"),
+        source.replace(/\/full$/u, "/thumbnail?v=4&width=960"),
+      ]);
     } finally {
       full.resolve(new Response(null, { status: 503 }));
       decoded.resolve();
@@ -201,7 +267,7 @@ describe("message image gallery loading", () => {
     }
   });
 
-  it("keeps the preview when reopening an original the browser cannot decode", async () => {
+  it("keeps the preview when reopening a rendition the browser cannot decode", async () => {
     const source = `/api/chat/media/outgoing/agent%3Amain%3Amain/${crypto.randomUUID()}/full`;
     const blobPrefix = `blob:unsupported-${crypto.randomUUID()}`;
     const decode = vi.fn(async () => {
@@ -210,7 +276,8 @@ describe("message image gallery loading", () => {
     stubImageDecoding(blobPrefix, decode);
     const fetch = vi.fn(async (_url: string) => imageResponse());
     vi.stubGlobal("fetch", fetch);
-    const { controller, onOpenImage, dispose } = createGallery();
+    const gallery = createGallery();
+    const { onOpenImage, dispose } = gallery;
     try {
       renderImages([{ url: source, alt: "Original in unsupported format" }], {
         onOpenImage,
@@ -220,86 +287,72 @@ describe("message image gallery loading", () => {
       const tile = container.querySelector<HTMLButtonElement>(".chat-message-image-button")!;
       tile.click();
       await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
-      expect(controller.current?.src).toBe(`${blobPrefix}-0`);
+      expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-0`);
 
-      controller.dispose();
+      gallery.close();
       tile.click();
-      expect(controller.current?.src).toBe(`${blobPrefix}-0`);
+      expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-0`);
       await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(2));
-      expect(controller.current?.src).toBe(`${blobPrefix}-0`);
-      expect(fetch.mock.calls.filter(([url]) => url === source)).toHaveLength(1);
+      expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-0`);
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        source.replace(/\/full$/u, "/thumbnail?v=4&width=480"),
+        source.replace(/\/full$/u, "/thumbnail?v=4&width=960"),
+      ]);
     } finally {
       dispose();
     }
   });
 
   it.each(["navigation", "tile"] as const)(
-    "retries exhausted managed neighbors on %s without polling when reopened",
+    "does not prefetch neighbors and retries a failed selected rendition via %s",
     async (action) => {
       vi.useFakeTimers();
       const source = `/api/chat/media/outgoing/agent%3Amain%3Amain/${crypto.randomUUID()}/full`;
       const blobPrefix = `blob:gallery-${crypto.randomUUID()}`;
       stubImageDecoding(blobPrefix, async () => {});
-      const fetchFull = vi.fn(async () => new Response(null, { status: 503 }));
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (url: string) => (url === source ? fetchFull() : imageResponse())),
+      const fetchDisplay = vi.fn(async () => new Response(null, { status: 503 }));
+      const fetch = vi.fn(async (url: string) =>
+        url.includes("width=960") ? fetchDisplay() : imageResponse(),
       );
-      const controller = new ImageLightboxGalleryController(vi.fn());
-      const onOpenImage = vi.fn((item: ImageLightboxItem) => controller.reset(item.gallery, item));
+      vi.stubGlobal("fetch", fetch);
+      const gallery = createGallery();
+      const { onOpenImage, dispose } = gallery;
       try {
-        const draw = () =>
-          renderImages(
-            [
-              { url: "data:image/png;base64,cG5n", alt: "First image" },
-              { url: source, alt: "Managed neighbor", fileName: "neighbor.png" },
-            ],
-            { onOpenImage, onRequestUpdate },
-          );
-        draw();
-        const firstTile = container.querySelector<HTMLButtonElement>(".chat-message-image-button")!;
-        firstTile.click();
+        renderImages(
+          [
+            { url: "data:image/png;base64,cG5n", alt: "First image" },
+            { url: source, alt: "Managed neighbor", fileName: "neighbor.png" },
+          ],
+          { onOpenImage, onRequestUpdate },
+        );
         await vi.advanceTimersByTimeAsync(0);
-        expect(fetchFull).toHaveBeenCalledOnce();
-        expect(controller.current?.title).toBe("First image");
-        expect(controller.failed).toBe(false);
-
-        // The lifecycle permits one more speculative attempt after its retry window.
-        await vi.advanceTimersByTimeAsync(5_000);
-        firstTile.click();
+        const tiles = container.querySelectorAll<HTMLButtonElement>(".chat-message-image-button");
+        tiles[0]!.click();
         await vi.advanceTimersByTimeAsync(0);
-        expect(fetchFull).toHaveBeenCalledTimes(2);
-
-        fetchFull.mockImplementation(async () => imageResponse());
-        await vi.advanceTimersByTimeAsync(10_000);
-        firstTile.click();
-        await vi.advanceTimersByTimeAsync(0);
-        expect(fetchFull).toHaveBeenCalledTimes(2);
-        expect(controller.current?.title).toBe("First image");
-        expect(controller.failed).toBe(false);
-
+        expect(fetchDisplay).not.toHaveBeenCalled();
+        expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+          source.replace(/\/full$/u, "/thumbnail?v=4&width=480"),
+        ]);
+        expect(await gallery.controller.move(1)).toBe(false);
+        expect(fetchDisplay).toHaveBeenCalledOnce();
+        expect(gallery.controller.peek().current?.title).toBe("First image");
+        expect(gallery.controller.peek().failed).toBe(true);
+        fetchDisplay.mockImplementation(async () => imageResponse());
         if (action === "navigation") {
-          expect(await controller.move(1)).toBe(true);
+          expect(await gallery.controller.move(1)).toBe(true);
         } else {
-          controller.dispose();
-          draw();
-          const tiles = container.querySelectorAll<HTMLButtonElement>(".chat-message-image-button");
-          expect(tiles).toHaveLength(2);
-          onOpenImage.mockClear();
           tiles[1]!.click();
           await vi.advanceTimersByTimeAsync(0);
-          expect(onOpenImage).toHaveBeenCalledOnce();
+          expect(onOpenImage).toHaveBeenCalledTimes(2);
         }
-        expect(fetchFull).toHaveBeenCalledTimes(3);
-        expect(controller.index).toBe(1);
-        expect(controller.current).toMatchObject({
-          title: "Managed neighbor",
-          src: `${blobPrefix}-1`,
-        });
-        expect(controller.failed).toBe(false);
+        expect(fetchDisplay).toHaveBeenCalledTimes(2);
+        expect(gallery.controller.peek().index).toBe(1);
+        expect(gallery.controller.peek().current?.title).toBe("Managed neighbor");
+        expect(gallery.controller.peek().current?.src).toBe(`${blobPrefix}-1`);
+        expect(gallery.controller.peek().failed).toBe(false);
+        expect(fetch.mock.calls.every(([url]) => url.includes("/thumbnail?v=4&width="))).toBe(true);
       } finally {
-        onOpenImage.mock.calls.at(-1)?.[0].release?.();
-        controller.dispose();
+        dispose();
       }
     },
   );
@@ -331,10 +384,7 @@ describe("message image gallery loading", () => {
         settled(item);
         return item;
       });
-      // Cross a task boundary while the metadata response remains explicitly held.
-      await new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
+      await Promise.resolve();
       expect(settled).not.toHaveBeenCalled();
       expect(fetchMetadata).toHaveBeenCalledOnce();
 

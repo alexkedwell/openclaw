@@ -156,6 +156,9 @@ copy does not replace an earlier update's originals. Standalone `doctor --fix`
 snapshots databases under its own maintenance custody with a single isolated backup worker.
 Shared database families larger than 64 MiB keep discovery copies in an isolated process
 so a slow copy does not block Doctor's main thread from processing cancellation.
+Official image activation keeps one such copy per container: after a capture
+succeeds, later starts of the same container skip the repeated full copy, keep
+that copy, and still retire other expired Doctor captures.
 Standalone Doctor captures are retained for 30 days: the next standalone `doctor --fix`
 retires older sealed Doctor captures and reports each removal; incomplete captures
 and update captures are never retired automatically, so take a verified backup
@@ -490,9 +493,13 @@ named work through its owning terminal or service, then retry; do not delete the
 lease database. Repair retains unreadable helper paths in its census instead of
 assuming their work has stopped.
 
-On Windows, identifying foreign process owners can require Administrator privileges.
-If repair requests elevation, use the same Windows account and preserve the failed
-update's profile and state overrides. Unknown ownership remains unverified.
+On Windows, run repair as the same Windows account that started the update and
+preserve its profile and state overrides. New handoffs record the launching account's
+SID in update history. When that SID matches, processes that deny access entirely cannot be children
+of the handoff, which never elevates its children; unrelated protected processes
+do not block repair. Positive process ancestry or retained-artifact references
+still block repair. Older handoffs without a recorded SID, or repair from a different
+or unverified account, retain the conservative refusal for unreadable processes.
 
 When no rollback step is recorded, repair uses ordinary current-installation
 finalization and records a handoff settlement in update history before releasing
@@ -875,6 +882,10 @@ plugins, or creating state.
 Candidate bytes still require identity verification; historical artifacts are
 listed separately as requiring verification. Protected and blocked artifacts
 include reason codes.
+Missing originals referenced by recovery manifests appear only as one aggregate
+count, without contributing recorded sizes to byte totals. Their recovery
+receipts remain available to Doctor. Interrupted disposal still appears so
+cleanup can finish it.
 
 Before applying, stop the Gateway for that same profile/state directory and wait
 for other SQLite maintenance commands to finish. Stop database readers too,
@@ -956,7 +967,7 @@ Retiring a capture deletes its whole directory, including any `candidate` and
 the rest of cleanup. An interrupted removal leaves the remainder attributed to the
 same run, so rerunning cleanup finishes it.
 
-The JSON result contains `stateDir`, `status`, `artifacts`, and `totals`. Each
+The JSON result contains `stateDir`, `status`, `artifacts`, `missingOriginals`, and `totals`. Each
 artifact reports its path, run ids, logical bytes, outcome, and reason; update
 captures also carry `kind: "update-capture"`. Totals separate candidates,
 verification-required, protected, blocked, and removed bytes, including update
@@ -964,8 +975,8 @@ captures. Removal failures exit nonzero. Keep the recovery manifests and rerun
 cleanup to finish recorded interrupted work; a retry does not delete a recreated
 file. Removed logical bytes do not promise
 equivalent physical space reclamation on cloned or snapshotted filesystems.
-When a path cannot be inspected, its logical size comes from recorded artifact
-metadata when available. Cleanup records durable intent before removal and uses
+Only present files contribute logical bytes; absent originals and disposal
+claims contribute zero. Cleanup records durable intent before removal and uses
 exclusive no-copy publication. Failures are reported; retries reconcile file
 operations that already completed. Manifest files are synchronized before removal;
 parent directories are synchronized where supported. Windows does not provide the
