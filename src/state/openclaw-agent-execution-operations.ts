@@ -358,6 +358,11 @@ export async function loadAgentCompoundOperations() {
   } satisfies Handlers;
 }
 
+export async function loadAgentEntryDeletionOperations() {
+  const deletion = await import("../config/sessions/session-entry-deletion.worker.js");
+  return { "session.lifecycle.delete": deletion.deleteSessionEntry } satisfies Handlers;
+}
+
 export async function loadAgentPurgeOperations() {
   const purge = await import("../config/sessions/session-agent-purge.worker.js");
   return {
@@ -683,6 +688,7 @@ export type RegisteredAgentWorkerOperations = WorkerOperations<
     Awaited<ReturnType<typeof loadAgentEntryReadOperations>> &
     Awaited<ReturnType<typeof loadAgentEntryPatchOperations>> &
     Awaited<ReturnType<typeof loadAgentCompoundOperations>> &
+    Awaited<ReturnType<typeof loadAgentEntryDeletionOperations>> &
     Awaited<ReturnType<typeof loadAgentPurgeOperations>> &
     Awaited<ReturnType<typeof loadAgentMaintenanceFinalizationOperations>> &
     Awaited<ReturnType<typeof loadAgentNativeBindingOperations>> &
