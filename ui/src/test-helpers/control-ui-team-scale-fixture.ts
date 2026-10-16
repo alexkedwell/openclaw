@@ -67,6 +67,16 @@ function widgetHtml(index: number) {
 <progress value="${60 + index}" max="100"></progress><p>All fixture systems are available.</p></body></html>`;
 }
 
+// Boot data and live replay require independent run snapshots.
+function createLiveRunSnapshot(startedAt: number) {
+  return {
+    runId: TEAM_SCALE_LIVE_RUN_ID,
+    text: "Synthetic streaming progress 0",
+    startedAt,
+    events: [],
+  };
+}
+
 /** One deterministic inventory shared by browser benchmarks and focused UI proofs. */
 export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
   const counts = TEAM_SCALE_COUNTS;
@@ -416,16 +426,7 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
         ]),
       ),
     },
-    ...(options.liveRun
-      ? {
-          inFlightRun: {
-            runId: TEAM_SCALE_LIVE_RUN_ID,
-            text: "Synthetic streaming progress 0",
-            startedAt: now,
-            events: [],
-          },
-        }
-      : {}),
+    ...(options.liveRun ? { inFlightRun: createLiveRunSnapshot(now) } : {}),
     featureMethods: [
       ...defaultControlUiFeatureMethods,
       "sessions.list",
@@ -721,12 +722,7 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
           sessionId: pinnedRows[0]!.sessionId,
           sessionInfo: pinnedRows[0]!,
           messages: historyMessages,
-          inFlightRun: {
-            runId: TEAM_SCALE_LIVE_RUN_ID,
-            text: "Synthetic streaming progress 0",
-            startedAt: now,
-            events: [],
-          },
+          inFlightRun: createLiveRunSnapshot(now),
         }
       : undefined,
     counts,
