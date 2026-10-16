@@ -1510,7 +1510,7 @@ extension AppStateIsolationTests {
                 let earlier = GatewayLaunchAgentManager.testingResolvedDaemonCommandsSnapshot().dropLast()
                 if args.contains("--runtime-intent-only"),
                    earlier.last?.contains("--no-probe") == true,
-                   earlier.contains(where: { Array($0.prefix(2)) == installer.cliCommand })
+                   earlier.contains(where: { $0.starts(with: installer.cliCommand) })
                 {
                     // The final custody read still sees the admitted pin; the daemon rejects
                     // the operator repin at the installation boundary immediately afterward.
