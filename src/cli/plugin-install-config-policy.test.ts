@@ -16,7 +16,8 @@ const fixture = vi.hoisted(() => ({
   entries: [] as OfficialExternalPluginCatalogEntry[],
 }));
 
-vi.mock("../plugins/bundled-sources.js", () => ({
+vi.mock("../plugins/bundled-sources.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/bundled-sources.js")>()),
   findBundledPluginSource: ({ lookup }: { lookup: { kind: string; value: string } }) =>
     lookup.kind === "pluginId" && lookup.value === "bundled-demo"
       ? { pluginId: "bundled-demo", localPath: fixture.bundledPath }
