@@ -626,7 +626,6 @@ describe("Gateway owner lease", () => {
       stop: async () => {
         throw new Error("heartbeat cleanup retained native custody");
       },
-      assertResponsive: () => undefined,
     }));
     try {
       await expect(

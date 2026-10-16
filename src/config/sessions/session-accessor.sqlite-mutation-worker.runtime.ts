@@ -101,16 +101,21 @@ export async function runColdMutationWorkerPort(
     request.coordination,
     data.plan.databaseOptions,
     (databaseOptions) =>
-      runColdMutationWorker(port, {
-        ...data,
-        plan: { ...data.plan, databaseOptions },
-      }),
+      runColdMutationWorker(
+        port,
+        { ...data, plan: { ...data.plan, databaseOptions } },
+        request.coordination.opening,
+      ),
   );
   port.postMessage(response);
   port.close();
 }
 
-async function runColdMutationWorker(port: MessagePort, data: SessionColdWorkerData) {
+async function runColdMutationWorker(
+  port: MessagePort,
+  data: SessionColdWorkerData,
+  opening?: SqliteMutationWorkerCoordination["opening"],
+) {
   const { mutateSessionColdTranscriptInWorker, prepareSessionColdRestoreInWorker } =
     await import("./session-cold-storage-worker.js");
   // Restore materialization must finish before requesting any write admission.
@@ -179,6 +184,8 @@ async function runColdMutationWorker(port: MessagePort, data: SessionColdWorkerD
           }
         }
       },
+      undefined,
+      opening,
     );
   } catch (error) {
     const cleanup = settleReclamationDatabase(data.plan.databaseOptions.path);
@@ -417,6 +424,7 @@ export async function runReclamationWorkerPort(
                 }
               },
               assertExpectedSource,
+              request.coordination.opening,
             );
             return {
               type: "reclaimed",

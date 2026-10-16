@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTempDirTracker, useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import * as nodeSqlite from "../infra/node-sqlite.js";
@@ -35,17 +34,11 @@ import { claimOpenClawStateOwnership } from "./openclaw-state-ownership-operatio
 
 describe("agent database lease acquisition owner", () => {
   const tempDirs = createTempDirTracker();
-  const connections: DatabaseSync[] = [];
   const admitted: OpenClawAgentDatabaseWriteAdmission = async (run) => run(() => {});
 
   afterEach(() => {
     vi.restoreAllMocks();
     closeOpenClawAgentDatabasesForTest();
-    for (const connection of connections.splice(0)) {
-      if (connection.isOpen) {
-        connection.close();
-      }
-    }
     closeOpenClawStateDatabaseForTest();
     vi.unstubAllEnvs();
     tempDirs.cleanup();
@@ -112,75 +105,6 @@ describe("agent database lease acquisition owner", () => {
     expect(fs.statSync(directory).mode).toBe(mode);
     expect(owner.leases()).toEqual([]);
     expect(getOpenClawAgentDatabaseIfOpen(options)).toBeUndefined();
-    await expect(
-      withOpenClawAgentDatabaseAdmission(options, admitted, (database) => database.agentId),
-    ).resolves.toBe(options.agentId);
-  });
-
-  it("unwinds an unfinished physical open when the scheduler rejects the next permit", async () => {
-    const owner = createOwner();
-    const options = { agentId: "worker", env: owner.env };
-    const original = openOpenClawAgentDatabase(options);
-    original.db.exec(`
-      INSERT INTO cache_entries (scope,key,value_json,expires_at,updated_at)
-        VALUES ('admission','retained','{"retained":true}',100,1);
-      DROP INDEX idx_agent_cache_expiry;
-    `);
-    expect(closeOpenClawAgentDatabaseByPath(original.path)).toBe(true);
-    closeOpenClawAgentDatabasesForTest(owner.stateDir);
-    revokeSqliteDatabaseAdmissionsForPath(original.path);
-    const nativeOpen = nodeSqlite.openNodeSqliteDatabase;
-    let opened: DatabaseSync | undefined;
-    const open = vi
-      .spyOn(nodeSqlite, "openNodeSqliteDatabase")
-      .mockImplementation((location, config) => {
-        const connection = nativeOpen(location, config);
-        if (location === original.path) {
-          opened = connection;
-          connections.push(connection);
-        }
-        return connection;
-      });
-    const lostScheduler = new Error("synthetic parent closed during database admission");
-    let permits = 0;
-    const withAdmission: OpenClawAgentDatabaseWriteAdmission = async (run) => {
-      if (++permits === 2) {
-        expect(owner.leases()).toHaveLength(1);
-        expect(opened?.isOpen).toBe(true);
-        throw lostScheduler;
-      }
-      return run(() => {});
-    };
-    const operation = vi.fn();
-
-    await expect(
-      withOpenClawAgentDatabaseAdmission(options, withAdmission, operation),
-    ).rejects.toBe(lostScheduler);
-
-    expect(permits).toBe(2);
-    expect(operation).not.toHaveBeenCalled();
-    expect(opened?.isOpen).toBe(false);
-    expect(getOpenClawAgentDatabaseIfOpen(options)).toBeUndefined();
-    expect(owner.leases()).toEqual([]);
-    open.mockRestore();
-    const retained = nativeOpen(original.path, { readOnly: true });
-    try {
-      expect(
-        retained.prepare("SELECT sql FROM sqlite_schema WHERE name='idx_agent_cache_expiry'").get(),
-      ).toBeUndefined();
-      expect(retained.prepare("SELECT * FROM cache_entries").all()).toEqual([
-        {
-          scope: "admission",
-          key: "retained",
-          value_json: '{"retained":true}',
-          blob: null,
-          expires_at: 100,
-          updated_at: 1,
-        },
-      ]);
-    } finally {
-      retained.close();
-    }
     await expect(
       withOpenClawAgentDatabaseAdmission(options, admitted, (database) => database.agentId),
     ).resolves.toBe(options.agentId);

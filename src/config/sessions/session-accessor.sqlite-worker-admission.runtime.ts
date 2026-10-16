@@ -1,6 +1,4 @@
-import { MessagePort } from "node:worker_threads";
-import { withSqliteWorkerOperationAdmissionAsync } from "../../infra/sqlite-worker-operation-admission.js";
-import type { OpenClawAgentDatabaseValidation } from "../../state/openclaw-agent-db-validation-cache.js";
+import type { MessagePort } from "node:worker_threads";
 import {
   withOpenClawAgentDatabaseAdmission,
   type OpenClawAgentDatabase,
@@ -8,6 +6,7 @@ import {
   type OpenClawAgentDatabaseWriteAdmission,
 } from "../../state/openclaw-agent-db.js";
 import { SqliteReclamationRequestRefusedError } from "./session-accessor.sqlite-reclamation-commit.js";
+import type { SqliteMutationWorkerCoordination } from "./session-accessor.sqlite-worker-coordination.js";
 
 export function withWorkerWriteAdmission<T>(
   port: MessagePort,
@@ -15,22 +14,16 @@ export function withWorkerWriteAdmission<T>(
   databaseOptions: OpenClawAgentDatabaseOptions,
   operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
   assertSourceCurrent?: () => void,
+  opening?: SqliteMutationWorkerCoordination["opening"],
 ): Promise<T> {
-  let finalAdmission = false;
   const withAdmission: OpenClawAgentDatabaseWriteAdmission = async (run) => {
     const admission = await new Promise<{
       allowed: boolean;
-      validation?: OpenClawAgentDatabaseValidation;
-      integrityRevoked?: boolean;
-      databaseAdmissionPort?: MessagePort;
     }>((resolve, reject) => {
       const receive = (admissionMessage: {
         type: string;
         operationId: number;
         allowed: boolean;
-        validation?: OpenClawAgentDatabaseValidation;
-        integrityRevoked?: boolean;
-        databaseAdmissionPort?: MessagePort;
       }) => {
         cleanup();
         resolve(admissionMessage);
@@ -50,39 +43,17 @@ export function withWorkerWriteAdmission<T>(
         operationId,
       });
     });
-    const invoke = () =>
-      run(
-        () => {
-          if (!admission.allowed) {
-            throw new SqliteReclamationRequestRefusedError(
-              "SQLite reclamation database admission was revoked",
-            );
-          }
-          assertSourceCurrent?.();
-        },
-        admission.validation,
-        admission.integrityRevoked,
-      );
-    const metadata = admission.databaseAdmissionPort;
-    const value = await (async () => {
-      try {
-        return metadata instanceof MessagePort
-          ? await withSqliteWorkerOperationAdmissionAsync({ port: metadata }, invoke)
-          : await invoke();
-      } finally {
-        metadata?.close();
+    return run(() => {
+      if (!admission.allowed) {
+        throw new SqliteReclamationRequestRefusedError(
+          "SQLite reclamation database admission was revoked",
+        );
       }
-    })();
-    if (!finalAdmission) {
-      port.postMessage({
-        type: "admission-release",
-        operationId,
-      });
-    }
-    return value;
+      assertSourceCurrent?.();
+    });
   };
-  return withOpenClawAgentDatabaseAdmission(databaseOptions, withAdmission, (database) => {
-    finalAdmission = true;
-    return operation(database);
+  return withOpenClawAgentDatabaseAdmission(databaseOptions, withAdmission, operation, {
+    ...opening,
+    assertCurrent: () => assertSourceCurrent?.(),
   });
 }

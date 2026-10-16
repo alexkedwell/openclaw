@@ -98,6 +98,18 @@ vi.mock("../infra/sqlite-integrity-worker.js", () => ({
 }));
 vi.mock("../infra/sqlite-integrity.js", () => ({
   runSqliteIntegrityCheckSync: vi.fn(),
+  // The native database is synthetic; drive admission without issuing SQLite pragmas.
+  runSqliteIntegrityOperationSync<T>(
+    operation: SqliteIntegrityOperation<T>,
+    beforeResume?: () => void,
+  ): T {
+    let step: IteratorResult<unknown, T>;
+    do {
+      beforeResume?.();
+      step = operation.next();
+    } while (!step.done);
+    return step.value;
+  },
 }));
 vi.mock("../infra/sqlite-wal-write-admission.js", () => ({
   registerDeferredSqliteWalWriteAdmission: vi.fn(),

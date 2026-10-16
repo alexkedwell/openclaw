@@ -9,9 +9,9 @@ import {
   registerOpenClawAgentDatabaseAsyncResource as registerKnown,
 } from "./openclaw-agent-db-lifecycle.js";
 import {
-  captureAgentDatabaseCloseFence,
   drainAgentDatabaseResources,
   hasOpenClawAgentDatabaseAsyncResources,
+  isAgentDatabaseClosing,
   registerOpenClawAgentDatabaseReadCandidateResource as registerCandidate,
   revokeAgentDatabaseResources,
 } from "./openclaw-agent-db-resources.js";
@@ -233,17 +233,11 @@ it.each(["known", "unresolved", "maintenance"] as const)(
       if (owner === "maintenance") {
         await expect(closing).rejects.toBe(failure);
       } else {
-        const fence = captureAgentDatabaseCloseFence(held);
-        expect(fence).toBeDefined();
-        const [result, observed] = await Promise.allSettled([closing, fence]);
-        expect(result).toMatchObject({
-          status: "rejected",
-          reason: { message: "Agent database resource drainage failed", errors: [failure] },
+        expect(isAgentDatabaseClosing(held)).toBe(true);
+        await expect(closing).rejects.toMatchObject({
+          message: "Agent database resource drainage failed",
+          errors: [failure],
         });
-        expect(observed.status).toBe("rejected");
-        if (result.status === "rejected" && observed.status === "rejected") {
-          expect(observed.reason).toBe(result.reason);
-        }
       }
       unregister();
       expect(hasOpenClawAgentDatabaseAsyncResources()).toBe(true);
@@ -368,22 +362,22 @@ it.each([
       await gate.promise;
     });
     const target = { agentId: "worker", path: selection.path ?? held.path };
-    const fence = captureAgentDatabaseCloseFence({
+    const closingTarget = isAgentDatabaseClosing({
       ...target,
       agentId: "WORKER",
       path: path.relative(process.cwd(), target.path),
     });
-    const otherPathFence = captureAgentDatabaseCloseFence({
+    const closingOtherPath = isAgentDatabaseClosing({
       ...target,
       path: path.join(`${root}-sibling`, "candidate.sqlite"),
     });
     try {
-      expect(fence).toBeDefined();
-      expect(captureAgentDatabaseCloseFence({ ...target, agentId: "other" })).toBeUndefined();
+      expect(closingTarget).toBe(true);
+      expect(isAgentDatabaseClosing({ ...target, agentId: "other" })).toBe(false);
       if (selection.path || "rootPath" in selection) {
-        expect(otherPathFence).toBeUndefined();
+        expect(closingOtherPath).toBe(false);
       } else {
-        expect(otherPathFence).toBeDefined();
+        expect(closingOtherPath).toBe(true);
       }
       await entered.promise;
       expect(() => registerCandidate(held)).toThrow("are closing");
@@ -391,23 +385,21 @@ it.each([
     } finally {
       gate.resolve();
       await closing;
-      await fence;
-      await otherPathFence;
     }
-    expect(captureAgentDatabaseCloseFence(target)).toBeUndefined();
+    expect(isAgentDatabaseClosing(target)).toBe(false);
     registerCandidate(held)();
   },
 );
 
 it.each(["complete", "native-failure"] as const)(
-  "captures full close completion through %s without following a successor",
+  "drains resources before native %s and restores admission",
   async (ending) => {
     const resourceGate = createDeferredCore();
     const nativeGate = createDeferredCore();
     const nativeEntered = createDeferredCore();
     const failure = new Error("native close failed");
     const held = resource("captured-close.sqlite", () => resourceGate.promise);
-    expect(captureAgentDatabaseCloseFence(held)).toBeUndefined();
+    expect(isAgentDatabaseClosing(held)).toBe(false);
     registerKnown(held);
     const closeNative = vi.fn(async () => {
       nativeEntered.resolve();
@@ -419,22 +411,16 @@ it.each(["complete", "native-failure"] as const)(
     });
     const selection = { agentId: held.agentId, path: held.path };
     const closing = drainAgentDatabaseResources(selection, closeNative);
-    const fence = captureAgentDatabaseCloseFence(held);
-    const outcomes = Promise.allSettled([closing, fence]);
-    let fenceSettled = false;
-    const settled = () => {
-      fenceSettled = true;
-    };
-    void fence?.then(settled, settled);
+    const outcomes = Promise.allSettled([closing]);
     try {
-      expect(fence).toBeDefined();
+      expect(isAgentDatabaseClosing(held)).toBe(true);
       expect(held.revoke).toHaveBeenCalledOnce();
       await Promise.resolve();
       expect(held.close).toHaveBeenCalledOnce();
       expect(closeNative).not.toHaveBeenCalled();
       resourceGate.resolve();
       await nativeEntered.promise;
-      expect(fenceSettled).toBe(false);
+      expect(isAgentDatabaseClosing(held)).toBe(true);
       expect(() => registerKnown(held)).toThrow("are closing");
     } finally {
       resourceGate.resolve();
@@ -443,37 +429,14 @@ it.each(["complete", "native-failure"] as const)(
     }
     expect(await outcomes).toEqual(
       ending === "complete"
-        ? [
-            { status: "fulfilled", value: "closed" },
-            { status: "fulfilled", value: undefined },
-          ]
-        : [
-            { status: "rejected", reason: failure },
-            { status: "rejected", reason: failure },
-          ],
+        ? [{ status: "fulfilled", value: "closed" }]
+        : [{ status: "rejected", reason: failure }],
     );
-    if (ending === "native-failure") {
-      await expect(fence).rejects.toBe(failure);
-    }
-    expect(captureAgentDatabaseCloseFence(held)).toBeUndefined();
+    expect(isAgentDatabaseClosing(held)).toBe(false);
     const successor = resource("captured-close.sqlite");
     registerKnown(successor);
-    await outcomes;
     expect(successor.revoke).not.toHaveBeenCalled();
     expect(successor.close).not.toHaveBeenCalled();
-    const successorGate = createDeferredCore();
-    let successorClosed = false;
-    const successorClosing = drainAgentDatabaseResources(selection, async () => {
-      await successorGate.promise;
-      successorClosed = true;
-    });
-    try {
-      await Promise.allSettled([fence]);
-      expect(successorClosed).toBe(false);
-    } finally {
-      successorGate.resolve();
-      await successorClosing;
-    }
   },
 );
 

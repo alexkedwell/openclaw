@@ -18,12 +18,10 @@ type Member = {
   closed: ReturnType<typeof createDeferredCore<number>>;
   message?: (reply: CarrierReply) => void;
   failure?: (error: unknown, exitCode?: number, registrationClosed?: boolean) => void;
-  service: () => void;
   stopping: boolean;
 };
 type Carrier = {
   worker: Worker;
-  renewalProgress: SharedArrayBuffer;
   members: Set<Member>;
   online: ReturnType<typeof createDeferredCore<void>>;
   exitCode?: number;
@@ -39,7 +37,6 @@ export function acquireLeaseHeartbeatCarrier(params: {
   key: string;
   data: LeaseHeartbeatWorkerData;
   createWorker(): Worker;
-  service: () => void;
 }) {
   let carrier = carriers.get(params.key);
   const primary = carrier === undefined;
@@ -47,7 +44,6 @@ export function acquireLeaseHeartbeatCarrier(params: {
     const worker = params.createWorker();
     carrier = {
       worker,
-      renewalProgress: params.data.renewalProgress,
       members: new Set(),
       online: createDeferredCore(),
     };
@@ -84,7 +80,6 @@ export function acquireLeaseHeartbeatCarrier(params: {
   const member: Member = {
     channel: ports?.port1 ?? owned.worker,
     closed: createDeferredCore<number>(),
-    service: params.service,
     stopping: false,
   };
   owned.members.add(member);
@@ -132,7 +127,6 @@ export function acquireLeaseHeartbeatCarrier(params: {
   member.channel.on("message", receive);
   ports?.port1.once("close", closed);
   if (ports) {
-    params.data.renewalProgress = owned.renewalProgress;
     try {
       owned.worker.postMessage({ registration: params.data, port: ports.port2 }, [
         params.data.databaseAdmissionPort,
@@ -146,7 +140,6 @@ export function acquireLeaseHeartbeatCarrier(params: {
     }
   }
   return {
-    renewalProgress: owned.renewalProgress,
     online: owned.online.promise,
     closed: member.closed.promise,
     get pending() {
@@ -164,12 +157,6 @@ export function acquireLeaseHeartbeatCarrier(params: {
       member.channel.postMessage(value, transferList);
       if (ports) {
         recordWorkerMessage("lifecycle", "to_worker");
-      }
-    },
-    service() {
-      // Synchronous lease verification must also service a sibling's admission.
-      for (const active of owned.members) {
-        active.service();
       }
     },
     close(): Promise<number> {

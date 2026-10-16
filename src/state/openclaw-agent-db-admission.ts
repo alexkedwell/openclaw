@@ -6,9 +6,7 @@ import { racePromiseWithAbortSignal } from "../infra/abort-signal.js";
 import { isPostgresSqlConnection } from "../infra/sql-connection.js";
 import { assertSqliteIntegrityInWorker } from "../infra/sqlite-integrity-worker.js";
 import {
-  runSqliteIntegrityCheckSync,
   runSqliteIntegrityOperationSync,
-  type SqliteIntegrityCheck,
   type SqliteIntegrityOperation,
 } from "../infra/sqlite-integrity.js";
 import { withSqlitePostCommitPublications } from "../infra/sqlite-post-commit.js";
@@ -69,6 +67,12 @@ export type OpenClawAgentDatabaseWriteAdmission = <T>(
     integrityRevoked?: boolean,
   ) => T | Promise<T>,
 ) => Promise<T>;
+
+export type OpenClawAgentDatabaseStartupAdmission = {
+  assertCurrent(): void;
+  validation?: OpenClawAgentDatabaseValidation;
+  integrityRevoked?: boolean;
+};
 
 /** Refusal must unwind ownership without entering corruption repair or changing its caller error. */
 function assertAgentDatabaseOpenAuthority(
@@ -365,23 +369,40 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
     inputOptions: OpenClawAgentDatabaseOptions,
     withAdmission: OpenClawAgentDatabaseWriteAdmission,
     operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
+    startup?: OpenClawAgentDatabaseStartupAdmission,
   ): Promise<T> {
-    const run = () => runAgentDatabaseAdmission(inputOptions, withAdmission, operation);
+    const env = cloneEnvWithPlatformSemantics(inputOptions.env ?? process.env);
+    const agentId = normalizeAgentId(inputOptions.agentId);
+    const options = {
+      ...inputOptions,
+      agentId,
+      env,
+      path: resolveOpenClawAgentSqlitePath({ ...inputOptions, agentId, env }),
+    };
+    // Native compatibility callers retain their lexical admission. Workers prepare
+    // through their request lifetime before reserving the foreground writer once.
+    const run = () =>
+      startup
+        ? runAgentDatabaseAdmission(options, withAdmission, operation, startup)
+        : withAdmission((assertCurrent, validation, integrityRevoked) =>
+            runAgentDatabaseAdmission(
+              options,
+              (admitted) => Promise.resolve(admitted(assertCurrent)),
+              operation,
+              { assertCurrent, validation, integrityRevoked },
+            ),
+          );
     const scope = getOpenClawDatabaseMaintenanceScope();
     return scope ? scope.run(() => scope.track(run())) : run();
   }
 
   async function runAgentDatabaseAdmission<T>(
-    inputOptions: OpenClawAgentDatabaseOptions,
+    options: OpenClawAgentDatabaseOptions & { path: string; env: NodeJS.ProcessEnv },
     withAdmission: OpenClawAgentDatabaseWriteAdmission,
     operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
+    startup: OpenClawAgentDatabaseStartupAdmission,
   ): Promise<T> {
-    const options = {
-      ...inputOptions,
-      env: cloneEnvWithPlatformSemantics(inputOptions.env ?? process.env),
-    };
-    const agentId = normalizeAgentId(options.agentId);
-    const pathname = resolveOpenClawAgentSqlitePath({ ...options, agentId });
+    const { agentId, path: pathname } = options;
     assertAgentDatabaseWriteAllowed(pathname);
     if (cache.terminal.peek(pathname)) {
       await revalidateAgentDatabaseTerminalOpenAsync(pathname);
@@ -398,82 +419,41 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
           throw error;
         }
       }
-      return withOpenClawAgentDatabaseAdmission(options, withAdmission, operation);
+      return runAgentDatabaseAdmission(options, withAdmission, operation, startup);
     }
     const admission = createOpenClawAgentDatabaseAdmission(agentId, pathname);
     const { pending } = admission;
     // This caller receives its scoped operation result; lifecycle disposal joins the open promise.
     void pending.promise.catch(() => {});
     pending.operations += 1;
+    pending.validation = startup.validation;
+    pending.integrityRevoked = startup.integrityRevoked;
     const steps = openSteps(options, pending);
-    let check: SqliteIntegrityCheck | undefined;
-    let failure: { error: unknown } | undefined;
-    let suspended = false;
     try {
-      while (true) {
-        const outcome = await withAdmission(async (assertCurrent, validation, integrityRevoked) => {
-          suspended = false;
-          assertAgentDatabaseOpenAuthority(steps, () => {
-            assertCurrent();
-            assertOpenClawAgentDatabaseAdmissionCurrent(options, pending);
-          });
-          pending.validation = validation;
-          pending.integrityRevoked = integrityRevoked;
-          const step = failure ? steps.throw(failure.error) : steps.next();
-          if (!step.done) {
-            suspended = true;
-            return { done: false as const, check: step.value };
-          }
-          pending.releaseBorrow = retainAgentDatabase(step.value.db);
-          admission.complete(step.value);
-          const assertOperationCurrent = () =>
-            assertAgentDatabaseOperationCurrent(step.value, options, pending, assertCurrent);
-          assertOperationCurrent();
-          const flushMaintenance =
-            isMainThread || isPostgresSqlConnection(step.value.db)
-              ? undefined
-              : registerDeferredSqliteWalWriteAdmission(step.value.db);
-          flushMaintenance?.(assertOperationCurrent);
-          const result = await operation(step.value);
-          flushMaintenance?.(assertOperationCurrent);
-          return { done: true as const, result };
-        });
-        if (outcome.done) {
-          return outcome.result;
-        }
-        check = outcome.check;
-        failure = undefined;
-        try {
-          pending.controller.signal.throwIfAborted();
-          runSqliteIntegrityCheckSync(check);
-        } catch (error) {
-          failure = { error };
-        }
-      }
+      const database = runSqliteIntegrityOperationSync(steps, () =>
+        assertAgentDatabaseOpenAuthority(steps, () => {
+          startup.assertCurrent();
+          assertOpenClawAgentDatabaseAdmissionCurrent(options, pending);
+        }),
+      );
+      pending.releaseBorrow = retainAgentDatabase(database.db);
+      admission.complete(database);
+      return await withAdmission(async (assertCurrent) => {
+        const assertOperationCurrent = () =>
+          assertAgentDatabaseOperationCurrent(database, options, pending, assertCurrent);
+        assertOperationCurrent();
+        const flushMaintenance =
+          isMainThread || isPostgresSqlConnection(database.db)
+            ? undefined
+            : registerDeferredSqliteWalWriteAdmission(database.db);
+        flushMaintenance?.(assertOperationCurrent);
+        const result = await operation(database);
+        flushMaintenance?.(assertOperationCurrent);
+        return result;
+      });
     } catch (error) {
-      const failures = [error];
-      if (suspended) {
-        const cancellation = new Error(`Agent database admission failed: ${pathname}`, {
-          cause: error,
-        });
-        try {
-          // A lost scheduler cannot grant another permit. A generic refusal only
-          // unwinds this owner's handle and lease; it cannot enter index repair.
-          steps.throw(cancellation);
-        } catch (cleanupError) {
-          if (cleanupError !== cancellation) {
-            failures.push(cleanupError);
-          }
-        }
-      }
-      const terminalFailure =
-        failures.length === 1
-          ? error
-          : new AggregateError(failures, "Agent database admission and cleanup failed", {
-              cause: error,
-            });
-      admission.fail(terminalFailure);
-      throw terminalFailure;
+      admission.fail(error);
+      throw error;
     } finally {
       pending.operations -= 1;
       if (!pending.operations) {

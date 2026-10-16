@@ -67,8 +67,6 @@ function startHeartbeat(
     );
   }
   const shared = new BigInt64Array(params.shared);
-  const renewalProgress = new BigInt64Array(params.renewalProgress);
-  const completedRequest = new BigInt64Array(params.completedRequest);
   Atomics.store(shared, state.startupPhase, startupPhase["body-entry"]);
   function observeDurableExpiry(expiresAt: number | undefined) {
     Atomics.store(shared, state.expiresAt, BigInt(expiresAt ?? 0));
@@ -119,7 +117,7 @@ function startHeartbeat(
     leaseMs: params.leaseMs,
     intervalMs: params.heartbeatMs,
     execute: (operation) =>
-      withRenewalProgress(() => {
+      withDatabaseAdmission(() => {
         assertStateDatabaseAccessAllowed(params.path);
         return operation();
       }),
@@ -168,7 +166,6 @@ function startHeartbeat(
     Atomics.compareExchange(shared, state.status, state.starting, state.lost);
     Atomics.compareExchange(shared, state.status, state.ready, state.lost);
     recordLoss(loss);
-    Atomics.notify(shared, state.ack);
     close();
   };
   const renewInWorker = (
@@ -289,22 +286,10 @@ function startHeartbeat(
     return expiresAt;
   };
 
-  // SQLite and native process lookup are synchronous on this worker. Publish only
-  // occupancy; callers still require a fresh reply and check the durable owner.
-  function withRenewalProgress<T>(operation: () => T): T {
-    Atomics.add(renewalProgress, 0, 1n);
-    Atomics.notify(shared, state.ack);
-    try {
-      return withDatabaseAdmission(operation);
-    } finally {
-      Atomics.add(renewalProgress, 0, 1n);
-      Atomics.notify(shared, state.ack);
-    }
-  }
   const renew = (
     explicit = false,
     path: LeaseHeartbeatLoss["path"] = "automatic-renewal",
-  ): number | undefined => withRenewalProgress(() => renewInWorker(explicit, path));
+  ): number | undefined => withDatabaseAdmission(() => renewInWorker(explicit, path));
 
   function activateHeartbeat(): void {
     let expiresAt: number | undefined;
@@ -343,16 +328,15 @@ function startHeartbeat(
   const receive = (
     request: LeaseHeartbeatParentMessage | { close: true } | HeartbeatRegistration,
   ) => {
-    if (request !== null && "registration" in request) {
+    if ("registration" in request) {
       return;
     }
-    if (request !== null && "close" in request) {
+    if ("close" in request) {
       Atomics.store(shared, state.status, state.closed);
-      Atomics.notify(shared, state.ack);
       close();
       return;
     }
-    if (request !== null && "startup" in request) {
+    if ("startup" in request) {
       if (params.deferActivation && Atomics.load(shared, state.status) === state.starting) {
         activateHeartbeat();
       }
@@ -361,57 +345,48 @@ function startHeartbeat(
     if (Atomics.load(shared, state.status) !== state.ready) {
       return;
     }
-    if (request !== null) {
-      let reply: LeaseHeartbeatReply;
-      let lost = false;
-      let outcome: LeaseHeartbeatLoss["outcome"] = "operation-error";
-      const path = request.operation === "renew" ? "explicit-renew" : "explicit-verify";
-      try {
-        const expiresAt =
-          request.operation === "renew"
-            ? renew(true, path)
-            : withDatabaseAdmission(() =>
-                observeDurableExpiry(readOpenClawStateLeaseExpiry(db, params.identity)),
-              );
-        if (expiresAt === undefined) {
-          outcome = "no-current-owned-unexpired-row";
-          throw new OpenClawStateLeaseError("state lease heartbeat no longer owns its lease", {
-            code: "OPENCLAW_STATE_LEASE_LOST",
-          });
-        }
-        reply = { id: request.id, ok: true, expiresAt };
-      } catch (cause) {
-        lost = !isSqliteLockError(cause);
-        const error =
-          cause instanceof OpenClawStateLeaseError
-            ? cause
-            : new OpenClawStateLeaseError(`failed to ${request.operation} state lease heartbeat`, {
-                code: "OPENCLAW_STATE_LEASE_STORAGE_FAILED",
-                cause,
-              });
-        reply = {
-          id: request.id,
-          ok: false,
-          message: error.message,
-          payload: encodeOpenClawStateWorkerError(error),
-        };
+    let reply: LeaseHeartbeatReply;
+    let lost = false;
+    let outcome: LeaseHeartbeatLoss["outcome"] = "operation-error";
+    const path = request.operation === "renew" ? "explicit-renew" : "explicit-verify";
+    try {
+      const expiresAt =
+        request.operation === "renew"
+          ? renew(true, path)
+          : withDatabaseAdmission(() =>
+              observeDurableExpiry(readOpenClawStateLeaseExpiry(db, params.identity)),
+            );
+      if (expiresAt === undefined) {
+        outcome = "no-current-owned-unexpired-row";
+        throw new OpenClawStateLeaseError("state lease heartbeat no longer owns its lease", {
+          code: "OPENCLAW_STATE_LEASE_LOST",
+        });
       }
-      if (lost) {
-        // Preserve the first loss before the existing request rejection can escape.
-        recordLoss({ path, outcome });
-      }
-      // Parent deadlines can run before delivery of this completed request's reply.
-      Atomics.store(completedRequest, 0, BigInt(request.id));
-      port.postMessage(reply, []);
-      if (lost) {
-        lose({ path, outcome });
-      }
-      return;
+      reply = { id: request.id, ok: true, expiresAt };
+    } catch (cause) {
+      lost = !isSqliteLockError(cause);
+      const error =
+        cause instanceof OpenClawStateLeaseError
+          ? cause
+          : new OpenClawStateLeaseError(`failed to ${request.operation} state lease heartbeat`, {
+              code: "OPENCLAW_STATE_LEASE_STORAGE_FAILED",
+              cause,
+            });
+      reply = {
+        id: request.id,
+        ok: false,
+        message: error.message,
+        payload: encodeOpenClawStateWorkerError(error),
+      };
     }
-    // A caller may hold the state write transaction while checking ownership.
-    // Liveness acknowledgements must never wait for that caller's SQLite lock.
-    Atomics.store(shared, state.ack, Atomics.load(shared, state.request));
-    Atomics.notify(shared, state.ack);
+    if (lost) {
+      // Preserve the first loss before the existing request rejection can escape.
+      recordLoss({ path, outcome });
+    }
+    port.postMessage(reply, []);
+    if (lost) {
+      lose({ path, outcome });
+    }
   };
   function runAutomatic(run: () => unknown, path: LeaseHeartbeatLoss["path"]): void {
     try {
@@ -464,7 +439,7 @@ if (!parentPort) {
 parentPort.on(
   "message",
   (message: LeaseHeartbeatParentMessage | { close: true } | HeartbeatRegistration) => {
-    if (message !== null && "registration" in message) {
+    if ("registration" in message) {
       startHeartbeat(message.registration, message.port);
     }
   },

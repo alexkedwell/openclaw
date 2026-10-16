@@ -212,6 +212,9 @@ still owns pending work. Each path still joins its accepted writers, pending ope
 and WAL maintenance before native close. The selected root refuses fresh native
 opens and new resource admission until every path settles, including failed closes;
 accepted cleanup can still use its existing admitted connection.
+Readiness probes during retirement return without opening a reader or waiting
+for the close; the lifecycle caller still awaits and reports actual cleanup.
+Pending opens are captured and joined once under that same admission exclusion.
 Offline maintenance can release an already-owned lease after operation policy is
 revoked while its original physical database custody remains held. That cleanup
 authority does not admit new ordinary work or a replacement database.
@@ -301,13 +304,13 @@ with different source identities do not share a preparation. Cached creation-tim
 metadata is not treated as a file-lifetime guarantee.
 
 Fresh and inherited snapshot reads retain preparation, query, and cleanup under
-one operation. A later retained request can service an earlier asynchronous
-request without releasing its custody early. The existing spawn broker owns the
+one awaited operation. The existing spawn broker owns the
 snapshot child independently of disposable Workers; losing a Worker does not
 count as native child closure. Failed preparation still joins its original
 cleanup, and unresolved cleanup keeps the original directory and admission
 fenced. A cached native database that outlives its pathname continues to use its
-exact owner's awaited backup; it does not gain synchronous retained progress.
+exact owner's awaited backup. An already-selected read may finish after source
+retirement; consumers still check live authority before effects.
 These changes preserve schemas, stored bytes, retention, and update migrations.
 
 Ordinary observed config loads, including runtime reload preparation, read pending
@@ -460,6 +463,11 @@ IPC error remains the reported failure even if termination also fails.
 
 Agent database maintenance fences other writers with a 60-second lease in the shared state database. A dedicated worker renews that lease during synchronous integrity scans and migration phases. Maintenance still checks the exact persisted owner before mutations and commit, and stops if the heartbeat fails or ownership expires or changes. Finishing or cancelling maintenance stops renewal before releasing the lease; process death leaves at most the remaining lease duration.
 
+Effect-time ownership checks read the durable lease once. They do not request a
+fresh heartbeat acknowledgement or reread that same row after acknowledgement.
+Asynchronous heartbeat requests use their matching reply and a lease-bounded
+deadline; slow storage does not need a separate progress handshake.
+
 SQLite lock contention retries at 25 ms intervals within the lease acquisition
 budget or the heartbeat's durable expiry. Agent execution admission also retries
 contention before entering application work, for up to two seconds after its first
@@ -471,6 +479,12 @@ repair warning includes the nested lease-loss cause when maintenance cannot sett
 Before draining heartbeats for a file capture, each state-lease owner attempts a final ordinary renewal. Capture remains bounded by the shortest durable expiry read after drainage; it cannot renew while files are excluded or revive an expired owner.
 
 Asynchronous agent-database admission runs the first full-file integrity check in a read-only child process when that check is outside a write transaction. Later ordinary opens reuse remembered verification. Maintenance retains its independent full check. The connection and owning scope remain held until the native reader closes; cancellation and timeout wait for process exit. Schema changes, index repairs, and compaction retain their synchronous phases.
+
+Session mutation workers prepare their native connection and integrity checks
+under the request's lifecycle coordinator before entering the foreground writer
+FIFO. One writer grant then lasts through result publication or native exit;
+integrity stages do not release and reacquire that grant. Physical-target and
+effect-time authority checks remain in force.
 
 An agent maintenance lease reuses one integrity-check process across its queued
 checks. Each request opens and closes its own database, reads fresh file identity,

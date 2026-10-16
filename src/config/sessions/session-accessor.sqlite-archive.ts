@@ -139,27 +139,27 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(
           transport: { kind: "dedicated", channel: worker },
           operationId: 0,
           completion: "exit",
-          databaseAuthority: {
-            databasePath: params.stateContext.admission.databasePath,
-            maintenanceScope: params.stateContext.maintenanceScope,
-            creationPaths: [
-              params.workerData.plan.databaseOptions.path,
-              params.stateContext.admission.databasePath,
-              resolveQuarantineStorePath(params.stateContext.environment),
-            ],
-            assertCurrent() {
-              params.stateContext.admission.assertCurrent();
-              params.assertCurrent?.();
-            },
-          },
           onCommitRequest: params.onCommitRequest,
           withWriteAdmission: params.withWriteAdmission,
           validationOwner: params.validationOwner,
           onExit: (code) => {
             exitCode = code;
           },
-          dispatch: () => worker.postMessage({ type: "mutate", coordination }, []),
+          dispatch: (opening) =>
+            worker.postMessage(
+              { type: "mutate", coordination: { ...coordination, opening } },
+              coordination.databaseAdmission ? [coordination.databaseAdmission] : [],
+            ),
         }),
+      () => {
+        params.stateContext.admission.assertCurrent();
+        params.assertCurrent?.();
+      },
+      [
+        params.workerData.plan.databaseOptions.path,
+        params.stateContext.admission.databasePath,
+        resolveQuarantineStorePath(params.stateContext.environment),
+      ],
     ).then((result) => [result]);
     const observe = (outcome: "resolved" | "rejected") => {
       const elapsedMs = Math.round(performance.now() - startedAt);

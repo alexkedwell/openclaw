@@ -349,16 +349,6 @@ export class SqliteReclamationWorker {
           transport,
           operationId,
           completion: "result",
-          databaseAuthority: {
-            databasePath: this.stateContext.admission.databasePath,
-            maintenanceScope: this.stateContext.maintenanceScope,
-            creationPaths: [
-              this.options.path,
-              this.stateContext.admission.databasePath,
-              resolveQuarantineStorePath(this.stateContext.environment),
-            ],
-            assertCurrent: params.assertCurrent,
-          },
           getFailure: () => this.failure,
           onExit: (code) => {
             exitCode = code;
@@ -367,11 +357,14 @@ export class SqliteReclamationWorker {
           validationOwner: params.validationOwner,
           validationPath: this.options.path,
           readOpeningValidation: params.readOpeningValidation,
-          dispatch: () => {
-            transport.channel.postMessage(params.request(operationId, coordination), [
-              ...params.transferList,
-              ...(coordination.databaseAdmission ? [coordination.databaseAdmission] : []),
-            ]);
+          dispatch: (opening) => {
+            transport.channel.postMessage(
+              params.request(operationId, { ...coordination, opening }),
+              [
+                ...params.transferList,
+                ...(coordination.databaseAdmission ? [coordination.databaseAdmission] : []),
+              ],
+            );
             if (transport.kind === "pooled") {
               recordWorkerMessage("sqlite_request", "to_worker");
             }
@@ -386,6 +379,11 @@ export class SqliteReclamationWorker {
           },
         ),
       params.assertCurrent,
+      [
+        this.options.path,
+        this.stateContext.admission.databasePath,
+        resolveQuarantineStorePath(this.stateContext.environment),
+      ],
     )
       .catch((error: unknown) => {
         this.failure ??= toStringifiedError(error);

@@ -1,6 +1,10 @@
 import type { MessagePort } from "node:worker_threads";
 import { resolveIdentityPathViaExistingAncestorSync } from "../../infra/boundary-path.js";
-import { assertStateDatabaseAccessAllowed } from "../../infra/gateway-state-owner.js";
+import {
+  acquireStateDatabaseSchemaLease,
+  assertStateDatabaseAccessAllowed,
+  type StateDatabaseSchemaLease,
+} from "../../infra/gateway-state-owner.js";
 import { withSqliteDatabaseAdmissionExchange } from "../../infra/sqlite-database-admission.js";
 import { retainSqliteWriteAdmissionService } from "../../infra/sqlite-transaction.js";
 import { exchangeSqliteDatabaseAdmissions } from "../../infra/sqlite-worker-database-admission-relay.js";
@@ -8,8 +12,10 @@ import { assertExistingDatabaseIdentity } from "../../infra/sqlite-worker-identi
 import {
   createSqliteDatabaseAdmissionRelay,
   createSqliteWorkerOperationAdmission,
+  withSqliteWorkerOperationAdmissionAsync,
 } from "../../infra/sqlite-worker-operation-admission.js";
 import type { SqliteWorkerStateContext } from "../../infra/sqlite-worker-state-context.js";
+import type { OpenClawAgentDatabaseValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db.js";
 import { resolveQuarantineStorePath } from "../../state/openclaw-state-db.paths.js";
 import type { OpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.types.js";
@@ -25,6 +31,10 @@ export type SqliteMutationWorkerCoordination = {
   stateContext: SqliteWorkerStateContext;
   databaseAdmission?: MessagePort;
   reconciliation?: { identity: string };
+  opening?: {
+    validation?: OpenClawAgentDatabaseValidation;
+    integrityRevoked?: boolean;
+  };
 };
 
 /** The request owns its native worker until a result or confirmed exit settles. */
@@ -34,6 +44,7 @@ export async function withSqliteMutationWorkerCoordination<T>(
   operationId: number,
   run: (coordination: SqliteMutationWorkerCoordination) => Promise<T>,
   assertRequestCurrent?: () => void,
+  startupPaths?: readonly string[],
 ): Promise<T> {
   const worker = transport.channel;
   const actorId = `${sqliteMutationWorkerThreadId(transport)}:${operationId}`;
@@ -49,6 +60,7 @@ export async function withSqliteMutationWorkerCoordination<T>(
       },
       "retained",
       assertRequestCurrent,
+      startupPaths,
     );
   } finally {
     worker.off("error", preparingError);
@@ -63,6 +75,7 @@ export async function withSqliteWorkerLifecycleCoordination<T>(
   settleFailure: () => Promise<void>,
   mode: "retained" | "reconciliation" = "retained",
   assertRequestCurrent?: () => void,
+  startupPaths?: readonly string[],
 ): Promise<T> {
   const identity = context.admission.identity.key;
   if (mode === "reconciliation") {
@@ -82,41 +95,64 @@ export async function withSqliteWorkerLifecycleCoordination<T>(
         })
       : undefined;
   if (admission && assertRequestCurrent) {
+    let schemaLease: StateDatabaseSchemaLease | undefined;
+    const creationPaths = new Set(
+      (
+        startupPaths ?? [
+          context.admission.databasePath,
+          resolveQuarantineStorePath(context.environment),
+        ]
+      ).map(resolveIdentityPathViaExistingAncestorSync),
+    );
+    const assertAccess = () => {
+      context.admission.assertCurrent();
+      // First creation stays path-bound until the native lease publishes its file identity.
+      const current = context.admission.identity;
+      if (current.key.startsWith("file:")) {
+        assertExistingDatabaseIdentity(
+          context.admission.databasePath,
+          current.key,
+          current.birthtime,
+        );
+      }
+      context.maintenanceScope?.assertAdmission();
+      assertStateDatabaseAccessAllowed(context.admission.databasePath, {
+        maintenanceScope: context.maintenanceScope,
+        schemaLease,
+      });
+    };
     admission.bindDatabaseAuthority({
       databasePath: context.admission.identity.canonicalPath,
       assertRequest: assertRequestCurrent,
-      assertAccess() {
-        context.admission.assertCurrent();
-        // First creation stays path-bound until the native lease publishes its file identity.
-        const current = context.admission.identity;
-        if (current.key.startsWith("file:")) {
-          assertExistingDatabaseIdentity(
-            context.admission.databasePath,
-            current.key,
-            current.birthtime,
-          );
-        }
-        context.maintenanceScope?.assertAdmission();
-      },
+      assertAccess,
       assertCreate(location) {
-        // Raw agent admission may create shared state and its first integrity receipt.
-        if (
-          location !== resolveIdentityPathViaExistingAncestorSync(context.admission.databasePath) &&
-          location !==
-            resolveIdentityPathViaExistingAncestorSync(
-              resolveQuarantineStorePath(context.environment),
-            )
-        ) {
+        if (!creationPaths.has(resolveIdentityPathViaExistingAncestorSync(location))) {
           throw new Error("SQLite mutation creation target differs from its captured companions");
         }
       },
       acquireSchema() {
-        throw new Error("SQLite mutation file admission does not grant schema maintenance");
+        if (!startupPaths) {
+          throw new Error("SQLite mutation file admission does not grant schema maintenance");
+        }
+        assertAccess();
+        const acquire = () => acquireStateDatabaseSchemaLease(context.admission.databasePath);
+        const lease = context.maintenanceScope ? context.maintenanceScope.run(acquire) : acquire();
+        schemaLease = lease;
+        context.maintenanceScope?.own(lease, "shared-resources", () => lease.release());
+        return {
+          assertCurrent() {
+            assertAccess();
+            lease.assertCurrent();
+          },
+          release: () => lease.release(),
+        };
       },
     });
   }
   const releaseService = admission
-    ? retainSqliteWriteAdmissionService([context.admission.databasePath], () => admission.service())
+    ? retainSqliteWriteAdmissionService(startupPaths ?? [context.admission.databasePath], () =>
+        admission.service(),
+      )
     : undefined;
   try {
     return await run({
@@ -164,16 +200,18 @@ export async function runWithSqliteMutationWorkerCoordination<
   }
   let active = true;
   try {
-    return await withSqliteDatabaseAdmissionExchange((facts, location, create) => {
-      if (!active) {
-        throw new Error("SQLite mutation file admission outlived its request");
-      }
-      if (create) {
-        // First-open creation can run inside this worker's live schema lease.
-        assertStateDatabaseAccessAllowed(coordination.databasePath);
-      }
-      return exchangeSqliteDatabaseAdmissions(admission, facts, location, create);
-    }, execute);
+    return await withSqliteWorkerOperationAdmissionAsync({ port: admission }, () =>
+      withSqliteDatabaseAdmissionExchange((facts, location, create) => {
+        if (!active) {
+          throw new Error("SQLite mutation file admission outlived its request");
+        }
+        if (create) {
+          // First-open creation can run inside this worker's live schema lease.
+          assertStateDatabaseAccessAllowed(coordination.databasePath);
+        }
+        return exchangeSqliteDatabaseAdmissions(admission, facts, location, create);
+      }, execute),
+    );
   } finally {
     active = false;
     admission.close();

@@ -118,17 +118,13 @@ test("maintenance preparation yields to foreground writes and retains commit adm
     );
   const worker = new Worker(
     `const { parentPort } = require("node:worker_threads");
-     let admissions = 0;
      parentPort.on("message", (message) => {
        if (message.type === "start") {
          parentPort.postMessage({ type: "preparation" });
        } else if (message.type === "prepare") {
-         parentPort.postMessage({ type: "admission-request", operationId: 1 });
+         parentPort.postMessage({ type: "validation-gap" });
        } else if (message.type === "continue") {
          parentPort.postMessage({ type: "admission-request", operationId: 1 });
-       } else if (message.type === "admission" && ++admissions === 1) {
-         parentPort.postMessage({ type: "admission-release", operationId: 1 });
-         parentPort.postMessage({ type: "validation-gap" });
        } else if (message.type === "admission") {
          parentPort.postMessage({ type: "commit-gap" });
        } else if (message.type === "settle") {
@@ -202,6 +198,7 @@ test("maintenance preparation yields to foreground writes and retains commit adm
     await earlierArchive;
     await Promise.race([preparation.promise, settledFinalization]);
     preparationWriter = write("preparation-writer");
+    await preparationWriter;
     worker.postMessage({ type: "prepare" }, []);
     await Promise.race([validationGap.promise, settledFinalization]);
     expect(order).toEqual(["preceding-writer", "preparation-writer"]);
@@ -215,7 +212,7 @@ test("maintenance preparation yields to foreground writes and retains commit adm
     worker.postMessage({ type: "settle" }, []);
     await expect(finalization).resolves.toMatchObject({ kind: "maintenance-finalize" });
     await Promise.all([preparationWriter, validationWriter, laterWriter]);
-    expect(admissions).toEqual([1, 2]);
+    expect(admissions).toEqual([1]);
     expect(laterObservedCommit).toBe(true);
     expect(order).toEqual([
       "preceding-writer",

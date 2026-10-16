@@ -246,7 +246,6 @@ function fixture(
       assertRunning: assertCurrent,
       verify: async () => Date.now() + params.leaseMs,
       renew: async () => Date.now() + params.leaseMs,
-      assertResponsive: mocks.forbidden,
       close: mocks.forbidden,
       stop: async () => {
         await cleanup.close();
