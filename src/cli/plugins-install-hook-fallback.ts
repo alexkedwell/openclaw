@@ -120,6 +120,7 @@ async function installHookPackLocal(
   return await withPluginLifecycleLease({ signal: params.signal }, async (lease) => {
     const request = resolvePluginInstallRequestContext({
       rawSpec: source.source === "local" ? source.path : source.spec,
+      source: source.source,
     });
     if (!request.ok) {
       return request;
