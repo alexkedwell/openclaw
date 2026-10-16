@@ -523,9 +523,14 @@ function installColdLoadProbes(
   });
   observer.observe({ type: "longtask", buffered: true });
   Reflect.set(window, "__coldLoad", {
-    startLive() {
+    startLive(profileOwners = true) {
       liveStartedAt = performance.now();
       liveRpcOffset = rpcs.length;
+      if (!profileOwners) {
+        sidebarRegistration.restore();
+        eventStream.startLive(liveStartedAt);
+        return;
+      }
       frameProbe.install();
       const sidebar = document.querySelector("openclaw-app-sidebar");
       sidebarRegistration.restore();
