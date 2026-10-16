@@ -23,8 +23,12 @@ if (!runtimeArg || !expectedInfoPath) {
   );
 }
 const sourceRuntime = fs.realpathSync(runtimeArg);
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-proof-")));
+const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "oc-v-")));
 try {
+  assert(
+    Buffer.byteLength(path.join(home, "oc-br-XXXXXX", "resource.sock")) <= 103,
+    "Runtime verifier TMPDIR is too long for a 103-byte broker socket; use a shorter temporary directory",
+  );
   const runtime = path.join(home, "runtime");
   // Exercise the same relocation used by profile seeding, outside the denied account home.
   execFileSync("/bin/cp", ["-cR", sourceRuntime, runtime]);
@@ -64,6 +68,8 @@ try {
     `(version 1)
 (allow default)
 (deny network*)
+(allow network-bind (local unix-socket (subpath (param "ISOLATED_ROOT"))))
+(allow network-outbound (remote unix-socket (subpath (param "ISOLATED_ROOT"))))
 (deny file-write*)
 (deny file-read* (subpath (param "ORIGINAL_HOME")))
 (allow file-read* file-write* (subpath (param "ISOLATED_ROOT")))

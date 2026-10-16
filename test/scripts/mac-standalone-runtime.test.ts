@@ -10,6 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -258,13 +259,86 @@ function compileVerifierExecutable(root: string) {
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <arpa/inet.h>
+
+static void allowed(int result, const char *operation) {
+  if (result < 0) { perror(operation); exit(93); }
+}
+
+static void denied(int result, const char *operation) {
+  if (result != -1 || (errno != EPERM && errno != EACCES)) {
+    fprintf(stderr, "%s was not denied by the sandbox (errno %d)\\n", operation, errno);
+    exit(94);
+  }
+}
+
+static struct sockaddr_un unix_address(const char *file) {
+  struct sockaddr_un address = {0};
+  address.sun_family = AF_UNIX;
+  address.sun_len = sizeof(address);
+  if (strlen(file) >= sizeof(address.sun_path)) { fputs("fixture socket path too long", stderr); exit(95); }
+  strcpy(address.sun_path, file);
+  return address;
+}
+
+static void check_sandbox(const char *outside) {
+  char directory[PATH_MAX], file[PATH_MAX];
+  snprintf(directory, sizeof(directory), "%s/oc-br-test00", getenv("TMPDIR"));
+  allowed(mkdir(directory, 0700), "inside socket directory");
+  snprintf(file, sizeof(file), "%s/resource.sock", directory);
+  struct sockaddr_un inside = unix_address(file);
+  int server = socket(AF_UNIX, SOCK_STREAM, 0);
+  allowed(server, "inside socket");
+  allowed(bind(server, (struct sockaddr *)&inside, sizeof(inside)), "inside Unix bind");
+  allowed(listen(server, 1), "inside Unix listen");
+  int client = socket(AF_UNIX, SOCK_STREAM, 0);
+  allowed(client, "inside client");
+  allowed(connect(client, (struct sockaddr *)&inside, sizeof(inside)), "inside Unix connect");
+  close(client); close(server); unlink(file); rmdir(directory);
+
+  snprintf(file, sizeof(file), "%s.bind", outside);
+  struct sockaddr_un external = unix_address(file);
+  client = socket(AF_UNIX, SOCK_STREAM, 0);
+  allowed(client, "outside bind socket");
+  denied(bind(client, (struct sockaddr *)&external, sizeof(external)), "outside Unix bind");
+  close(client);
+  external = unix_address(outside);
+  client = socket(AF_UNIX, SOCK_STREAM, 0);
+  allowed(client, "outside client");
+  denied(connect(client, (struct sockaddr *)&external, sizeof(external)), "outside Unix connect");
+  close(client);
+
+  struct sockaddr_in ip = {0};
+  ip.sin_family = AF_INET;
+  ip.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  client = socket(AF_INET, SOCK_STREAM, 0);
+  allowed(client, "IP bind socket");
+  denied(bind(client, (struct sockaddr *)&ip, sizeof(ip)), "IP bind");
+  close(client);
+  ip.sin_port = htons(9);
+  client = socket(AF_INET, SOCK_STREAM, 0);
+  allowed(client, "IP client");
+  denied(connect(client, (struct sockaddr *)&ip, sizeof(ip)), "IP connect");
+  close(client);
+}
+
 int main(int argc, char **argv) {
-  char root[PATH_MAX], mode[64] = "valid", file[PATH_MAX];
+  char root[PATH_MAX], mode[64] = "valid", file[PATH_MAX], outside[PATH_MAX] = "";
   realpath(argv[0], root); *strrchr(root, '/') = 0;
   snprintf(file, sizeof(file), "%s/proof-case", root);
-  FILE *input = fopen(file, "r"); if (input) { fgets(mode, sizeof(mode), input); fclose(input); }
+  FILE *input = fopen(file, "r");
+  if (input) {
+    fgets(mode, sizeof(mode), input); mode[strcspn(mode, "\\r\\n")] = 0;
+    fgets(outside, sizeof(outside), input); fclose(input);
+  }
   if (argc > 1 && !strcmp(argv[1], "--version")) { puts("OpenClaw 2026.10.14"); return 0; }
   if (argc > 1 && !strcmp(argv[1], "doctor")) {
+    if (!strcmp(mode, "sandbox")) { check_sandbox(outside); }
     if (getenv("OPENCLAW_SQLITE_LIBRARY")) { fputs("unexpected SQLite override", stderr); return 92; }
     char sqlite[PATH_MAX];
     snprintf(sqlite, sizeof(sqlite), "%s/runtime/lib/libsqlite3.dylib", root);
@@ -301,13 +375,12 @@ describe.skipIf(process.platform !== "darwin")("Mac packaged SQLite capability a
     { mode: "wrong-sqlite", underHome: false },
     { mode: "vector-unavailable", underHome: false },
     { mode: "outside-vector", underHome: false },
+    { mode: "sandbox", underHome: false },
+    { mode: "long-root", underHome: false },
   ])(
     "checks CLI capabilities after relocation ($mode, source under home: $underHome)",
     async ({ mode, underHome }) => {
-      const parent = temps.make(
-        "mac-runtime-capability-",
-        underHome ? os.userInfo().homedir : undefined,
-      );
+      const parent = temps.make("mcv-", underHome ? os.userInfo().homedir : undefined);
       const root = path.join(parent, "build", "OpenClaw.app", "Contents", "Resources", "runtime");
       const runtime = path.join(root, "runtime");
       for (const directory of ["dist/control-ui", "lib", "node_modules/sqlite-vec"]) {
@@ -316,7 +389,8 @@ describe.skipIf(process.platform !== "darwin")("Mac packaged SQLite capability a
       const fixtureExecutable = compileVerifierExecutable(root);
       writeFileSync(path.join(root, "openclaw"), fixtureExecutable);
       chmodSync(path.join(root, "openclaw"), 0o755);
-      writeFileSync(path.join(root, "proof-case"), mode);
+      const outsideSocket = path.join(parent, "outside.sock");
+      writeFileSync(path.join(root, "proof-case"), `${mode}\n${outsideSocket}`);
       writeFileSync(path.join(runtime, "dist/control-ui/index.html"), "fixture");
       writeFileSync(path.join(runtime, "lib/libsqlite3.dylib"), "fixture library");
       writeFileSync(path.join(runtime, "node_modules/sqlite-vec/vec0.dylib"), "fixture vector");
@@ -353,16 +427,45 @@ describe.skipIf(process.platform !== "darwin")("Mac packaged SQLite capability a
       expect(stage.status, stage.stderr).toBe(0);
       const expected = path.join(root, "expected.json");
       writeFileSync(expected, JSON.stringify({ version: "2026.10.14", commit }));
-      const result = spawnSync(
-        process.execPath,
-        [path.resolve("scripts/verify-mac-runtime.mjs"), root, expected],
-        { encoding: "utf8", timeout: 20_000 },
-      );
-      if (mode === "valid") {
-        expect(result.status, result.stderr).toBe(0);
-      } else {
-        expect(result.status, result.stdout + result.stderr).not.toBe(0);
-        expect(result.stderr).toContain(mode === "wrong-sqlite" ? "Doctor SQLite" : "vector");
+      const tempRoot = path.join(parent, "long-" + "x".repeat(80));
+      if (mode === "long-root") {
+        mkdirSync(tempRoot);
+      }
+      const server = mode === "sandbox" ? createServer((socket) => socket.destroy()) : undefined;
+      try {
+        if (server) {
+          await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(outsideSocket, resolve);
+          });
+        }
+        const result = spawnSync(
+          process.execPath,
+          [path.resolve("scripts/verify-mac-runtime.mjs"), root, expected],
+          {
+            encoding: "utf8",
+            timeout: 20_000,
+            env: mode === "long-root" ? { ...process.env, TMPDIR: tempRoot } : process.env,
+          },
+        );
+        if (mode === "valid" || mode === "sandbox") {
+          expect(result.status, result.stderr).toBe(0);
+        } else {
+          expect(result.status, result.stdout + result.stderr).not.toBe(0);
+          const failure =
+            mode === "long-root"
+              ? "TMPDIR is too long"
+              : mode === "wrong-sqlite"
+                ? "Doctor SQLite"
+                : "vector";
+          expect(result.stderr).toContain(failure);
+        }
+      } finally {
+        if (server) {
+          await new Promise<void>((resolve) => {
+            server.close(() => resolve());
+          });
+        }
       }
     },
   );
