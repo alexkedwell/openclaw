@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewaySessionRow } from "../api/types.ts";
 import { createConnectionBootstrapCoordinator } from "../app/connection-bootstrap.ts";
@@ -45,11 +45,6 @@ const tick = async (sidebar: Awaited<ReturnType<typeof mountRoster>>["sidebar"],
   await settleLitElement(sidebar);
   await vi.advanceTimersByTimeAsync(ms);
 };
-function cleanup({ provider, context, sessions }: Awaited<ReturnType<typeof mountRoster>>) {
-  provider.remove();
-  context.connectionBootstrap.reset();
-  sessions.dispose();
-}
 function mountBackground(
   list: (params: Record<string, unknown> | null | undefined) => unknown,
   rows?: () => GatewaySessionRow[],
@@ -162,37 +157,32 @@ it("discovers current child parents after background work was queued", async () 
     () => [...roots, ...children],
   );
   const { sidebar, context, sessions, data } = mounted;
-  try {
-    context.connectionBootstrap.setForegroundRoute(undefined);
-    sidebar.activeRouteId = "chat";
-    sidebar.sessionKey = previousParent.key;
-    await settleLitElement(sidebar);
-    expect(parents).toEqual([]);
+  context.connectionBootstrap.setForegroundRoute(undefined);
+  sidebar.activeRouteId = "chat";
+  sidebar.sessionKey = previousParent.key;
+  await settleLitElement(sidebar);
+  expect(parents).toEqual([]);
 
-    roots = [previousParent, nextParent, mainParent];
-    sidebar.sessionKey = nextParent.key;
-    await sessions.refresh({ agentId: "main", force: true });
-    await settleLitElement(sidebar);
-    expect(parents).toEqual([]);
-    expect(childToggle(sidebar, previousParent.key)?.getAttribute("aria-expanded")).toBe("false");
+  roots = [previousParent, nextParent, mainParent];
+  sidebar.sessionKey = nextParent.key;
+  await sessions.refresh({ agentId: "main", force: true });
+  await settleLitElement(sidebar);
+  expect(parents).toEqual([]);
+  expect(childToggle(sidebar, previousParent.key)?.getAttribute("aria-expanded")).toBe("false");
 
-    context.connectionBootstrap.setForegroundRoute(null);
-    await waitForFast(() =>
-      expect(parents).toEqual(expect.arrayContaining([nextParent.key, mainParent.key])),
-    );
-    await settleLitElement(sidebar);
-    expect(parents).toHaveLength(2);
-    expect(data.childSessionRowsByParent[previousParent.key]).toBeUndefined();
-    expect(data.childSessionRowsByParent[mainParent.key]?.[0]?.key).toBe(
-      mainParent.childSessions![0],
-    );
-    const expand = childToggle(sidebar, nextParent.key);
-    expect(expand?.getAttribute("aria-expanded")).toBe("true");
-    expect(sidebar.textContent).toContain(`${nextParent.key} child`);
-    expect(parents).toHaveLength(2);
-  } finally {
-    cleanup(mounted);
-  }
+  context.connectionBootstrap.setForegroundRoute(null);
+  await waitForFast(() =>
+    expect(parents).toEqual(expect.arrayContaining([nextParent.key, mainParent.key])),
+  );
+  await settleLitElement(sidebar);
+  expect(parents).toHaveLength(2);
+  expect(data.childSessionRowsByParent[previousParent.key]).toBeUndefined();
+  expect(data.childSessionRowsByParent[mainParent.key]?.[0]?.key).toBe(
+    mainParent.childSessions![0],
+  );
+  const expand = childToggle(sidebar, nextParent.key);
+  expect(expand?.getAttribute("aria-expanded")).toBe("true");
+  expect(sidebar.textContent).toContain(`${nextParent.key} child`);
 });
 
 it.each([false, true])(
@@ -200,6 +190,7 @@ it.each([false, true])(
   async (automaticFirst) => {
     vi.useFakeTimers();
     const previous = deferred<ReturnType<typeof sessionsResult>>();
+    onTestFinished(() => previous.resolve(sessionsResult([], 0)));
     const targets: unknown[] = [];
     let mainReads = 0;
     const archived = (agentId: string, label: string) =>
@@ -215,41 +206,36 @@ it.each([false, true])(
       return archived("main", `Main archived ${++mainReads}`);
     });
     const { sidebar, context } = mounted;
-    try {
-      sidebar.connected = true;
-      await settleLitElement(sidebar);
-      sidebar.sessionOrganizer.setSessionsStatusFilter("archived");
-      await vi.advanceTimersByTimeAsync(0);
-      await settleLitElement(sidebar);
-      expect(sidebar.textContent).toContain("Main archived 1");
+    sidebar.connected = true;
+    await settleLitElement(sidebar);
+    sidebar.sessionOrganizer.setSessionsStatusFilter("archived");
+    await vi.advanceTimersByTimeAsync(0);
+    await settleLitElement(sidebar);
+    expect(sidebar.textContent).toContain("Main archived 1");
 
-      context.connectionBootstrap.setForegroundRoute("agent:research:pending");
-      if (automaticFirst) {
-        context.agentSelection.set("main");
-      }
-      context.agentSelection.set("research", { background: automaticFirst });
-      await tick(sidebar);
-      if (automaticFirst) {
-        expect(targets).toEqual(["main"]);
-        expect(sidebar.textContent).not.toContain("Main archived 1");
-        context.connectionBootstrap.setForegroundRoute(null);
-        await vi.advanceTimersByTimeAsync(50);
-      }
-      expect(targets).toEqual(["main", "research"]);
-      context.connectionBootstrap.setForegroundRoute("agent:main:pending");
+    context.connectionBootstrap.setForegroundRoute("agent:research:pending");
+    if (automaticFirst) {
       context.agentSelection.set("main");
-      await tick(sidebar);
-      previous.resolve(archived("research", "Stale Research archived"));
-      await vi.advanceTimersByTimeAsync(50);
-      await settleLitElement(sidebar);
-
-      expect(sidebar.textContent).not.toContain("Stale Research archived");
-      expect(targets).toEqual(["main", "research", "main"]);
-      expect(sidebar.textContent).toContain("Main archived 2");
-    } finally {
-      previous.resolve(sessionsResult([], 0));
-      cleanup(mounted);
     }
+    context.agentSelection.set("research", { background: automaticFirst });
+    await tick(sidebar);
+    if (automaticFirst) {
+      expect(targets).toEqual(["main"]);
+      expect(sidebar.textContent).not.toContain("Main archived 1");
+      context.connectionBootstrap.setForegroundRoute(null);
+      await vi.advanceTimersByTimeAsync(50);
+    }
+    expect(targets).toEqual(["main", "research"]);
+    context.connectionBootstrap.setForegroundRoute("agent:main:pending");
+    context.agentSelection.set("main");
+    await tick(sidebar);
+    previous.resolve(archived("research", "Stale Research archived"));
+    await vi.advanceTimersByTimeAsync(50);
+    await settleLitElement(sidebar);
+
+    expect(sidebar.textContent).not.toContain("Stale Research archived");
+    expect(targets).toEqual(["main", "research", "main"]);
+    expect(sidebar.textContent).toContain("Main archived 2");
   },
 );
 
@@ -268,6 +254,7 @@ it.each(["research", "main"])(
       row(researchChild, { label: "Next child", spawnedBy: researchParent }),
     ];
     const previous = deferred<ReturnType<typeof sessionsResult>>();
+    onTestFinished(() => previous.resolve(sessionsResult([], 0)));
     const parents: unknown[] = [];
     let primaryReads = 0;
     const mounted = await mountBackground(
@@ -288,42 +275,36 @@ it.each(["research", "main"])(
       () => rows,
     );
     const { sidebar, context, sessions } = mounted;
-    try {
-      sidebar.activeRouteId = "chat";
-      sidebar.sessionKey = mainParent;
-      sidebar.connected = true;
-      await tick(sidebar);
-      expect(parents).toEqual([mainParent]);
+    sidebar.activeRouteId = "chat";
+    sidebar.sessionKey = mainParent;
+    sidebar.connected = true;
+    await tick(sidebar);
+    expect(parents).toEqual([mainParent]);
 
-      context.agentSelection.set(nextAgent);
-      sidebar.sessionKey = researchParent;
-      if (nextAgent !== "main") {
-        await sessions.refresh({ agentId: nextAgent, force: true });
-      }
-      await tick(sidebar);
-      expect(primaryReads).toBe(nextAgent === "main" ? 1 : 2);
-      previous.resolve(result(rows.filter((entry) => entry.key === mainChild)));
-      await vi.advanceTimersByTimeAsync(50);
-      await settleLitElement(sidebar);
-
-      if (nextAgent !== "main") {
-        expect(sidebar.textContent).not.toContain("Stale Main child");
-      }
-      expect(parents).toEqual([mainParent, researchParent]);
-      const expand = childToggle(sidebar, researchParent);
-      expect(expand).not.toBeNull();
-      // Only the cross-agent roster discovers a new child after the initial baseline.
-      expect(expand?.getAttribute("aria-expanded")).toBe(nextAgent === "main" ? "false" : "true");
-      if (nextAgent === "main") {
-        expand!.click();
-      }
-      await tick(sidebar, 0);
-      expect(sidebar.textContent).toContain("Next child");
-      expect(parents).toEqual([mainParent, researchParent]);
-    } finally {
-      previous.resolve(sessionsResult([], 0));
-      cleanup(mounted);
+    context.agentSelection.set(nextAgent);
+    sidebar.sessionKey = researchParent;
+    if (nextAgent !== "main") {
+      await sessions.refresh({ agentId: nextAgent, force: true });
     }
+    await tick(sidebar);
+    expect(primaryReads).toBe(nextAgent === "main" ? 1 : 2);
+    previous.resolve(result(rows.filter((entry) => entry.key === mainChild)));
+    await vi.advanceTimersByTimeAsync(50);
+    await settleLitElement(sidebar);
+
+    if (nextAgent !== "main") {
+      expect(sidebar.textContent).not.toContain("Stale Main child");
+    }
+    expect(parents).toEqual([mainParent, researchParent]);
+    const expand = childToggle(sidebar, researchParent);
+    expect(expand).not.toBeNull();
+    expect(expand?.getAttribute("aria-expanded")).toBe(nextAgent === "main" ? "false" : "true");
+    if (nextAgent === "main") {
+      expand!.click();
+    }
+    await tick(sidebar, 0);
+    expect(sidebar.textContent).toContain("Next child");
+    expect(parents).toEqual([mainParent, researchParent]);
   },
 );
 
@@ -469,8 +450,7 @@ it.each([
       groups.resolve(emptyGroups);
       unrelatedBootstrap.resolve();
       laterBootstrap.resolve();
-      await heldBootstrap;
-      await heldLater;
+      await Promise.all([heldBootstrap, heldLater]);
       provider.remove();
       sessions.dispose();
       stopBootstrap();
