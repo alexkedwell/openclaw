@@ -16,6 +16,8 @@ export async function prepareGatewayProjectGitHubIdentity(params: {
   config: OpenClawConfig;
   context: Pick<GatewayRequestContext, "getRuntimeConfig">;
   client?: GatewayClient | null;
+  /** Configured owner/repository to admit and issue an App token for. */
+  requestedRepository?: string;
   factoryCredential?: { claim: FactoryGitHubProofClaim; assertCurrent: () => void };
 }) {
   const selected =
@@ -45,6 +47,7 @@ export async function prepareGatewayProjectGitHubIdentity(params: {
       env,
       readNativeCredential,
       allowAppInstallation: appRead,
+      requestedRepository: params.requestedRepository,
       getCurrentConfig: params.context.getRuntimeConfig,
       assertActive,
       // A protected identity executable owns token refresh and revalidation.

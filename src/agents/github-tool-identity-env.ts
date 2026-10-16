@@ -1,7 +1,6 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isSecretRef, isValidEnvSecretRefId } from "../config/types.secrets.js";
 import type { GitHubToolIdentityConfig } from "../config/types.tools.js";
-import { resolveAgentConfig } from "./agent-scope.js";
 import { CLEARED_GITHUB_CREDENTIALS } from "./github-host-runtime.js";
 import { GITHUB_PUBLIC_HOST } from "./github-host.js";
 
@@ -43,22 +42,22 @@ export function githubCredentialEnvironmentExclusions(
   params: {
     config: OpenClawConfig;
     sourceConfig?: OpenClawConfig;
-    agentId: string;
   },
   selected?: GitHubToolIdentityConfig,
 ) {
   const source = params.sourceConfig ?? params.config;
-  const sourceIdentity =
-    resolveAgentConfig(source, params.agentId)?.tools?.github ?? source.tools?.github;
   const values = [
     source.gateway?.controlUi?.github?.token ?? params.config.gateway?.controlUi?.github?.token,
   ];
-  if (selected?.kind === "app-installation") {
-    values.push(
-      sourceIdentity?.kind === "app-installation"
-        ? sourceIdentity.app.privateKey
-        : selected.app.privateKey,
-    );
+  // Every signing key belongs to the Gateway, even when this agent uses OAuth
+  // or native credentials instead of the system or another agent's App.
+  for (const identity of [
+    source.tools?.github,
+    ...Object.values(source.agents?.entries ?? {}).map((agent) => agent.tools?.github),
+  ]) {
+    if (identity?.kind === "app-installation") {
+      values.push(identity.app.privateKey);
+    }
   }
   const credentialScrubEnv: Record<string, string> = selected
     ? { ...CLEARED_GITHUB_CREDENTIALS }
