@@ -1,5 +1,11 @@
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
-import { createChatComposerContext } from "./chat-composer-frame.ts";
+import { projectOwner } from "../../../lib/reactive/projection.ts";
+import { ComposerDictationOwner } from "../composer-dictation.ts";
+import { ComposerMicrophoneOwner } from "../composer-microphone-picker.ts";
+import {
+  createChatComposerContext,
+  createComposerDictationOptions,
+} from "./chat-composer-frame.ts";
 import { ComposerPredictionController } from "./chat-composer-prediction.ts";
 import { getChatComposerState, isChatRunWorking } from "./chat-composer-state.ts";
 import type { ChatComposerProps } from "./chat-composer-types.ts";
@@ -45,6 +51,21 @@ export function ChatComposer(props: ChatComposerInput) {
   const currentProps = new Proxy(props, {
     get: (target, key) => (key === "onRequestUpdate" ? requestUpdate : Reflect.get(target, key)),
   });
+  state.microphonePicker ??= new ComposerMicrophoneOwner();
+  state.dictation ??= new ComposerDictationOwner(
+    createComposerDictationOptions(currentProps, state, state.microphonePicker),
+  );
+  const voice = { dictation: state.dictation, picker: state.microphonePicker };
+  onCleanup(
+    voice.dictation.subscribe(() => {
+      if (voice.dictation.locksComposer) {
+        state.editRevision += 1;
+        currentProps.onDismissRealtimeTalkError?.();
+      }
+    }),
+  );
+  const dictation = projectOwner(voice.dictation, (owner) => owner);
+  const microphone = projectOwner(voice.picker, (owner) => owner);
   const prediction = new ComposerPredictionController(() => {
     const options = currentProps.composerPredictions;
     const client = currentProps.gatewayClient;
@@ -77,12 +98,14 @@ export function ChatComposer(props: ChatComposerInput) {
     };
   }, requestUpdate);
   const context = createMemo(() => {
+    dictation.read();
+    microphone.read();
     revision();
     // Lit owners can change local state without changing a prop's identity.
     void props.renderRevision;
     computingFrame = true;
     try {
-      return createChatComposerContext(currentProps, prediction);
+      return createChatComposerContext(currentProps, voice, prediction);
     } finally {
       computingFrame = false;
     }

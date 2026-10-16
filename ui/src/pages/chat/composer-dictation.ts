@@ -1,5 +1,6 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { t } from "../../i18n/index.ts";
+import { listen } from "../../lib/reactive/listener.ts";
 import { GatewaySpeechPlayback } from "../../lib/speech-playback.ts";
 import { ComposerDictationSession, formatDictationError } from "./composer-dictation-session.ts";
 import { RealtimeTalkLevelSignal } from "./talk/level.ts";
@@ -14,7 +15,7 @@ type ComposerDictationFailure = {
   preservesText: boolean;
 };
 
-type ComposerDictationControllerOptions = {
+type ComposerDictationOwnerOptions = {
   client: GatewayBrowserClient | null;
   sessionKey?: string;
   connected: boolean;
@@ -23,7 +24,6 @@ type ComposerDictationControllerOptions = {
   realtimeTalkActive: boolean;
   onCommit: (text: string, late?: true) => void;
   onError: (message: string, failure: ComposerDictationFailure) => void;
-  onStateChange: () => void;
   onTap?: () => void;
   onDictationUnavailable?: () => void;
 };
@@ -52,10 +52,10 @@ export function insertComposerDictation(
   };
 }
 
-export class ComposerDictationController {
+// Gesture and session admission must remain synchronous across pointer and media callbacks.
+export class ComposerDictationOwner extends EventTarget {
   readonly inputLevel = new RealtimeTalkLevelSignal();
   private readonly playback = new GatewaySpeechPlayback();
-  private options: ComposerDictationControllerOptions;
   private phase: DictationPhase = "idle";
   private pointerId: number | null = null;
   private pointerTarget: HTMLElement | null = null;
@@ -67,8 +67,12 @@ export class ComposerDictationController {
   private pendingCommitSession: ComposerDictationSession | null = null;
   private disposed = false;
 
-  constructor(options: ComposerDictationControllerOptions) {
-    this.options = options;
+  constructor(private options: ComposerDictationOwnerOptions) {
+    super();
+  }
+
+  subscribe(listener: () => void) {
+    return listen(this, "change", listener);
   }
 
   get active(): boolean {
@@ -112,7 +116,7 @@ export class ComposerDictationController {
     return true;
   }
 
-  update(options: ComposerDictationControllerOptions): void {
+  update(options: ComposerDictationOwnerOptions): void {
     this.options = options;
     if (!options.connected) {
       this.pendingCommitSession?.markGatewayDisconnected();
@@ -120,7 +124,7 @@ export class ComposerDictationController {
     if (this.phase === "stopping") {
       return;
     }
-    if ((this.phase !== "idle" && !this.canHold()) || (this.active && !options.connected)) {
+    if (this.phase !== "idle" && !this.canHold()) {
       const keepFinal = this.active && !options.connected;
       const preservesText = keepFinal ? (this.session?.markGatewayDisconnected() ?? false) : false;
       void this.stop({ commit: keepFinal });
@@ -166,18 +170,14 @@ export class ComposerDictationController {
     if (this.suppressedPointerId !== null) {
       this.clearClickSuppression();
       event.preventDefault();
-      return;
-    }
-    if (this.active) {
+    } else if (this.phase === "idle") {
+      this.options.onTap?.();
+    } else {
       event.preventDefault();
-      void this.finishActive();
-      return;
+      if (this.active) {
+        void this.finishActive();
+      }
     }
-    if (this.phase !== "idle") {
-      event.preventDefault();
-      return;
-    }
-    this.options.onTap?.();
   }
 
   handleContextMenu(event: MouseEvent): void {
@@ -188,7 +188,10 @@ export class ComposerDictationController {
 
   dispose(): void {
     this.disposed = true;
-    this.retirePendingCommit();
+    this.cancel();
+  }
+
+  cancel(): void {
     this.clearClickSuppression();
     void this.stop({ commit: false });
   }
@@ -302,7 +305,7 @@ export class ComposerDictationController {
           }
         },
         onLevel: (level) => this.inputLevel.set(level),
-        onTranscriptChange: () => this.options.onStateChange(),
+        onTranscriptChange: () => this.dispatchEvent(new Event("change")),
         onReady: () => {
           if (this.session === session && this.phase === "connecting") {
             this.setPhase("recording");
@@ -344,15 +347,14 @@ export class ComposerDictationController {
     const committed = Boolean(options.commit && transcript && wasActive && !this.disposed);
     this.session = null;
     this.reset();
-    if (committed) {
-      this.playback.stop();
-      this.options.onCommit(transcript);
-    }
     if (!options.commit) {
       void session.cancel().catch(() => undefined);
       return Promise.resolve(false);
     }
     if (committed) {
+      this.playback.stop();
+      this.options.onCommit(transcript);
+      this.dispatchEvent(new Event("change"));
       void session.finish().catch(() => undefined);
       return Promise.resolve(true);
     }
@@ -362,6 +364,7 @@ export class ComposerDictationController {
     this.syncCancellationListeners();
     return session
       .finish(true)
+      .catch(() => "")
       .then((lateTranscript) => {
         const ownsPendingCommit = this.pendingCommitSession === session;
         if (ownsPendingCommit) {
@@ -373,16 +376,10 @@ export class ComposerDictationController {
           return false;
         }
         this.options.onCommit(lateTranscript, true);
+        this.dispatchEvent(new Event("change"));
         return true;
       })
-      .catch(() => {
-        if (this.pendingCommitSession === session) {
-          this.pendingCommitSession = null;
-          this.playback.stop();
-          this.syncCancellationListeners();
-        }
-        return false;
-      });
+      .catch(() => false);
   }
 
   private reset(): void {
@@ -445,7 +442,7 @@ export class ComposerDictationController {
     }
     this.phase = phase;
     this.syncCancellationListeners();
-    this.options.onStateChange();
+    this.dispatchEvent(new Event("change"));
   }
 
   private syncCancellationListeners(): void {
