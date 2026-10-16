@@ -2,7 +2,6 @@ import type { ResolvedProviderAuth } from "../agents/model-auth-runtime-shared.j
 import type { ModelCatalogEntry } from "../agents/model-catalog.types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { Model } from "../llm/types.js";
-import type { DecisionEvaluateOptionsV2 } from "./types-v2.js";
 
 /** Private prepared facts supplied only to the selected executor; never projected in results. */
 export type DecisionProviderContextV2 = {
@@ -13,7 +12,7 @@ export type DecisionProviderContextV2 = {
   readonly auth: Readonly<Pick<ResolvedProviderAuth, "apiKey" | "mode" | "profileId">>;
   readonly signal: AbortSignal;
   readonly deadlineMonotonicMs: number;
-  readonly reasoning?: DecisionEvaluateOptionsV2["reasoning"];
+  readonly reasoning?: "auto" | "off" | "on";
   /** Check synchronously at physical dispatch, including after DNS or worker queue waits.
    * False closes this request; a thrown caller authority assertion remains terminal. */
   readonly isAdmissible: () => boolean;
