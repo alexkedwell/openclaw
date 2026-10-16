@@ -262,7 +262,6 @@ describe("createLazyGatewayCronState", () => {
     await lazy.stopStreamWatchers();
     expect(state.stopStreamWatchers).toHaveBeenCalledTimes(1);
   });
-
 });
 
 function createParams(overrides: Partial<OpenClawConfig> = {}) {
