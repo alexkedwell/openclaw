@@ -49,7 +49,8 @@ describe.skipIf(!connection)("PostgreSQL shared-state owner", () => {
     const client = new pg.Client({ connectionString: connection });
     await client.connect();
     installDatabaseEngineSelection({
-      input: { connection: connection!, schemaPrefix: "state_layout_conformance" },
+      effectiveEngines: resolveDatabaseFamilyEngines({ database: { engine: "postgres" } }),
+      postgres: { connection: connection!, schemaPrefix: "state_layout_conformance" },
     });
     let namespace: string | undefined;
     try {
