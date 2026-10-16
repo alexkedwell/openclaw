@@ -179,8 +179,8 @@ export function traceIsolatedCompletionColdStart(
         record("build-stats", { id, ...stats });
       };
       const result = build(...args);
-      observe(result.pending, "build-publication", id);
-      observe(result.completion, "build-settled", id);
+      void observe(result.pending, "build-publication", id);
+      void observe(result.completion, "build-settled", id);
       return result;
     }),
   );
@@ -195,7 +195,7 @@ export function traceIsolatedCompletionColdStart(
       for (const remove of removeListeners) {
         remove();
       }
-      for (const spy of spies.reverse()) {
+      for (const spy of spies.toReversed()) {
         spy.mockRestore();
       }
       record("fixture-settled");
