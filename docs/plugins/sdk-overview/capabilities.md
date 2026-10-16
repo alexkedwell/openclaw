@@ -411,8 +411,13 @@ previous value across reload. Refresh with `secrets.reload`; capability failure
 does not retain an old key.
 
 `plugins.inspect` reports configuration, credential readiness, current callability,
-last success, usage, latency, and bounded unavailable counts. Counts are
-instance-local diagnostics, not durable audit records or write authority.
+last success, usage, latency, and bounded unavailable counts. For V1, `credentialReady: true`
+means the provider's local `isReady()` confirmed prepared credentials. `false`
+means readiness is unconfirmed or unavailable, not necessarily that credentials
+are missing. V2 omits `credentialReady` because credentials are selected for each
+agent/profile during preparation. Omitting V1 `isReady()` leaves evaluation eligible; returning `false`
+blocks it. `callable` separately reports current admission, not guaranteed success.
+Counts are instance-local diagnostics, not durable audit records or write authority.
 
 For discovery, declare decision capabilities in the model's canonical
 `modelCatalog.providers.<id>.models[].inference.decision` metadata. Each provider

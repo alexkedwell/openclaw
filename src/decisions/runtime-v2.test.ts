@@ -92,6 +92,11 @@ it("leaves V2 credential admission to preparation without a global readiness cla
     status: "ok",
   });
   expect(evaluate).toHaveBeenCalledOnce();
+  const providerHost = host.registry.decisionProviders[0]!.host;
+  providerHost.retire();
+  const retired = providerHost.inspect(config);
+  expect(retired).not.toHaveProperty("credentialReady");
+  expect(retired.callable).toBe(false);
 });
 
 it.each([undefined, false, true])(
