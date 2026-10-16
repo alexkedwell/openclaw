@@ -50,6 +50,7 @@ type FixtureOptions = {
   sandboxUrl?: string;
   sandboxPort?: number;
   liveRun?: boolean;
+  liveDurationMs?: number;
   sidebarListChurn?: boolean;
   sidebarLiveChurn?: boolean;
   duplicateBootReads?: boolean;
@@ -518,7 +519,7 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
       },
     },
   };
-  // 125 frames over 20 seconds: streaming is mixed with unrelated Team activity.
+  // By default, 125 frames over 20 seconds mix streaming with unrelated Team activity.
   const liveKinds = [
     ...Array<string>(5).fill("presence.offscreen"),
     ...Array<string>(2).fill("presence.visible"),
@@ -532,7 +533,8 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     ...Array<string>(2).fill("run-state.unrelated"),
   ];
   const livePresence = presenceEntries.map((entry) => Object.assign({}, entry));
-  const liveEvents: TeamScaleLiveEvent[] = Array.from({ length: 125 }, (_, index) => {
+  const liveCount = Math.ceil((options.liveDurationMs ?? 20_000) / 160);
+  const liveEvents: TeamScaleLiveEvent[] = Array.from({ length: liveCount }, (_, index) => {
     const kind = liveKinds[index % liveKinds.length]!;
     const ts = now + (index + 1) * 160;
     const runId = TEAM_SCALE_LIVE_RUN_ID;

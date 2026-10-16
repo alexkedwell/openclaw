@@ -40,14 +40,25 @@ describe("Solid menu navigation", () => {
     expect(document.activeElement).toBe(item("Second"));
   });
 
-  it("materializes lazy content at first keyboard admission and retains it when reopened", async () => {
+  it("materializes each menu branch at keyboard admission and retains it when reopened", async () => {
     let itemReads = 0;
     let childrenReads = 0;
+    let submenuReads = 0;
     const view = mountMenu({
       lazy: true,
       get items() {
         itemReads += 1;
-        return [{ id: "ready", label: "Ready" }];
+        return [
+          { id: "ready", label: "Ready" },
+          {
+            id: "owners",
+            label: "Assign to",
+            children: () => {
+              submenuReads += 1;
+              return [{ id: "ada", label: "Ada" }];
+            },
+          },
+        ];
       },
       get children() {
         childrenReads += 1;
@@ -56,18 +67,32 @@ describe("Solid menu navigation", () => {
     });
     expect(itemReads).toBe(0);
     expect(childrenReads).toBe(0);
+    expect(submenuReads).toBe(0);
     trigger().focus();
     await userEvent.keyboard("{ArrowDown}");
     await phase(surface(), "open");
     const ready = item("Ready");
     expect(document.activeElement).toBe(ready);
     expect(childrenReads).toBe(1);
+    expect(submenuReads).toBe(0);
+    await userEvent.keyboard("{ArrowDown}{ArrowRight}");
+    await phase(surface("people-owners"), "open");
+    const ada = item("Ada", "people-owners");
+    expect(document.activeElement).toBe(ada);
+    expect(submenuReads).toBeGreaterThan(0);
+    await userEvent.keyboard("{Escape}");
+    await phase(surface("people-owners"), "hidden");
+    expect(document.activeElement).toBe(trigger("people-owners"));
     await userEvent.keyboard("{Escape}");
     await phase(surface(), "hidden");
     expect(view.handle.open()).toBe(true);
     await phase(surface(), "open");
     expect(item("Ready")).toBe(ready);
     expect(childrenReads).toBe(1);
+    trigger("people-owners").focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await phase(surface("people-owners"), "open");
+    expect(item("Ada", "people-owners")).toBe(ada);
   });
 
   it.each([false, true])("refuses lazy admission without active effects (veto %s)", (veto) => {

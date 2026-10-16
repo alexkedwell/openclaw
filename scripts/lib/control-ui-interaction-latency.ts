@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 
-type Step = { kind: string; start: number; end?: number };
+type Step = { kind: string; start: number; end?: number; streamDeltas: number; teamEvents: number };
 type EventTiming = {
   name: string;
   startTime: number;
@@ -46,6 +46,24 @@ export function summarizeInteractionLatency(capture: InteractionCapture) {
         }
       }
       const events = [...interactions.values()];
+      const parts = events.map((event) => {
+        const paint = event.startTime + event.duration;
+        // Event Timing rounds to 8 ms; include the other handlers presented in this frame.
+        const frameEvents = capture.events.filter(
+          (entry) => Math.abs(entry.startTime + entry.duration - paint) <= 8,
+        );
+        const start = event.processingStart;
+        const nextPaint = Math.max(paint, start);
+        const end = Math.max(
+          start,
+          Math.min(nextPaint, Math.max(...frameEvents.map((entry) => entry.processingEnd))),
+        );
+        return {
+          inputDelayMs: start - event.startTime,
+          processingMs: end - start,
+          presentationDelayMs: nextPaint - end,
+        };
+      });
       return [
         kind,
         {
@@ -62,17 +80,9 @@ export function summarizeInteractionLatency(capture: InteractionCapture) {
           ),
           observedEventTiming: {
             latencyMs: distribution(events.map((event) => event.duration)),
-            inputDelayMs: distribution(
-              events.map((event) => event.processingStart - event.startTime),
-            ),
-            processingMs: distribution(
-              events.map((event) => event.processingEnd - event.processingStart),
-            ),
-            presentationDelayMs: distribution(
-              events.map((event) =>
-                Math.max(0, event.startTime + event.duration - event.processingEnd),
-              ),
-            ),
+            inputDelayMs: distribution(parts.map((part) => part.inputDelayMs)),
+            processingMs: distribution(parts.map((part) => part.processingMs)),
+            presentationDelayMs: distribution(parts.map((part) => part.presentationDelayMs)),
           },
           blockingFrames: capture.frames.filter((frame) =>
             events.some(
@@ -89,6 +99,9 @@ export function summarizeInteractionLatency(capture: InteractionCapture) {
 
 /** Serialized into the disposable benchmark page before application startup. */
 export function installInteractionLatencyProbe() {
+  if (window !== window.top) {
+    return;
+  }
   const steps: Step[] = [];
   const events: object[] = [];
   const frames: object[] = [];
@@ -125,7 +138,13 @@ export function installInteractionLatencyProbe() {
   }
   Reflect.set(window, "__interactionLatency", {
     begin(kind: string) {
-      steps.push({ kind, start: performance.now() });
+      const streamDeltas = Reflect.get(window, "__streamingReply").read().delivered;
+      steps.push({
+        kind,
+        start: performance.now(),
+        streamDeltas,
+        teamEvents: Reflect.get(window, "__coldLoad").readLive().sentEvents - streamDeltas,
+      });
     },
     end() {
       const step = steps.at(-1);
@@ -146,6 +165,7 @@ export async function runInteractionLatencyScenario(
   input: {
     selectedSessionKey: string;
     otherSessionKey: string;
+    teamEventCount: number;
     stream: { deltas: string[]; deltasPerSecond: number; runId: string };
   },
 ) {
@@ -164,18 +184,20 @@ export async function runInteractionLatencyScenario(
     await frame();
     await page.evaluate(() => Reflect.get(window, "__interactionLatency").end());
   };
+  await composer.fill("");
   await composer.focus();
   await page.evaluate((input) => {
-    Reflect.get(window, "__coldLoad").startLive(false);
     Reflect.get(window, "__streamingReply").start({
       ...input.stream,
+      deltas: [],
       sessionKey: input.selectedSessionKey,
     });
+    Reflect.get(window, "__coldLoad").startLive(false);
   }, input);
   const started = Date.now();
   for (let round = 0; round < 7; round++) {
     await new Promise((resolve) =>
-      setTimeout(resolve, Math.max(0, started + round * 4000 - Date.now())),
+      setTimeout(resolve, Math.max(0, started + round * 8000 - Date.now())),
     );
     await composer.focus();
     await step("typing", async () => {
@@ -224,6 +246,15 @@ export async function runInteractionLatencyScenario(
     { timeout: 60_000 },
   );
   await frame();
+  await active.locator(".chat-thread").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.waitForFunction(() => {
+    const text = document.querySelector(
+      ".chat-pane-cache__pane--active .chat-bubble.streaming .chat-text",
+    );
+    return text && ["h2", "pre", "table"].every((tag) => text.querySelectorAll(tag).length === 24);
+  });
   // Event Timing entries are published asynchronously after paint (up to 104 ms).
   await new Promise((resolve) => setTimeout(resolve, 150));
   const probe: InteractionCapture = await page.evaluate(() =>
@@ -231,14 +262,26 @@ export async function runInteractionLatencyScenario(
   );
   const stream = await page.evaluate(() => Reflect.get(window, "__streamingReply").finish());
   await page.evaluate(() => Reflect.get(window, "__coldLoad").finishLive());
-  if (!stream.finalHtml || stream.deltas.length !== input.stream.deltas.length) {
+  if (
+    !stream.finalHtml ||
+    stream.deltas.length !== input.stream.deltas.length ||
+    ["<h2", "<table", "<pre"].some((tag) => stream.finalHtml.split(tag).length - 1 !== 24)
+  ) {
     throw new Error("Interaction scenario did not retain the streamed reply");
+  }
+  if (
+    probe.steps.some(
+      (step) =>
+        step.streamDeltas >= input.stream.deltas.length || step.teamEvents >= input.teamEventCount,
+    )
+  ) {
+    throw new Error("Interaction scenario outlasted its simultaneous reply/Team traffic");
   }
   return {
     probe,
     summary: summarizeInteractionLatency(probe),
     measurement:
-      "Trusted native keyboard typing, PageUp/PageDown scrolling, session-menu clicks and pinned-session switches during a 20 Hz cumulative answer plus the Team live-event mix (excluding competing chat deltas). Event Timing is censored below 16 ms and rounded to 8 ms; reported event distributions include only observed interactions, grouped by interactionId using the longest event. Native capture-listener input delay includes fast events. PageUp/PageDown Event Timing measures keyboard-to-paint, not completion of smooth scrolling. Overlapping LoAFs identify candidate blockers, not exclusive causal attribution.",
+      "Trusted native keyboard typing, PageUp/PageDown scrolling, session-menu clicks and pinned-session switches during a 30 Hz cumulative answer plus the Team live-event mix (excluding competing chat deltas). Event Timing is censored below 16 ms and rounded to 8 ms; reported event distributions include only observed interactions, grouped by interactionId using the longest event. Native capture-listener input delay includes fast events. PageUp/PageDown Event Timing measures keyboard-to-paint, not completion of smooth scrolling. Overlapping LoAFs identify candidate blockers, not exclusive causal attribution.",
     stream,
     live: await page.evaluate(() => Reflect.get(window, "__coldLoad").readLive()),
   };

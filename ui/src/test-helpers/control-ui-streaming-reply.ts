@@ -237,7 +237,7 @@ function installStreamingReplyProbe() {
       });
       return {
         measurement:
-          "Untraced streaming only. Per-delta taskAndMicrotasksMs is delivery to a MessageChannel task (includes app microtasks and scheduling delay). Parse/geometry/style totals include asynchronous work until the next delta. Frame loss assumes 60 Hz; keydown samples are trusted native input to next rAF, not presentation timestamps.",
+          "Untraced reply delivery. Per-delta taskAndMicrotasksMs is delivery to a MessageChannel task (includes app microtasks and scheduling delay). Parse/geometry/style totals include all asynchronous work until the next delta. Frame loss assumes 60 Hz; keydown samples are trusted native input to next rAF, not presentation timestamps.",
         startedAt,
         elapsedMs: performance.now() - startedAt,
         rig: {
@@ -263,7 +263,9 @@ function installStreamingReplyProbe() {
             sample.nextFrameMs === undefined ? [] : [sample.nextFrameMs],
           ),
         ),
-        finalHtml: document.querySelector(".chat-bubble.streaming .chat-text")?.innerHTML ?? null,
+        finalHtml:
+          document.querySelector(".chat-pane-cache__pane--active .chat-bubble.streaming .chat-text")
+            ?.innerHTML ?? null,
       };
     },
   });

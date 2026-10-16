@@ -200,11 +200,8 @@ const { values } = parseArgs({
 if (values["streaming-reply"] && values["live-events"]) {
   throw new Error("streaming-reply measures an isolated answer; do not combine with live-events");
 }
-if (
-  values["interaction-latency"] &&
-  (values["streaming-reply"] || values["live-events"] || !values.untraced)
-) {
-  throw new Error("interaction-latency requires untraced and owns its combined reply/event stream");
+if (values["interaction-latency"] && (values["streaming-reply"] || values["live-events"])) {
+  throw new Error("interaction-latency owns its combined reply/event stream");
 }
 if (values["warm-reload"] && !values["probe-dir"]) {
   throw new Error("warm-reload requires probe-dir with LoAF/mutation and RPC census init scripts");
@@ -270,6 +267,7 @@ const fixture = createControlUiTeamScaleFixture({
   sandboxUrl: buildSandboxHostPath({ blockDescendantFrames: true }),
   sandboxPort: address.port,
   liveRun: values["live-events"] || values["streaming-reply"] || values["interaction-latency"],
+  liveDurationMs: values["interaction-latency"] ? 60_000 : undefined,
   sidebarListChurn: values["sidebar-list-churn"],
   sidebarLiveChurn: values["sidebar-live-churn"],
   duplicateBootReads: values["duplicate-boot-reads"],
@@ -279,9 +277,26 @@ const streamingReply =
     ? createControlUiStreamingReply()
     : undefined;
 if (values["interaction-latency"]) {
-  // The long-answer emitter alone owns the active reply; retain the Team event mix around it.
-  fixture.liveEvents = fixture.liveEvents.filter((item) => item.event !== "chat");
-  streamingReply!.deltasPerSecond = 20;
+  // One event/history owner keeps the long answer coherent across session switches.
+  streamingReply!.deltas = Array.from({ length: 1800 }, (_, index) =>
+    streamingReply!.text.slice(0, Math.ceil(((index + 1) * streamingReply!.text.length) / 1800)),
+  );
+  fixture.liveEvents = [
+    ...fixture.liveEvents.filter((item) => item.event !== "chat"),
+    ...streamingReply!.deltas.map((text, index) => ({
+      atMs: ((index + 1) * 1000) / streamingReply!.deltasPerSecond,
+      kind: "chat.delta.reply",
+      event: "chat",
+      history: { text },
+      payload: {
+        sessionKey: fixture.selectedSessionKey,
+        runId: fixture.scenario.inFlightRun!.runId,
+        seq: index + 1,
+        state: "delta",
+        message: { role: "assistant", content: [{ type: "text", text }] },
+      },
+    })),
+  ].toSorted((left, right) => left.atMs - right.atMs);
 }
 const extraInitScripts = await Promise.all(
   values["init-script"].map((file) => readFile(file, "utf8")),
@@ -666,8 +681,12 @@ try {
     let streaming;
     let interactions;
     if (values["interaction-latency"]) {
+      if (!values.untraced) {
+        await cdp.send("Profiler.start");
+      }
       interactions = await runInteractionLatencyScenario(page, {
         selectedSessionKey: fixture.selectedSessionKey,
+        teamEventCount: fixture.liveEvents.filter((item) => item.event !== "chat").length,
         otherSessionKey: fixture.sidebarEntries
           .find(
             (entry) =>
@@ -675,11 +694,39 @@ try {
           )!
           .slice("session:".length),
         stream: { ...streamingReply!, runId: fixture.scenario.inFlightRun!.runId },
+      }).catch(async (error: unknown) => {
+        await writeFile(
+          path.join(artifactDir, `run-${run + 1}.interactions-failure.json`),
+          JSON.stringify(
+            await page.evaluate(() => ({
+              probe: Reflect.get(window, "__interactionLatency").read(),
+              stream: Reflect.get(window, "__streamingReply").finish(),
+              live: Reflect.get(window, "__coldLoad").readLive(),
+            })),
+          ),
+        );
+        await page.screenshot({
+          path: path.join(artifactDir, `run-${run + 1}.interactions-failure.png`),
+        });
+        throw error;
       });
       await writeFile(
         path.join(artifactDir, `run-${run + 1}.interactions.json`),
         JSON.stringify(interactions, null, 2),
       );
+      if (!values.untraced) {
+        const interactionProfile = await cdp.send("Profiler.stop");
+        await writeFile(
+          path.join(artifactDir, `run-${run + 1}.interactions.cpuprofile`),
+          JSON.stringify(interactionProfile.profile),
+        );
+      }
+      // Capture the resulting menu outside the measured interaction window.
+      await page
+        .locator(".chat-pane-cache__pane--active .chat-header-session-menu__trigger")
+        .click();
+      await page.screenshot({ path: path.join(artifactDir, `run-${run + 1}.interactions.png`) });
+      await page.keyboard.press("Escape");
     }
     if (streamingReply && !values["interaction-latency"]) {
       const composer = page.locator(".agent-chat__composer-combobox textarea").last();
@@ -977,6 +1024,7 @@ try {
         fixture: fixture.counts,
         sidebarView,
         streamingReply: values["streaming-reply"],
+        interactionLatency: values["interaction-latency"],
         sidebarListChurn: values["sidebar-list-churn"],
         sidebarLiveChurn: fixture.sidebarLiveChurn,
         traced: !values.untraced,
