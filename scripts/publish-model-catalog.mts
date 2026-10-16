@@ -213,8 +213,9 @@ export async function assembleModelCatalogBundle(options: {
         throw new Error(`provider ${providerId} is declared by more than one plugin manifest`);
       }
       if (isRecord(provider)) {
+        // Credential ownership belongs to the installed manifest, never a downloaded catalog.
         // Manifests shipped since 2026.9.7 may still carry the retired authoring field.
-        const { recommendedModels: _retired, ...v1Provider } = provider;
+        const { authScope: _authScope, recommendedModels: _retired, ...v1Provider } = provider;
         providers[providerId] = v1Provider;
       } else {
         providers[providerId] = provider;
@@ -235,7 +236,8 @@ export async function assembleModelCatalogBundle(options: {
     sourceCommit: options.sourceCommit,
     providers,
   };
-  const validateBundle = options.validateBundle ?? (await loadClientBundleValidator());
+  const validateBundle: BundleValidator =
+    options.validateBundle ?? (await loadClientBundleValidator());
   const validated = validateBundle(bundle);
   // The assembly is canonical source data, not a legacy wire projection. Preserve
   // validated task declarations until v1/v2 and v3 are projected separately.

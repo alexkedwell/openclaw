@@ -73,7 +73,7 @@ function registered(evaluate: DecisionProviderV2["evaluate"]) {
   preparation.billing = {
     unit: "tokens",
     source: "provider-catalog",
-    usdPerMillion: { input: 2 },
+    usdPerMillion: { input: 2, output: 0 },
   };
   const builder = createTestPluginRegistry({
     modelAuth: { isProviderApiKeyConfigured: () => true },

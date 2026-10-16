@@ -95,7 +95,6 @@ export class DecisionProviderHost {
     readonly provider: DecisionProviderV1 | DecisionProviderV2,
     readonly record: PluginRecord,
     private readonly registration?: PluginProviderRegistration,
-    private readonly credentialReady?: (config: OpenClawConfig) => boolean,
   ) {}
 
   private generation(config: OpenClawConfig): Health {
@@ -184,12 +183,13 @@ export class DecisionProviderHost {
     await Promise.all([...this.pending.values()].map((request) => request.done));
   }
 
-  private ready(config: OpenClawConfig): boolean {
+  private ready(): boolean {
+    if (this.provider.contractVersion === 2) {
+      // V2 authentication belongs to the selected prepared agent/profile, not a global probe.
+      return true;
+    }
     try {
-      const available =
-        this.provider.contractVersion === 1
-          ? (this.provider.isReady?.() ?? true)
-          : (this.credentialReady?.(config) ?? false);
+      const available = this.provider.isReady?.() ?? true;
       if (typeof available !== "boolean") {
         throw new DecisionContractError();
       }
@@ -207,16 +207,20 @@ export class DecisionProviderHost {
       config.plugins?.enabled !== false &&
       config.plugins?.entries?.[this.record.id]?.enabled !== false;
     const admitted = !this.retired && !this.reloadPause && instance?.acceptingCalls === true;
-    const credentialReady = admitted && instance.run(() => this.ready(config));
+    const credentialReady =
+      this.provider.contractVersion === 1
+        ? admitted && instance.run(() => this.ready())
+        : undefined;
     return {
       providerId: this.provider.id,
       pluginId: this.record.id,
       configured,
-      credentialReady,
+      ...(credentialReady === undefined ? {} : { credentialReady }),
       callable:
         configured &&
         enabled &&
-        credentialReady &&
+        admitted &&
+        credentialReady !== false &&
         !health.trial &&
         health.openUntil <= performance.now() &&
         this.pending.size < MAX_CONCURRENT,
@@ -338,7 +342,7 @@ export class DecisionProviderHost {
     }
     const health = this.generation(config);
     const readConfig = createRuntimeConfigReader(config);
-    if (!instance.runInRegistry(registry, () => this.ready(config))) {
+    if (!instance.runInRegistry(registry, () => this.ready())) {
       return this.unavailable("credentials-unavailable");
     }
     if (health.openUntil > performance.now() || health.trial) {

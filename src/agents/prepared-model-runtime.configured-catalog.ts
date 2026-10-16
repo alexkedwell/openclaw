@@ -115,9 +115,21 @@ export function prepareCapturedRuntimeFacts(
     config: params.agentFacts.input.config,
     metadataSnapshot: params.workspaceFacts.pluginMetadataSnapshot,
   });
+  const keyOf = createModelCatalogIdentityKeyResolver();
+  const declaredByIdentity = indexFirstByKey(
+    manifestCatalog.filter((entry) => entry.inference !== undefined),
+    keyOf,
+  );
   const entries = dedupeByKey(
     [
-      ...facts.modelCatalog.entries,
+      ...facts.modelCatalog.entries.map((entry) => {
+        const declared = declaredByIdentity.get(keyOf(entry));
+        // Configured membership must retain the exact route's inference contract.
+        // Route changes clear its capabilities without promoting typed rows to chat.
+        return declared
+          ? { ...entry, inference: overlayCatalogMetadata(declared, entry).inference }
+          : entry;
+      }),
       // Typed-only rows have no conversational registry Model. Carry their canonical
       // manifest facts into the same prepared generation instead of inventing chat defaults.
       ...manifestCatalog.filter((entry) => entry.inference?.chat === false),
@@ -128,7 +140,7 @@ export function prepareCapturedRuntimeFacts(
         return entry;
       }),
     ],
-    createModelCatalogIdentityKeyResolver(),
+    keyOf,
   );
   const orderedEntries = assignProviderModelOrder(entries, manifestCatalog, {
     appendUnknown: false,

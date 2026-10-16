@@ -141,7 +141,7 @@ export function finalizePluginLlmCompletion(params: {
       agentId: params.result.agentId,
       sessionKey: params.result.audit.sessionKey,
     },
-    onUsage: (usage) =>
+    onUsage: (recordedUsage) =>
       logger.info("plugin llm completion", {
         caller: params.result.audit.caller,
         purpose: params.result.audit.purpose,
@@ -151,7 +151,7 @@ export function finalizePluginLlmCompletion(params: {
         model: params.result.model,
         executionMode: params.result.execution.mode,
         executionOwner: params.result.execution.owner,
-        usage,
+        usage: recordedUsage,
       }),
   });
   return { ...params.result, usage };

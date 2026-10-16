@@ -145,7 +145,12 @@ describe("usage cost estimation", () => {
   ])(
     "prices captured route rates only when charged buckets are known: %j",
     ({ usage, declaredCost, expected }) => {
-      expect(estimateUsageCost({ usage, declaredCost })).toBe(expected);
+      const cost = estimateUsageCost({ usage, declaredCost });
+      if (expected === undefined || expected === 0) {
+        expect(cost).toBe(expected);
+      } else {
+        expect(cost).toBeCloseTo(expected, 15);
+      }
     },
   );
 

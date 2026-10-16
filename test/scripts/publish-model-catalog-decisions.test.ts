@@ -24,6 +24,7 @@ function fixture(chatModels = 200) {
         providers: {
           anthropic: { models: [{ id: "chat-a" }] },
           openai: {
+            authScope: "agent",
             models: Array.from({ length: chatModels - 1 }, (_, index) => ({
               id: `chat-${index}`,
               ...(index === 0
@@ -37,6 +38,7 @@ function fixture(chatModels = 200) {
             })),
           },
           fixture: {
+            authScope: "plugin",
             defaultModel: "native",
             defaultUtilityModel: "native",
             headers: { "X-Fixture": "not-a-secret" },
