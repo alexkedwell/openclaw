@@ -1850,10 +1850,10 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
     const expectToolFinish = (choices: OpenAI.ChatCompletionChunk["choices"]) =>
       expect(choices.some((choice) => choice.finish_reason === "tool_calls")).toBe(true);
 
-    for (const deltas of [
-      ["he", "llo"],
-      ["hi", "hi"],
-    ]) {
+    for (const [deltas, expected] of [
+      [["he", "llo"], "hello"],
+      [["hi", "hi"], "hihi"],
+    ] as const) {
       mockDeltas([...deltas]);
       const { response, data, chunks, choices } = await request();
       expect(streamContent(chunks)).toBe(expected);
@@ -2455,6 +2455,7 @@ describe("OpenAI-compatible HTTP API (e2e) with independent Gateways", () => {
             ...[incognitoSessionKey, "dashboard:incognito-openai-http"].map((key) => ({
               headers: { "x-openclaw-scopes": "operator.write", "x-openclaw-session-key": key },
               status: 403,
+              authenticated: true,
             })),
             {
               headers: {
@@ -2462,6 +2463,7 @@ describe("OpenAI-compatible HTTP API (e2e) with independent Gateways", () => {
                 "x-openclaw-session-key": "dashboard:incognito-openai-http",
               },
               status: 200,
+              authenticated: true,
             },
             {
               headers: { "x-openclaw-scopes": adminScopes, "x-openclaw-sender-is-owner": "true" },
