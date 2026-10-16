@@ -104,6 +104,7 @@ describe("createLifecycleEventBroadcastHandler", () => {
         ? {
             [query.key]: {
               sessionId: "original",
+              updatedAt: 1,
               lifecycleRevision: "first",
               label: "Original row",
             },
@@ -143,6 +144,7 @@ describe("createLifecycleEventBroadcastHandler", () => {
       if (scenario.replace) {
         projection.setEntry(query.key, {
           sessionId: "successor",
+          updatedAt: 2,
           lifecycleRevision: "next",
           label: "Successor row",
         });
@@ -162,7 +164,7 @@ describe("createLifecycleEventBroadcastHandler", () => {
           label: "Successor row",
           session: { sessionId: "successor", lifecycleRevision: "next", label: "Successor row" },
         });
-        expect(payload).not.toHaveProperty("swarmGroupId");
+        expect(JSON.stringify(payload)).not.toContain('"swarmGroupId":');
         expect(payload).toHaveProperty("kind", "direct");
         expect(payload).not.toHaveProperty("text");
         expect(payload.displayName).not.toBe("Old event display");

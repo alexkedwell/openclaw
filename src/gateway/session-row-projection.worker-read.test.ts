@@ -299,7 +299,7 @@ it.each([
   },
 );
 
-it.each(["shared-state replacement", "configured-alias close"] as const)(
+it.for(["shared-state replacement", "configured-alias close"] as const)(
   "refuses held row facts after %s",
   async (change, { signal }) => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {

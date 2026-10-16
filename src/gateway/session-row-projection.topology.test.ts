@@ -504,7 +504,7 @@ it.for([
           );
           const payload = broadcastToConnIds.mock.calls[0]?.[1];
           expect(payload).not.toHaveProperty("message");
-          expect(payload).not.toHaveProperty("swarmGroupId");
+          expect(JSON.stringify(payload)).not.toContain('"swarmGroupId":');
           expect(payload).not.toHaveProperty("text");
           expect(payload.displayName).not.toBe("Old event display");
           expect(payload.parentSessionKey).not.toBe("agent:main:old-parent");

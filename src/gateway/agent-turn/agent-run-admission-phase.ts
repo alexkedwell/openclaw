@@ -495,12 +495,10 @@ export async function prepareAgentRunDispatch(
     assertInputAdmissionCurrent?.();
     assertRequesterCurrent?.();
     followupCompletion?.assertCurrent();
-    if (followupSuccessor) {
-      if (!resumedTaskAdopted) {
-        followupSuccessor.assertCurrent();
-      } else if (!followupSuccessor.owner.ownsExecution(params.runId)) {
-        throw new Error("Follow-up input no longer owns its admitted execution.");
-      }
+    if (!resumedTaskAdopted) {
+      followupSuccessor?.assertCurrent();
+    } else if (followupSuccessor && !followupSuccessor.owner.ownsExecution(params.runId)) {
+      throw new Error("Follow-up input no longer owns its admitted execution.");
     }
     if (parentResume && resumedTaskAdopted && !terminal) {
       assertParentSubagentResumeSuccessorCurrent(parentResume, params.runId);

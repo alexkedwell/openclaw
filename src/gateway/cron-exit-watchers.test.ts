@@ -312,55 +312,6 @@ describe("createCronExitWatchers", () => {
     await watchers.cancelAll();
   });
 
-||||||| parent of 3c00e6aa499 (refactor(gateway): simplify lifecycle resource owners)
-  it("rebinds a pending callback during scheduler handoff", async () => {
-    const { supervisor, runs } = makeFakeSupervisor();
-    const oldWaitAborted = vi.fn();
-    const waiting = createDeferred();
-    const watchers = createCronExitWatchers(
-      {
-        getProcessSupervisor: () => supervisor as never,
-        logger: noopLogger,
-        fireOnExit: async (_job, _exit, { signal }) => {
-          await new Promise<void>((resolve) => {
-            signal.addEventListener(
-              "abort",
-              () => {
-                oldWaitAborted();
-                resolve();
-              },
-              { once: true },
-            );
-            waiting.resolve();
-          });
-        },
-      },
-      scheduler,
-    );
-    watchers.reconcile([onExitJob("job-a")]);
-    await flush();
-    expectDefined(runs[0], "watched command").deferred.resolve({ exitCode: 0, reason: "exit" });
-    await waiting.promise;
-    const newFire = vi.fn(async () => {});
-    const newPersist = vi.fn(async () => {});
-    await watchers.updateHandlers({
-      getProcessSupervisor: () => supervisor as never,
-      fireOnExit: async (_job, _exit, controls) => {
-        controls.commitGuard();
-        controls.onTerminalWriteStarted();
-        await newPersist();
-        controls.onReserved();
-        await newFire();
-      },
-      logger: noopLogger,
-    });
-    await vi.waitFor(() => expect(newFire).toHaveBeenCalledOnce());
-    expect(newPersist).toHaveBeenCalledOnce();
-    expect(oldWaitAborted).toHaveBeenCalledOnce();
-    expect(supervisor.spawn).toHaveBeenCalledOnce();
-    await watchers.cancelAll();
-  });
-
   it.each(["rearm", "disable", "replace"] as const)(
     "preserves reserved admission only across harmless rearm (%s)",
     async (action) => {
