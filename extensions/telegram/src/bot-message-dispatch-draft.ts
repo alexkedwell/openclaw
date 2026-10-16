@@ -75,7 +75,7 @@ export function createDraftState(params: TurnConfig): TelegramDraftStateSlice {
       : { text, markdownSource: { text, tableMode: params.tableMode } };
 
   const createLaneStream = (laneName: LaneName) =>
-    (params.telegramDeps.createTelegramDraftStream ?? createTelegramDraftStream)({
+    createTelegramDraftStream({
       api: params.bot.api,
       chatId: params.context.chatId,
       maxChars: draftMaxChars,
@@ -113,10 +113,7 @@ export function createDraftState(params: TurnConfig): TelegramDraftStateSlice {
           accountId: params.context.route.accountId,
           agentId: params.opts.ownerAgentId,
         });
-        await (
-          params.telegramDeps.recordOutboundMessageForPromptContext ??
-          recordOutboundMessageForPromptContext
-        )({
+        await recordOutboundMessageForPromptContext({
           cfg: params.cfg,
           ownerAgentId: params.opts.ownerAgentId,
           account: {

@@ -963,7 +963,10 @@ function runDiscordDelivery(overrides: Partial<Parameters<typeof agentCommand>[0
   });
 }
 
-function runInternalModelCommand(runId: string) {
+function runInternalModelCommand(
+  runId: string,
+  onSessionIdChanged?: Parameters<typeof agentCommand>[0]["onSessionIdChanged"],
+) {
   return agentCommand({
     message: "probe",
     to: "+1234567890",
@@ -971,6 +974,7 @@ function runInternalModelCommand(runId: string) {
     modelRun: true,
     promptMode: "none",
     sessionEffects: "internal",
+    onSessionIdChanged,
   });
 }
 
@@ -1937,49 +1941,46 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     });
   });
 
-  it("clamps unsupported explicit thinking for subagent spawns instead of throwing", async () => {
-    setupSingleAttemptFallback();
-    state.runAgentAttemptMock.mockResolvedValue(makeSuccessResult("anthropic", "claude-fable-5"));
-    state.resolvedSessionKeyMock = "agent:planner:subagent:00000000-0000-4000-8000-000000000000";
-    state.isThinkingLevelSupportedMock.mockReturnValue(false);
-    state.resolveSupportedThinkingLevelMock.mockReturnValue("high");
-
-    const result = await agentCommand({
-      message: "hello",
-      sessionKey: state.resolvedSessionKeyMock,
-      thinking: "xhigh",
-      lane: "subagent",
-    });
-
-    expect(state.resolveSupportedThinkingLevelMock).toHaveBeenCalled();
-    expectRecordFields(mockCallArg(state.runAgentAttemptMock), {
-      resolvedThinkLevel: "high",
-    });
-    expect(result?.meta.requestShaping).toEqual({
-      thinking: "high",
-      thinkingClamp:
-        "Thinking level clamped to high for anthropic/claude-fable-5 (requested xhigh; preference retained).",
-    });
-  });
-
-  it.each(["subagent", "interactive"] as const)(
-    "rejects unsupported explicit thinking for ordinary sessions on the %s lane",
-    async (lane) => {
+  it.each(["spawn", "subagent", "interactive"] as const)(
+    "clamps unsupported thinking only for a real subagent spawn (%s)",
+    async (mode) => {
+      const spawned = mode === "spawn";
       setupSuccessfulAttempt("anthropic", "claude-fable-5");
       state.isThinkingLevelSupportedMock.mockReturnValue(false);
-      const { store } = setupStoredSession({ thinkingLevel: "low" });
-      state.resolvedSessionKeyMock = "agent:main:main";
-      const thinking = lane === "subagent" ? "xhigh" : "ultra";
+      const store = spawned ? undefined : setupStoredSession({ thinkingLevel: "low" }).store;
+      state.resolvedSessionKeyMock = spawned
+        ? "agent:planner:subagent:00000000-0000-4000-8000-000000000000"
+        : "agent:main:main";
+      if (spawned) {
+        state.resolveSupportedThinkingLevelMock.mockReturnValue("high");
+      }
+      const thinking = mode === "interactive" ? "ultra" : "xhigh";
+      const command = agentCommand({
+        message: "hello",
+        ...(!spawned ? { to: "+1234567890" } : {}),
+        thinking,
+        ...(mode !== "interactive"
+          ? { sessionKey: state.resolvedSessionKeyMock, lane: "subagent" }
+          : {}),
+      });
+      if (spawned) {
+        const result = await command;
+        expect(state.resolveSupportedThinkingLevelMock).toHaveBeenCalled();
+        expectRecordFields(mockCallArg(state.runAgentAttemptMock), {
+          resolvedThinkLevel: "high",
+        });
+        expect(result?.meta.requestShaping).toEqual({
+          thinking: "high",
+          thinkingClamp:
+            "Thinking level clamped to high for anthropic/claude-fable-5 (requested xhigh; preference retained).",
+        });
+        return;
+      }
 
-      await expect(
-        runBasicAgentCommand({
-          thinking,
-          ...(lane === "subagent" ? { sessionKey: "agent:main:main", lane } : {}),
-        }),
-      ).rejects.toThrow(/is not supported/u);
+      await expect(command).rejects.toThrow(/is not supported/u);
 
       expect(state.runAgentAttemptMock).not.toHaveBeenCalled();
-      expect(store["agent:main:main"]?.thinkingLevel).toBe("low");
+      expect(store?.["agent:main:main"]?.thinkingLevel).toBe("low");
       expect(state.persistSessionEntryMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ entry: expect.objectContaining({ thinkingLevel: thinking }) }),
       );
@@ -3241,6 +3242,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
 
   it("removes the one-shot internal model-run SQLite session after success", async () => {
     setupSingleAttemptFallback();
+    const onSessionIdChanged = vi.fn();
     const result = makeSuccessResult("openai", "gpt-5.4");
     state.runAgentAttemptMock.mockImplementationOnce(
       async (
@@ -3286,7 +3288,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       await releaseCleanup.promise;
     });
     let settled = false;
-    const pending = runInternalModelCommand("model-run-success").finally(() => {
+    const pending = runInternalModelCommand("model-run-success", onSessionIdChanged).finally(() => {
       settled = true;
     });
     try {
@@ -3320,6 +3322,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     const cleanupOrder =
       state.applySessionEntryLifecycleMutationMock.mock.invocationCallOrder[0] ?? 0;
     expect(deliveryOrder).toBeLessThan(cleanupOrder);
+    expect(onSessionIdChanged).not.toHaveBeenCalled();
   });
 
   it.each(["prepare", "cleanup"] as const)(

@@ -12,7 +12,7 @@ import type { CoreConfig, ResolvedClickClackAccount } from "../types.js";
 import {
   clearPendingDiscussionOpen,
   clearDiscussionBindingGeneration,
-  listPendingDiscussionOpens,
+  getPendingDiscussionOpen,
   recordPendingDiscussionOpen,
   reserveDiscussionBindingGeneration,
   type PendingDiscussionOpen,
@@ -240,9 +240,7 @@ export async function openClickClackDiscussionBinding(
       serverBaseUrl,
       channelId,
     });
-  const unresolved = (await listPendingDiscussionOpens(runtime)).find(
-    (pending) => pending.sessionKey === sessionKey,
-  );
+  const unresolved = await getPendingDiscussionOpen(runtime, sessionKey);
   if (
     unresolved &&
     (unresolved.accountId !== account.accountId ||
@@ -251,11 +249,7 @@ export async function openClickClackDiscussionBinding(
       unresolved.workspaceId !== workspace.id)
   ) {
     await params.reconcilePendingOpen(unresolved);
-    if (
-      (await listPendingDiscussionOpens(runtime)).some(
-        (pending) => pending.sessionKey === sessionKey,
-      )
-    ) {
+    if (await getPendingDiscussionOpen(runtime, sessionKey)) {
       throw new Error(
         "A previous ClickClack discussion open is still unresolved; restore its credential and retry",
       );
@@ -450,43 +444,7 @@ export async function openClickClackDiscussionBinding(
       params.warn(`unattached discussion channel remains quarantined: ${channel.id}`);
       throw new Error("OpenClaw session became inactive while opening its ClickClack discussion");
     }
-    const {
-      label: currentLabel,
-      displayTitle: currentDisplayTitle,
-      section: currentSection,
-      externalUrl: updatedExternalUrl,
-    } = describeChannel(currentEntry);
-    const currentExternalUrl = updatedExternalUrl ?? "";
-    let currentChannel = channel;
-    if (
-      currentEntry.sessionId !== entry.sessionId ||
-      currentLabel !== label ||
-      currentDisplayTitle !== displayTitle ||
-      currentSection !== section ||
-      currentExternalUrl !== (externalUrl ?? "")
-    ) {
-      try {
-        currentChannel = await renameDiscussionChannel({
-          client,
-          workspaceId: workspace.id,
-          channelId: channel.id,
-          label: currentLabel,
-          sessionKey,
-          agentId,
-          patch: {
-            ...managedFields,
-            external_url: currentExternalUrl,
-            sidebar_section: currentSection,
-            display_title: currentDisplayTitle,
-          },
-          assertCurrentAuthority,
-        });
-      } catch (error) {
-        await clearPendingDiscussionOpen(generationScope);
-        params.warn(`unattached discussion channel remains quarantined: ${channel.id}`);
-        throw error;
-      }
-    }
+    // Presentation changes during creation are reconciled through the normal session owner.
     const nextBinding: ClickClackDiscussionBinding = {
       accountId: account.accountId,
       agentId,
@@ -494,18 +452,16 @@ export async function openClickClackDiscussionBinding(
       serverBaseUrl,
       credentialFingerprint,
       externalRef,
-      externalUrl: currentExternalUrl,
+      externalUrl: externalUrl ?? "",
       workspaceRef: account.discussions.workspace,
       workspaceId: workspace.id,
       channelId: channel.id,
       channelRouteId: channel.route_id,
       workspaceRouteId: workspace.route_id,
-      section: currentSection,
+      section,
       archived: false,
-      label: currentLabel,
-      ...(currentChannel.display_title !== undefined
-        ? { displayTitle: currentChannel.display_title }
-        : {}),
+      label,
+      ...(channel.display_title !== undefined ? { displayTitle: channel.display_title } : {}),
     };
     try {
       nextBinding.sessionId = assertCurrentAuthority().sessionId;

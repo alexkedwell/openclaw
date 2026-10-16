@@ -2,7 +2,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { TelegramBotDeps } from "./bot-deps.js";
 import { createTelegramMessageProcessor } from "./bot-message.js";
 import {
   createTelegramSpooledReplayDeferredParticipant,
@@ -50,6 +49,44 @@ type TelegramMessageProcessorTurnContext = Parameters<
   ReturnType<typeof createTelegramMessageProcessor>
 >[0]["turnContext"];
 
+function unexpectedBotDependency(): never {
+  throw new Error("Message processor fixtures mock context construction and dispatch");
+}
+
+vi.mock("openclaw/plugin-sdk/conversation-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/conversation-runtime")>()),
+  recordInboundSession: unexpectedBotDependency,
+  upsertChannelPairingRequest,
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-activity-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/channel-activity-runtime")>()),
+  recordChannelActivity: unexpectedBotDependency,
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-inbound", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/channel-inbound")>()),
+  buildChannelInboundEventContext: unexpectedBotDependency,
+}));
+
+vi.mock("openclaw/plugin-sdk/routing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/routing")>()),
+  resolveInboundLastRouteSessionKey: unexpectedBotDependency,
+}));
+
+vi.mock("openclaw/plugin-sdk/security-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/security-runtime")>()),
+  resolvePinnedMainDmOwnerFromAllowlist: unexpectedBotDependency,
+}));
+
+vi.mock("openclaw/plugin-sdk/session-store-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/session-store-runtime")>()),
+  readSessionUpdatedAtAsync: unexpectedBotDependency,
+  readAmbientTranscriptWatermarkAsync: unexpectedBotDependency,
+  resolveAmbientTranscriptWatermarkKey: unexpectedBotDependency,
+  resolveStorePath: unexpectedBotDependency,
+}));
+
 describe("telegram bot message processor", () => {
   beforeEach(() => {
     buildTelegramMessageContext.mockClear();
@@ -58,10 +95,6 @@ describe("telegram bot message processor", () => {
     sleepWithAbort.mockReset().mockResolvedValue(undefined);
     upsertChannelPairingRequest.mockClear();
   });
-
-  const telegramDepsForTest = {
-    upsertChannelPairingRequest,
-  } as unknown as TelegramBotDeps;
 
   const baseTurnContext = {
     cfg: {},
@@ -84,7 +117,6 @@ describe("telegram bot message processor", () => {
     replyToMode: "auto",
     streamMode: "partial",
     textLimit: 4096,
-    telegramDeps: telegramDepsForTest,
     opts: {},
   } as unknown as Parameters<typeof createTelegramMessageProcessor>[0];
 

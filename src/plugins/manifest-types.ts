@@ -33,6 +33,7 @@ export type PluginManifestTheme = {
   icons?: Record<string, string>;
   hats?: Record<string, string>;
   critters?: Record<string, { source: string; title?: string; crossMs?: number }>;
+  backgrounds?: Partial<Record<"light" | "dark", string>>;
 };
 
 /** Top-level plugin manifest format. */
@@ -400,6 +401,8 @@ export type PluginManifestBackupResource = {
   disposition: "include" | "regenerable";
   scope: "state" | "agent";
   relativePath: string;
+  /** Shared-state databases retained under this state-scoped resource. */
+  databaseFamily?: "state";
 };
 
 /** Provider-authored limits and result semantics available before runtime activation. */
@@ -443,6 +446,8 @@ export type PluginManifest = {
   /** Account-key selection rules available before channel runtime loads. */
   channelAccountKeyPolicies?: Record<string, ChannelAccountKeyPolicy>;
   providers?: string[];
+  /** The declared providers own transient rate-limit/overload recovery, never auth or billing. */
+  managesOwnAvailability?: boolean;
   /**
    * Optional lightweight module that exports provider plugin metadata for
    * auth/catalog discovery. It should not import the full plugin runtime.

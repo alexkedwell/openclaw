@@ -321,9 +321,10 @@ it("reclaims its captures during signal cleanup when the process outlives the dr
       ...runtimeArgs,
       "--input-type=module",
       "-e",
-      `${childCapture}
-      import { installCliSignalExitHandlers, registerSignalExitFinalizer } from ${JSON.stringify(signalModule)};
+      // Handlers precede the capture lines: the parent signals as soon as it reads them.
+      `import { installCliSignalExitHandlers, registerSignalExitFinalizer } from ${JSON.stringify(signalModule)};
       installCliSignalExitHandlers();
+      ${childCapture}
       registerSignalExitFinalizer(async () => fs.writeSync(1, "drained\\n"));
       // Hung work keeps the process alive after the drain until its supervisor force-kills it.
       setInterval(() => {}, 60_000);`,
@@ -563,25 +564,6 @@ it.each(["payload", "instance"])(
   },
   30_000,
 );
-
-it("runs hourly reclamation on a live metadata owner", async () => {
-  const stateDir = temp.make("plugin-capture-periodic-");
-  const orphan = await abandonCapture(stateDir, createSource());
-  vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
-  const time = createGatewaySchedulerClock();
-  const scheduler = createTestGatewayScheduler(time.clock);
-  const metadata = retainGatewayPluginMetadata(scheduler);
-  try {
-    await sweepPluginSourceCapturesForTest(stateDir);
-    expect(fs.readFileSync(orphan.capturedFile, "utf8")).toBe(capturedSource);
-    age(orphan.instanceRoot);
-    await time.advanceBy(2 * hour);
-    expect(fs.existsSync(orphan.instanceRoot)).toBe(false);
-  } finally {
-    await metadata.close();
-    await sweepPluginSourceCapturesForTest(stateDir);
-  }
-}, 30_000);
 
 it("joins hourly reclamation during metadata retirement without stopping sibling schedules", async () => {
   const stateDir = temp.make("plugin-capture-hourly-join-");

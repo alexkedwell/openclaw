@@ -89,6 +89,16 @@ policy. OpenClaw does not retry them with thinking disabled.
 
 Fallback execution is turn-local. The reply runner persists only fallback notice state so `/status` and transition notices can distinguish the selected model from the model that answered. It does not persist the fallback as the next turn's model selection.
 
+A fallback that only relays a completed task result cannot start new delegated work.
+A verified requester continuation after its child tasks settle is different: on
+the built-in and plugin harness paths, it retains the requester's authorized
+session tools so unfinished work can continue. The live settlement owner and
+persisted child lineage must still match; an active Goal or completion message
+alone does not grant that exception. The exception is host-mediated: native
+collaboration stays disabled because it does not carry the settlement owner’s
+final-effect authority check. Existing tool restrictions and Stop still apply.
+CLI backends that cannot enforce settlement authority keep the report-only restriction.
+
 Sessions placed on an OpenClaw cloud worker keep the OpenClaw runtime when
 automatic model selection advances to a fallback. The configured provider,
 model, and auth-profile fallback rules still apply. Explicit session or
@@ -273,6 +283,8 @@ Use a user-pinned profile to make one account/key the durable first preference f
 ## Cooldowns
 
 When a profile fails due to auth or rate-limit errors, OpenClaw marks it in cooldown and moves to the next profile. A timeout that looks like rate limiting counts as such a failure.
+
+A provider plugin can declare `managesOwnAvailability: true` in `openclaw.plugin.json` when its upstream gateway owns capacity recovery. This applies to the plugin's declared providers and skips only rate-limit and overload cooldowns (`rate_limit` and `overloaded`). OpenRouter and Kilo Gateway use this declaration. Billing, authentication, permanent credential failures, and provider-reported subscription blocks remain enforced. Routing and auth status use the same policy, including before the provider runtime loads. There is no user configuration setting.
 
 CLI-backed runtimes settle profile health only after their resume, fork, and fresh-session recovery attempts finish. A terminal credential failure cools down the exact selected profile before model fallback. A successful run clears stale failure state. Transcript, format, context, pre-provider timeout, and ambient CLI failures without a selected profile do not change shared profile health.
 

@@ -8,7 +8,6 @@ import { resolveChannelContextVisibilityMode } from "openclaw/plugin-sdk/context
 import { resolvePromptHistoryLimit } from "openclaw/plugin-sdk/number-runtime";
 import { createChannelHistoryWindow, type HistoryEntry } from "openclaw/plugin-sdk/reply-history";
 import { createRuntimeConfigReader } from "openclaw/plugin-sdk/runtime-config-snapshot";
-import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { resolveMSTeamsAccountConfig } from "../accounts.js";
 import { formatUnknownError } from "../errors.js";
 import {
@@ -77,15 +76,11 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
     const {
       context,
       activity,
-      rawText,
       text,
-      attachments,
       advertisedMedia,
       rawBody,
       quoteInfo,
       from,
-      conversation,
-      attachmentTypes,
       htmlSummary,
       conversationId,
       conversationMessageId,
@@ -97,18 +92,6 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
     const historyBody = [text, formatMediaPlaceholderText(advertisedMedia)]
       .filter(Boolean)
       .join("\n");
-    log.info("received message", {
-      rawText: truncateUtf16Safe(rawText, 50),
-      text: truncateUtf16Safe(text, 50),
-      attachments: attachments.length,
-      attachmentTypes,
-      from: from?.id,
-      conversation: conversation?.id,
-    });
-    if (htmlSummary) {
-      log.debug?.("html attachment summary", htmlSummary);
-    }
-
     if (!from?.id) {
       log.debug?.("skipping message without from.id");
       return;
@@ -188,12 +171,6 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
         if (!poll) {
           log.debug?.("poll vote ignored (poll not found)", {
             pollId: pollVote.pollId,
-          });
-        } else {
-          log.info("recorded poll vote", {
-            pollId: pollVote.pollId,
-            voter: senderId,
-            selections: pollVote.selections,
           });
         }
       } catch (err) {
