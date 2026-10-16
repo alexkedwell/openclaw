@@ -153,6 +153,7 @@ describe("native service runtime pin persistence", () => {
 
   it("reinstalls an app-owned Bun service as standalone and can roll back to Bun", async () => {
     await withDarwinRuntimePinState({ label: "pin-native-app-upgrade" }, async (state) => {
+      await withDaemonRuntimePinMigration(state.env, () => undefined);
       const scope = { kind: "gateway" as const, env: state.env };
       const service = resolveGatewayService();
       const bun = "/app/runtime/old/bin/bun";

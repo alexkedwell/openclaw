@@ -351,14 +351,13 @@ extension GatewayProcessManager {
                     allowUnconfigured: self.hostsLocalGatewayWithRemotePrimary),
                 configurationForRestart: { [weak self] in
                     guard let self, !self.isTerminating else { throw CancellationError() }
-                    let pin = try await GatewayLaunchAgentManager.runtimePinRecord(
+                    let currentPin = try await GatewayLaunchAgentManager.runtimePinRecord(
                         stateDirectory: AppProfile.current.stateDirectoryURL(), profile: .current)
-                    let runtime = pin?.status == .migrationPending
-                        ? try await self.currentBundledRuntime()
-                        : try BundledRuntime.forAppHosting()
+                    let nextRuntime = currentPin?.status == .migrationPending
+                        ? runtime : try BundledRuntime.forAppHosting()
                     return try .init(
-                        executable: runtime.executable,
-                        environment: self.appHostedEnvironment(runtime: runtime),
+                        executable: nextRuntime.executable,
+                        environment: self.appHostedEnvironment(runtime: nextRuntime),
                         logPath: GatewayLaunchAgentManager.launchdGatewayLogPath(),
                         port: port,
                         allowUnconfigured: self.hostsLocalGatewayWithRemotePrimary)

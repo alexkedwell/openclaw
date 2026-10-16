@@ -89,7 +89,7 @@ final class GatewayChildSupervisor {
 
     func start(
         configuration: Configuration,
-        configurationForRestart: (@MainActor () throws -> Configuration)? = nil,
+        configurationForRestart: (@MainActor () async throws -> Configuration)? = nil,
         onEvent: @escaping @MainActor (Event) -> Void) async throws -> Int32
     {
         if let stopTask { await stopTask.value }
@@ -152,7 +152,7 @@ final class GatewayChildSupervisor {
     private func monitor(
         _ firstChild: Child,
         configuration: Configuration,
-        configurationForRestart: (@MainActor () throws -> Configuration)?,
+        configurationForRestart: (@MainActor () async throws -> Configuration)?,
         generation: UInt64,
         onEvent: @escaping @MainActor (Event) -> Void) async
     {
@@ -180,7 +180,8 @@ final class GatewayChildSupervisor {
             do { try await self.clock.sleep(for: delay) } catch { return }
             guard self.generation == generation, !Task.isCancelled else { return }
             do {
-                let nextConfiguration = try configurationForRestart?() ?? configuration
+                let nextConfiguration = try await configurationForRestart?() ?? configuration
+                guard self.generation == generation, !Task.isCancelled else { return }
                 child = try self.launcher(nextConfiguration)
                 self.child = child
                 let pid = try await child.waitUntilStarted()

@@ -390,6 +390,43 @@ struct GatewayChildSupervisorTests {
         #expect(events.isEmpty)
     }
 
+    @Test func `stop during runtime resolution prevents a replacement launch`() async throws {
+        let clock = ManualTestClock()
+        let first = FakeGatewayChild(pid: 790)
+        let resolving = AsyncTestGate()
+        let cancelled = AsyncTestGate()
+        var launches = 0
+        let supervisor = GatewayChildSupervisor(clock: clock, launcher: { _ in
+            launches += 1
+            return first.child
+        })
+        let (events, continuation) = AsyncStream<GatewayChildSupervisor.Event>.makeStream()
+        defer { continuation.finish() }
+        var iterator = events.makeAsyncIterator()
+        _ = try await supervisor.start(
+            configuration: self.configuration(),
+            configurationForRestart: {
+                resolving.open()
+                await withTaskCancellationHandler {
+                    await cancelled.wait()
+                } onCancel: {
+                    cancelled.open()
+                }
+                return self.configuration(executablePath: "/fixture/runtime/ready/openclaw")
+            },
+            onEvent: { continuation.yield($0) })
+        first.exited.open()
+        #expect(await iterator.next() == .restarting(delay: .seconds(1)))
+        await clock.waitForSleep(until: clock.now + .seconds(1))
+        clock.advance(by: .seconds(1))
+        await resolving.wait()
+
+        await supervisor.stop()
+        #expect(launches == 1)
+        #expect(supervisor.processIdentifier == nil)
+        #expect(!supervisor.isActive)
+    }
+
     @Test func `stop during a runtime transition drains the new child without publishing it`() async throws {
         let clock = ManualTestClock()
         let first = FakeGatewayChild(pid: 800)
