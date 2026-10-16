@@ -136,7 +136,11 @@ type ResolvedGitHubToolIdentity = ReturnType<typeof resolveGitHubToolIdentity>;
 export function prepareGitHubToolEnvironment(
   params: GitHubIdentityPreparation,
 ): PreparedGitHubToolEnvironment {
-  return prepareGitHubToolEnvironmentForIdentity(params, resolveGitHubToolIdentity(params));
+  const identity = resolveGitHubToolIdentity(params);
+  if (identity.source !== "system-detected" && identity.config.kind === "app-installation") {
+    throw new Error("GitHub Apps support session reads only; select native or OAuth to run tools.");
+  }
+  return prepareGitHubToolEnvironmentForIdentity(params, identity);
 }
 
 function prepareGitHubToolEnvironmentForIdentity(
@@ -452,10 +456,6 @@ async function prepareSharedGitHubIdentity(
       : undefined;
   const oauthAtStart = await startGitHubIdentityOperation(readOAuth, params);
   if (managed && identity.config.kind === "app-installation") {
-    // Existing publication and background readers do not own App token cleanup.
-    if (!params.allowAppInstallation) {
-      throw new GitHubIdentityError("unavailable");
-    }
     return await prepareAppGitHubIdentity(
       params,
       identity.config,

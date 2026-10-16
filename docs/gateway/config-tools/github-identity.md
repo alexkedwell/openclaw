@@ -22,7 +22,9 @@ This reader verifies the configured issuer, App, installation, permissions, bot,
 and exact repository set before returning a short-lived token. The request owns
 revocation and must finish cleanup before returning private content. Existing
 publication, background, and shell execution paths do not acquire App tokens.
-OAuth and native GitHub selections retain their existing behavior.
+Select a native or OAuth identity to run agent tools; App selections support
+foreground session reads only. OAuth and native GitHub selections retain their
+existing behavior.
 
 In Factory GitHub mode, session reads additionally require the current person's
 verified account on the configured Enterprise host. A one-use, short-lived proof

@@ -15,11 +15,11 @@ type SessionBinding = {
   sessionKey: string;
   sessionId: string;
   lifecycleRevision: string | null;
-  requestDigest?: string;
+  requestDigest: string;
 };
 export type FactoryGitHubProofClaim = {
   purpose: "session-item-read";
-  binding: SessionBinding & { requestDigest: string };
+  binding: SessionBinding;
 };
 
 export type FactoryGitHubProofVerdict = FactoryGitHubProofClaim & {
@@ -160,7 +160,7 @@ export function redeemFactoryGitHubProof(proof: string): FactoryGitHubProofVerdi
 export async function withFactoryGitHubProof<T>(
   input: {
     env?: NodeJS.ProcessEnv;
-    actorId?: number;
+    actorId: number;
     profileId: string;
     claim: FactoryGitHubProofClaim;
     assertCurrent: () => void;
@@ -175,7 +175,7 @@ export async function withFactoryGitHubProof<T>(
   try {
     input.assertCurrent();
     const actorId = factoryGitHubActorIdForProfile(profile.readCurrentFacts().emails, host);
-    if (input.actorId !== undefined && actorId !== input.actorId) {
+    if (actorId !== input.actorId) {
       throw new Error("Factory GitHub actor profile changed.");
     }
     const assertCurrent = () => {

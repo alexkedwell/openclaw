@@ -3,14 +3,14 @@ import { withFactoryGitHubProof, FACTORY_GITHUB_PROOF_ENV } from "./factory-gith
 import type { FactoryGitHubProofClaim } from "./factory-github-proof.js";
 import { readFactoryRepositoryAdmission } from "./factory-github-repository-admission.js";
 
-export type FactoryPublicationActor = {
-  actorId?: number;
+type FactoryPublicationActor = {
+  actorId: number;
   profileId: string;
   sessionKey: string;
   assertCurrent: () => void;
 };
 
-export type FactoryPublicationCredential = {
+type FactoryPublicationCredential = {
   claim: FactoryGitHubProofClaim;
   assertCurrent: () => void;
 };

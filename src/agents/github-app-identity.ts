@@ -12,6 +12,7 @@ import { GitHubIdentityError, type GitHubIdentityPreparation } from "./github-re
 export async function prepareAppGitHubIdentity(
   params: GitHubIdentityPreparation & {
     assertCurrent?: () => void;
+    allowAppInstallation?: boolean;
     readNativeCredential?: GitHubCredentialReader;
   },
   selection: GitHubAppSelection,
@@ -20,6 +21,10 @@ export async function prepareAppGitHubIdentity(
   host: string,
   apiBaseUrl: string,
 ) {
+  // Existing publication and background readers do not own App token cleanup.
+  if (!params.allowAppInstallation) {
+    throw new GitHubIdentityError("unavailable");
+  }
   const snapshot = structuredClone(selection);
   const assertCurrent = () => {
     params.assertCurrent?.();

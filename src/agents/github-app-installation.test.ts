@@ -194,35 +194,20 @@ describe("selected GitHub App issuer", () => {
     });
     expect(fetcher).not.toHaveBeenCalled();
   });
-  it("requires Factory repository admission for App execution and excludes issuer secrets from children", async () => {
-    const selected = selection();
+  it("refuses unsupported App publication and shell preparation before credential lookup", async () => {
     const config: OpenClawConfig = {
       gateway: { github: { host, apiBaseUrl } },
-      tools: { github: selected },
+      tools: { github: selection() },
     };
     setRuntimeConfigSnapshot(config);
     vi.stubEnv("FACTORY_AUTH_MODE", "github");
     await expect(prepareGitHubPublicationIdentity({ config, agentId: "main" })).rejects.toThrow(
       "unavailable",
     );
+    expect(() => prepareGitHubToolEnvironment({ config, agentId: "main" })).toThrow(
+      "select native or OAuth",
+    );
     expect(fetcher).not.toHaveBeenCalled();
-    const overlay = prepareGitHubToolEnvironment({
-      config,
-      sourceConfig: {
-        ...config,
-        tools: {
-          github: {
-            ...selected,
-            app: {
-              ...selected.app,
-              privateKey: { source: "env", provider: "default", id: "SYNTHETIC_APP_KEY" },
-            },
-          },
-        },
-      },
-      agentId: "main",
-    });
-    expect(overlay.credentialScrubEnv.SYNTHETIC_APP_KEY).toBe("");
   });
   it("retains request-owned App cleanup and retires reads when the selected App changes", async () => {
     const selected = selection();
