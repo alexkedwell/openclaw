@@ -64,19 +64,15 @@ import {
   readUpdateStateDatabaseSizesInProcess,
   updateStateDatabaseExists,
 } from "./update-candidate-state.sizes.js";
-import { publishStateDatabaseVersions } from "./update-candidate-state.versions.js";
+import {
+  publishStateDatabaseVersions,
+  UpdateStateSchemaVersionsSchema,
+  type UpdateStateSchemaVersion,
+} from "./update-candidate-state.versions.js";
 import type { UpdateDatabaseGenerations } from "./update-database-generations.js";
 import type { UpdateRecoveryCaptureAcquisition } from "./update-recovery-capture-acquisition.js";
 
-const UpdateStateSchemaVersionsSchema = z.array(
-  z.object({
-    path: z.string(),
-    userVersion: z.number().nullable(),
-    contentVersion: z.number().optional(),
-    retainedAgentPaths: z.array(z.string()).optional(),
-  }),
-);
-export type UpdateStateSchemaVersion = z.infer<typeof UpdateStateSchemaVersionsSchema>[number];
+export type { UpdateStateSchemaVersion } from "./update-candidate-state.versions.js";
 export const UpdateCandidateStateSnapshotSchema = z.object({
   versions: UpdateStateSchemaVersionsSchema,
   pluginPaths: z.record(z.string(), z.string()),

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { z } from "zod";
 import {
   DAEMON_RUNTIME_PIN_SCHEMA_VERSION,
   resolveDaemonRuntimePinStorePath,
@@ -7,9 +8,17 @@ import type { OpenClawSchemaVersions } from "../state/openclaw-schema-versions.j
 import { CLIENT_CREDENTIAL_SCHEMA_VERSION } from "./client-credential-schema.js";
 import { resolveClientCredentialStorePath } from "./client-credential-store.js";
 import type { StateDatabaseDiscovery } from "./update-candidate-paths.js";
-import type { UpdateStateSchemaVersion } from "./update-candidate-state.js";
 import type { StateInput } from "./update-candidate-state.shared.js";
 
+export const UpdateStateSchemaVersionsSchema = z.array(
+  z.object({
+    path: z.string(),
+    userVersion: z.number().nullable(),
+    contentVersion: z.number().optional(),
+    retainedAgentPaths: z.array(z.string()).optional(),
+  }),
+);
+export type UpdateStateSchemaVersion = z.infer<typeof UpdateStateSchemaVersionsSchema>[number];
 /** Publish exact aliases; released shared/agent callers opt out of local schema versions. */
 export function publishStateDatabaseVersions(
   files: Map<string, StateDatabaseDiscovery>,
