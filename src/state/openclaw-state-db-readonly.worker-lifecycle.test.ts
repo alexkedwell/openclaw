@@ -48,16 +48,17 @@ vi.mock("../infra/sqlite-readonly-location.js", async (importOriginal) => ({
   prepareSqliteReadOnlyLocationFromOwnedDatabase: mock.prepareNative,
 }));
 let finishProducer: (() => void) | undefined;
+// mock-isolation: Exercise read cleanup with a controlled transport instead of native workers.
 vi.mock("./openclaw-state-read-worker.js", () => {
   const fixture = createReadWorkerFixture(mock.read, mock.close);
   return {
     captureOpenClawStateReadSource() {
-      const source = fixture.captureOpenClawStateReadSource();
+      const capturedSource = fixture.captureOpenClawStateReadSource();
       return {
-        ...source,
+        ...capturedSource,
         createTransport() {
           mock.constructTransport();
-          return source.createTransport();
+          return capturedSource.createTransport();
         },
       };
     },

@@ -60,6 +60,7 @@ type Selection = {
   onChunkAsync?: OpenClawStateReadOptions["onChunkAsync"];
   controller: AbortController;
   signal: AbortSignal;
+  callerSignal?: AbortSignal;
   receipt: OpenClawStateReadReceipt;
   mapError: OpenClawStateReadOptions["mapError"];
 };
@@ -193,6 +194,7 @@ export function startOpenClawStateReadOperation(
     if ("error" in read) {
       throw read.error;
     }
+    selection.callerSignal?.throwIfAborted();
     return read.value;
   }
 

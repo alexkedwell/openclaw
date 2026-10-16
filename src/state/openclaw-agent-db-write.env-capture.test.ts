@@ -96,6 +96,7 @@ vi.mock("./openclaw-agent-db-schema-helpers.js", () => ({
 vi.mock("../infra/sqlite-integrity-worker.js", () => ({
   assertSqliteIntegrityInWorker: boundary.integrity,
 }));
+// mock-isolation: The synthetic database cannot execute native integrity pragmas.
 vi.mock("../infra/sqlite-integrity.js", () => ({
   runSqliteIntegrityCheckSync: vi.fn(),
   // The native database is synthetic; drive admission without issuing SQLite pragmas.

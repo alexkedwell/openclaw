@@ -584,6 +584,7 @@ function startRetainedOpenClawStateRead(
       onChunkAsync,
       controller,
       signal: readSignal,
+      callerSignal,
       receipt,
       mapError,
     });

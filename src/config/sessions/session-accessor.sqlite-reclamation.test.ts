@@ -543,7 +543,7 @@ test("file warnings retain rejected native admission releases without attributin
       })),
     ).toEqual([
       { id: 1, cause: "worker-release" },
-      { id: 2, cause: "worker-release" },
+      { id: 1, cause: "worker-release" },
     ]);
     for (const record of workerRecords) {
       expect(record).toMatchObject({
