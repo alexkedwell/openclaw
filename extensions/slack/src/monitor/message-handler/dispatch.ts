@@ -571,6 +571,5 @@ async function dispatchSlackMessageWithSetup(
     if (progress.useDraftProgressCard) {
       await draftStream?.clear();
     }
-    return;
   }
 }
