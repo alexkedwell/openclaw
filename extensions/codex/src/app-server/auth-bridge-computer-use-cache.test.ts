@@ -92,10 +92,15 @@ it("review: keeps cache identity unchanged before effective native policy is ava
     await reconcileCodexComputerUseStartArtifacts({
       startOptions,
       agentDir,
+      desktopGeneration: { epoch: 7, fingerprint: "fixture-desktop" },
+      forceCacheRefresh: true,
       pluginConfig: {
         computerUse: { enabled: true, autoInstall: true, pluginCacheMode: "shared" },
       },
     });
+    expect(computerUseServiceMocks.ensureCodexManagedBundledMarketplace).toHaveBeenCalledWith(
+      expect.objectContaining({ desktopFingerprint: "fixture-desktop", forceRefresh: true }),
+    );
     expect(computerUseServiceMocks.ensureCodexComputerUseSharedPluginCache).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
