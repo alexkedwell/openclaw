@@ -22,7 +22,7 @@ import {
 } from "./browser-client.ts";
 import { createBrowserPanelDownload, type BrowserPanelDownload } from "./browser-panel-download.ts";
 import { BrowserPanelInputOwner } from "./browser-panel-input-owner.ts";
-import { BrowserPanelNativeController } from "./browser-panel-native-controller.ts";
+import { createBrowserPanelNative, type BrowserPanelNative } from "./browser-panel-native-owner.ts";
 import {
   createBrowserPanelOperations,
   type BrowserPanelHost,
@@ -66,7 +66,8 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
   const panel = {
     ...initialState,
     host,
-    get native(): BrowserPanelNativeController {
+    addressInput: undefined as HTMLInputElement | undefined,
+    get native(): BrowserPanelNative {
       return native;
     },
     operations,
@@ -616,7 +617,7 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
       const epoch = operations.epoch;
       void host.updateComplete.then(() => {
         if (operations.isLive(epoch)) {
-          host.renderRoot.querySelector<HTMLInputElement>(".bp-url")?.focus();
+          panel.addressInput?.focus();
         }
       });
     },
@@ -685,7 +686,7 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
   const download = createBrowserPanelDownload(panel, notify);
   const input = new BrowserPanelInputOwner(panel);
   const stream = new BrowserPanelStream(panel);
-  const native = new BrowserPanelNativeController(panel);
+  const native = createBrowserPanelNative(panel);
   const viewport = new BrowserPanelViewportOwner(panel);
   const snapshots = createBrowserPanelSnapshot(panel);
 

@@ -8,10 +8,8 @@ import { BrowserPanelChrome } from "./browser-panel-render.tsx";
 
 export function BrowserPanelContent(props: { controller: BrowserPanelPresentation }) {
   const controller = untrack(() => props.controller);
-  onSettled(() => {
-    controller.browserPanelController.native.connect();
-    return () => controller.browserPanelController.native.disconnect();
-  });
+  // Seed retained native tabs before the connected panel restores its open view.
+  onSettled(() => controller.browserPanelController.native.mount());
   usePanelController(controller);
   // Cleanup runs before the adapter disconnects and settles its DOM-completion fence.
   onCleanup(() => controller.browserPanelController.suspendView());

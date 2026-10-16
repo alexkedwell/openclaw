@@ -138,7 +138,10 @@ export function setupNativeBrowserPanelTests() {
     const controller = host.createPanel();
     cleanups.push(controller.native.presentation.mountStage(stage));
     controllers.push(controller);
-    controller.native.connect();
+    const stopNative = controller.native.mount();
+    if (stopNative) {
+      cleanups.push(stopNative);
+    }
     return { controller, host, request };
   }
 
@@ -172,7 +175,6 @@ export function setupNativeBrowserPanelTests() {
     }
     for (const controller of controllers.splice(0)) {
       controller.suspendView();
-      controller.native.disconnect();
     }
     document.body.replaceChildren();
     vi.useRealTimers();
