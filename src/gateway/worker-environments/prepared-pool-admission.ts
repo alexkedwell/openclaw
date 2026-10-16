@@ -222,13 +222,13 @@ export function admitSources(ctx: PassContext): Generations {
       signal.throwIfAborted();
       // Unknown provider policy cannot renew demand or invalidate an already owned lease.
       const expiresAtMs = rows.reduce((latest, reserved) => {
-        const preparation = reserved.preparation;
-        return preparation?.consumedAtMs === null &&
-          preparation.key === preparationKey &&
+        const reservedPreparation = reserved.preparation;
+        return reservedPreparation?.consumedAtMs === null &&
+          reservedPreparation.key === preparationKey &&
           groupKey(reserved) === key &&
           reserved.destroyRequestedAtMs === null &&
           !["failed", "destroyed"].includes(reserved.state)
-          ? Math.max(latest, preparation.expiresAtMs)
+          ? Math.max(latest, reservedPreparation.expiresAtMs)
           : latest;
       }, 0);
       const generation = { source: record, preparation, demandAtMs, expiresAtMs };

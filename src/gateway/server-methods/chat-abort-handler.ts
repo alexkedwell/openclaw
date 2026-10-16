@@ -12,7 +12,6 @@ import { resolveStateContentionPresentation } from "../../sessions/session-run-e
 import { captureWorkerInferenceForSession, createChatAbortOps } from "../chat-abort-ops.js";
 import { abortChatRunById, isChatAbortControllerEntryAbortable } from "../chat-abort.js";
 import { abortQueuedChatTurnById, isQueuedChatTurnForSession } from "../chat-queued-turns.js";
-import { chatRunBelongsToAgent } from "../chat-run-owner.js";
 import { formatStopRequest } from "../control-plane-audit.js";
 import { pendingChatSendDedupeKey, type DedupeEntry } from "../server-shared.js";
 import {
@@ -28,6 +27,7 @@ import {
   captureSessionAbortRequestOrigin,
   readPreRegisteredAgentDedupePayloadForSession,
   resolveChatAbortRequester,
+  resolveChatAbortTargetError,
   writePreRegisteredAgentAbort,
   writePreRegisteredChatAbort,
   type ChatAbortTarget,
@@ -209,37 +209,15 @@ export async function handleChatAbortRequestWithLifecycle(
   const readAbortSession = () => (abortSessionRead ??= prepareAbortSession());
   const abortSession = !active || discardPendingInput ? await readAbortSession() : undefined;
   const abortSessionEntry = abortSession?.ok ? abortSession.value.entry : undefined;
-  const normalizedAgentIdOverride = normalizeAgentId(abortAgentId);
   const authorizeRunTarget = (target: ChatAbortTarget): boolean => {
-    let error: string | undefined;
-    if (
-      discardPendingInput &&
-      target.sessionKey !== rawSessionKey &&
-      target.sessionKey !== canonicalAbortSessionKey
-    ) {
-      error = "discarded input runId does not match sessionKey";
-    } else if (narrow && target.sessionId !== requiredSessionId) {
-      error = "runId does not match session incarnation";
-    } else if (
-      target.sessionKey !== rawSessionKey &&
-      target.sessionKey !== canonicalAbortSessionKey &&
-      (narrow || !canRequesterAbortChatRun(target, requester, { requireOwnerMatch: true }))
-    ) {
-      error = "runId does not match sessionKey";
-    } else if (
-      !chatRunBelongsToAgent(
-        {
-          agentId: target.agentId,
-          sessionKey: target.sessionKey,
-          defaultAgentId: compatibilityDefaultAgentId,
-        },
-        normalizedAgentIdOverride,
-      )
-    ) {
-      error = "runId does not match agentId";
-    } else if (!canRequesterAbortChatRun(target, requester)) {
-      error = "unauthorized";
-    }
+    const error = resolveChatAbortTargetError(target, requester, {
+      sessionKeys: [rawSessionKey, canonicalAbortSessionKey],
+      agentId: normalizeAgentId(abortAgentId),
+      defaultAgentId: compatibilityDefaultAgentId,
+      requiredSessionId,
+      narrow,
+      discardPendingInput,
+    });
     if (error) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, error));
     }

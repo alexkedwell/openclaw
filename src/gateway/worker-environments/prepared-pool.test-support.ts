@@ -91,7 +91,7 @@ export function usePreparedPoolFixture() {
     preparationKey = PREPARATION_KEY,
     runSetupScript?: boolean,
     repository?: RepositoryWorkerProjectSnapshot,
-  ): WorkerProviderPreparedIntent["profileSnapshot"] {
+  ) {
     return {
       settings: {},
       executionMode: "worker-turn",
@@ -117,7 +117,7 @@ export function usePreparedPoolFixture() {
           },
         },
       },
-    };
+    } satisfies WorkerProviderPreparedIntent["profileSnapshot"];
   }
 
   function seed(

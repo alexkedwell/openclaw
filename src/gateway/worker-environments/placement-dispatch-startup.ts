@@ -28,6 +28,7 @@ import {
   requireProvisionedEnvironment,
 } from "./placement-dispatch-provisioning.js";
 import { reportPlacementTransition } from "./placement-record.js";
+import type { WorkerPlacementRecoveryBarrier } from "./placement-recovery-contract.js";
 import type { WorkerProviderPreparedIntent } from "./preparation-identity.js";
 import { readWorkerProjectPreparation } from "./preparation-identity.schema.js";
 import { readWorkerProjectSnapshot } from "./project-preparation.js";
@@ -42,17 +43,6 @@ import type { WorkerEnvironmentService } from "./service.js";
 import type { WorkerEnvironmentReconcileCore } from "./service.types.js";
 import type { WorkerSessionWorkspace } from "./session-workspace.js";
 import { AcceptedWorkspacePublicationIndeterminateError } from "./workspace-accepted-publication.js";
-
-export type WorkerPlacementRecoveryBarrier = (params: {
-  sessionId: string;
-  sessionKey: string;
-  agentId: string;
-  executionMode: WorkerPlacementDispatchRequest["executionMode"];
-  environmentId: string;
-  expectedGeneration: number;
-  signal?: AbortSignal;
-  run: (workspace: WorkerSessionWorkspace, assertCurrent?: () => void) => Promise<void>;
-}) => Promise<void>;
 
 export type WorkerDevicePlacementRequirementResolver = (
   identity: Pick<

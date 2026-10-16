@@ -75,7 +75,7 @@ async function preparedHarness(
     protocolFeatures?: string[];
     executionMode?: WorkerPlacementExecutionMode;
     emptyWorkspace?: boolean;
-    repository?: SessionRepositoryWorkspaceRecord;
+    repository?: SessionRepositoryWorkspaceRecord & { baseCommit: string };
     recipe?: EnvironmentRecipe;
     lifecycleFailure?: boolean;
     boundWorkspace?: Pick<
@@ -816,7 +816,7 @@ describe("prepared worker dispatch", () => {
         preparedManifestRef: base.manifestRef,
       };
       const { harness, store, ready, request } = await preparedHarness({
-        repository: accepted,
+        repository: { ...accepted, baseCommit },
         boundWorkspace,
         ...(runSetupScript ? { recipe: lifecycleRecipe } : {}),
       });

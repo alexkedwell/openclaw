@@ -152,9 +152,9 @@ export function createDeferredGatewayUpdateCheck(params: {
                 startUpdateChecks({
                   lifecycle,
                   getConfig: params.getConfig,
-                  applyRemoteCatalogUpdate: (signal) =>
+                  applyRemoteCatalogUpdate: (updateSignal) =>
                     withPluginRuntimeRegistryScope(params.getPluginRegistry(), () =>
-                      applyRemoteModelCatalogUpdate(params.getConfig, signal),
+                      applyRemoteModelCatalogUpdate(params.getConfig, updateSignal),
                     ),
                   onUpdateRunCreated: wakeUpdateRunWatcher,
                   log: params.log,

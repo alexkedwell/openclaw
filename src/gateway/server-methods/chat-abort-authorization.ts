@@ -170,6 +170,46 @@ export function canRequesterAbortChatRun(
   );
 }
 
+export function resolveChatAbortTargetError(
+  target: ChatAbortTarget,
+  requester: ChatAbortRequester,
+  params: {
+    sessionKeys: readonly string[];
+    agentId: string;
+    defaultAgentId?: string;
+    requiredSessionId?: string;
+    narrow: boolean;
+    discardPendingInput?: boolean;
+  },
+): string | undefined {
+  const matchesSessionKey = params.sessionKeys.includes(target.sessionKey);
+  if (params.discardPendingInput && !matchesSessionKey) {
+    return "discarded input runId does not match sessionKey";
+  }
+  if (params.narrow && target.sessionId !== params.requiredSessionId) {
+    return "runId does not match session incarnation";
+  }
+  if (
+    !matchesSessionKey &&
+    (params.narrow || !canRequesterAbortChatRun(target, requester, { requireOwnerMatch: true }))
+  ) {
+    return "runId does not match sessionKey";
+  }
+  if (
+    !chatRunBelongsToAgent(
+      {
+        agentId: target.agentId,
+        sessionKey: target.sessionKey,
+        defaultAgentId: params.defaultAgentId,
+      },
+      params.agentId,
+    )
+  ) {
+    return "runId does not match agentId";
+  }
+  return canRequesterAbortChatRun(target, requester) ? undefined : "unauthorized";
+}
+
 export function readPreRegisteredAgentDedupePayloadForSession(params: {
   entry: DedupeEntry | undefined;
   runId: string;

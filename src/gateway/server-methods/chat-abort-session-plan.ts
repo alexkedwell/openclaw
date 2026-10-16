@@ -1,4 +1,3 @@
-import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { captureExecRequestCancellation } from "../../agents/bash-process-control.js";
 import {
   abortEmbeddedAgentRun,

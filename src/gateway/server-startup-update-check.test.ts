@@ -256,8 +256,8 @@ describe("deferred Gateway update-check lifecycle", () => {
     const waiting = createDeferred();
     const admit = workAdmission.runWithGatewayIndependentRootWorkAdmission;
     vi.spyOn(workAdmission, "runWithGatewayIndependentRootWorkAdmission").mockImplementation(
-      function observe<T>(run: () => Promise<T>, origin?: string, signal?: AbortSignal) {
-        const operation = admit(run, origin, signal);
+      function observe<T>(run: () => Promise<T>, origin?: string, admissionSignal?: AbortSignal) {
+        const operation = admit(run, origin, admissionSignal);
         waiting.resolve();
         return operation;
       },
