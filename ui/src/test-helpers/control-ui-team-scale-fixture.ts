@@ -53,6 +53,7 @@ type FixtureOptions = {
   sidebarListChurn?: boolean;
   sidebarLiveChurn?: boolean;
   duplicateBootReads?: boolean;
+  restoreDashboard?: boolean;
 };
 
 function personId(index: number) {
@@ -240,8 +241,23 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     (_, index) => `team-message-${index + 1}`,
   );
   const historyMessages = messageIds.map((id, index) => ({
-    role: index % 2 ? "assistant" : "user",
+    role:
+      options.restoreDashboard && index % 20 === 19
+        ? "toolResult"
+        : index % 2
+          ? "assistant"
+          : "user",
     __openclaw: { id, seq: index + 1 },
+    ...(options.restoreDashboard
+      ? {
+          ...(index % 20 === 19
+            ? { toolName: "canvas", toolCallId: `team-widget-${Math.floor(index / 20) + 1}` }
+            : {}),
+          ...(index % 2
+            ? { usage: { input: 12_000, output: 600, cacheRead: 8_000, totalTokens: 20_600 } }
+            : {}),
+        }
+      : {}),
     timestamp: now - (counts.transcriptMessages - index) * 60_000,
     content: [
       ...(options.duplicateBootReads && index === counts.transcriptMessages - 1
