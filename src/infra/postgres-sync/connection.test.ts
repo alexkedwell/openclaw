@@ -6,6 +6,11 @@ import { withEngineStoreAdmission } from "../database-engine/admission-scope.js"
 import { readSqliteDatabaseScopedWriteToken } from "../sqlite-database-admission.js";
 import { readSqliteNativeMutationRevision } from "../sqlite-schema-facts.js";
 import { hasSqliteWorkerOutcomeUnknown } from "../sqlite-worker-contract.js";
+import {
+  createSqliteWorkerOperationAdmission,
+  observeSqliteWorkerCommittedFacts,
+  withSqliteWorkerOperationAdmission,
+} from "../sqlite-worker-operation-admission.js";
 import { PostgresSyncConnection } from "./connection.js";
 import type { BridgeReply, BridgeRequest, PostgresErrorData } from "./protocol.js";
 
@@ -158,6 +163,46 @@ describe("PostgreSQL bridge request correlation", () => {
     expect(() => fixture.db.exec("COMMIT")).toThrow("rolled back instead of committing");
     expect(readSqliteDatabaseScopedWriteToken(fixture.db.anchor, "entry")).toBe(before);
   });
+
+  it.each(["read", "write", "rollback"] as const)(
+    "publishes worker receipts only for committed mutations (%s)",
+    (mode) => {
+      const fixture = transportFixture("normal");
+      const admission = createSqliteWorkerOperationAdmission((_request, grant) => grant());
+      const receipts: unknown[] = [];
+      observeSqliteWorkerCommittedFacts(admission, ({ facts }) => receipts.push(facts));
+      const run = () =>
+        withSqliteWorkerOperationAdmission({ port: admission.port, sourceReservations: true }, () =>
+          fixture.db.runTransaction(
+            () => {
+              fixture.command(mode === "read" ? "SELECT" : "INSERT");
+              fixture.db.exec(mode === "read" ? "SELECT 1" : "INSERT INTO proof VALUES (7)");
+              if (mode === "rollback") {
+                fixture.command("ROLLBACK");
+                throw new Error("cancel write");
+              }
+            },
+            {
+              withCommit(commit) {
+                fixture.command("COMMIT");
+                commit();
+              },
+            },
+          ),
+        );
+      try {
+        if (mode === "rollback") {
+          expect(run).toThrow("cancel write");
+        } else {
+          run();
+        }
+        admission.service();
+        expect(receipts).toEqual(mode === "write" ? [{}] : []);
+      } finally {
+        admission.finish();
+      }
+    },
+  );
 
   it("invalidates local mutation witnesses inside a transaction and across rollback", () => {
     const fixture = transportFixture("normal");

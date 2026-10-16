@@ -36,6 +36,7 @@ export function runPostgresTransactionSync<T>(
             : `BEGIN ISOLATION LEVEL READ COMMITTED; SELECT pg_advisory_xact_lock(${db.advisoryLockKey})`,
         );
       }
+      const mutationRevision = db.mutationRevision;
       const result = operation();
       assertSyncTransactionResult(result);
       assertPostgresTransactionUsable(db);
@@ -43,7 +44,7 @@ export function runPostgresTransactionSync<T>(
         db.exec("RELEASE SAVEPOINT openclaw_tx_nested");
       } else {
         const scope = currentSqliteWorkerOperationAdmission.getStore();
-        if (!readOnly && scope?.active) {
+        if (!readOnly && scope?.active && db.mutationRevision !== mutationRevision) {
           deferSqliteWorkerCommitReceipt(sqlPublicationAnchor(db), {});
         }
         const commit = () => {

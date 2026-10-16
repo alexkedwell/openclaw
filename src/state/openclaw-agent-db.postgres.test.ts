@@ -298,6 +298,8 @@ describe.skipIf(!connection)("PostgreSQL agent database owner", () => {
     retireSqliteDatabaseAdmissionForPath(database.path);
     const reopened = withEngineStoreAdmission(() => owners.openOpenClawAgentDatabase(options));
     expect(getPostgresPhysicalFacts(reopened.db)?.version).toBe(28);
+    withEngineStoreAdmission(() => owners.closeOpenClawAgentDatabaseByPath(reopened.path));
+    await owners.closeOpenClawAgentDatabaseByPathAsync(reopened.path);
   });
 
   it("discovers a cold explicit store owner through the selected reader worker", async () => {
