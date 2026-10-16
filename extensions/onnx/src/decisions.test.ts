@@ -89,8 +89,16 @@ describe("ONNX prepared decision contract", () => {
           protocol: "decision-v1",
           input: ["text" as const],
           questions: {
-            choice: { probabilities: "provider-defined" as const, maxOptions: 64 },
-            score: { probabilities: "provider-defined" as const, maxOptions: 64 },
+            choice: {
+              probabilities: "provider-defined" as const,
+              abstention: false,
+              maxOptions: 64,
+            },
+            score: {
+              probabilities: "provider-defined" as const,
+              abstention: false,
+              maxOptions: 64,
+            },
           },
           limits: {
             maxQuestions: 32,

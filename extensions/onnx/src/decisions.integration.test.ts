@@ -17,7 +17,7 @@ import {
 } from "../../../src/plugins/test-helpers/cold-plugin-fixtures.js";
 import { withEnvAsync } from "../../../src/test-utils/env.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
-import manifest from "../openclaw.plugin.json";
+import manifest from "../openclaw.plugin.json" with { type: "json" };
 import { createPreparedOnnxProvider } from "./decisions.js";
 import type { InferenceWorkerClient } from "./worker-client.js";
 

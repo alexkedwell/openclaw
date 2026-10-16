@@ -169,48 +169,54 @@ export function createPreparedOnnxProvider(
         source: "onnx plugin",
         mode: "api-key",
       }),
-      augmentModelCatalog: ({ entries }) =>
-        entries
-          .filter((entry) => entry.provider === "onnx")
-          .map((entry) => {
-            const decision = entry.inference?.decision;
-            // Canonical route facts win. Enrich only the documented V1 manifest input,
-            // preserving each model's token scope, limits, and billing declarations.
-            if (!decision || decision.protocol !== "decision-v1") {
-              return entry;
-            }
-            return {
-              ...entry,
-              inference: {
-                ...entry.inference,
-                decision: {
-                  ...decision,
-                  protocol: "onnx-classifier",
-                  questions: {
-                    boolean: {
-                      ...decision.questions?.boolean,
-                      probabilities: "boolean",
-                      abstention: false,
-                      requiresCriteria: true,
-                    },
-                    choice: {
-                      ...decision.questions?.choice,
-                      probabilities: "categorical",
-                      abstention: false,
-                      minOptions: 2,
-                    },
-                    score: {
-                      ...decision.questions?.score,
-                      probabilities: "categorical",
-                      abstention: false,
-                      minOptions: 2,
-                    },
+      augmentModelCatalog: ({ entries }) => {
+        const models: typeof entries = [];
+        for (const entry of entries) {
+          if (entry.provider !== "onnx") {
+            continue;
+          }
+          const inference = entry.inference;
+          // Canonical route facts win. Enrich only the documented V1 manifest input,
+          // preserving each model's token scope, limits, and billing declarations.
+          if (!inference?.decision || inference.decision.protocol !== "decision-v1") {
+            models.push(entry);
+            continue;
+          }
+          const decision = inference.decision;
+          models.push({
+            ...entry,
+            inference: {
+              ...inference,
+              decision: {
+                ...decision,
+                protocol: "onnx-classifier",
+                questions: {
+                  boolean: {
+                    ...decision.questions?.boolean,
+                    probabilities: "boolean",
+                    abstention: false,
+                    requiresCriteria: true,
                   },
-                  reasoning: { modes: ["auto"] },
+                  choice: {
+                    ...decision.questions?.choice,
+                    probabilities: "categorical",
+                    abstention: false,
+                    minOptions: 2,
+                  },
+                  score: {
+                    ...decision.questions?.score,
+                    probabilities: "categorical",
+                    abstention: false,
+                    minOptions: 2,
+                  },
                 },
+                reasoning: { modes: ["auto"] },
               },
-            };
-          }),
+            },
+          });
+        }
+        return models;
+      },
     },
     async evaluate(batch, context) {
       const v1 = decisionBatchV2ToV1(batch);
