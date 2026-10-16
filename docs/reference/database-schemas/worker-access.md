@@ -239,6 +239,16 @@ credential, lease, and external-effect authority stays with the execution owner.
 Cron retains a memory-only clock check for future jobs so forward clock changes
 can trigger overdue work without reloading SQL every minute.
 
+Cron history reads selection metadata in bounded keyset batches using the
+`created_at, task_id` indexes. Completion-time ordering, exact totals, search,
+and live session visibility still select the response page; only that page's
+response fields are hydrated. Summary pages exclude diagnostics and delivery
+traces in SQL, and neither view loads trigger or script recovery state.
+Diagnostic searches retain their existing text semantics. Transcript links use
+the same lightweight identities without loading every run's detail payload.
+The Gateway checks disclosure authority after page hydration; a concurrent
+removal or visibility revocation may shorten a page until the next refresh.
+
 Scope receipts to the data actually changed. Memory-index DML, for example,
 declares no session-row or transcript changes and preserves unrelated session
 actor replicas. Transcript mutations still update or invalidate their session
@@ -634,6 +644,14 @@ Durable append receipts remain proportional to appended events; they omit full
 transcript indexes, per-event byte tables, and retry history. The Gateway retains
 selected positive anchors from hydration and append receipts. A missing anchor
 is unknown, so requests for it use the canonical reader.
+
+The actor retains exact context event and byte totals separately from its bounded
+transcript window. Cold admission counts once; ordinary appends and metadata-only
+rewrites update those totals in the writer transaction and publish them with its
+receipt. Context boundaries and uncovered historical rewrites recompute the totals
+through the history owner. Rollback preserves the previous totals. Completion
+hydration retains at most 512 successful or failed receipts; an uncached retry uses
+its indexed durable completion record, preserving idempotency after eviction.
 
 A context window retains its header and at most the requested event limit plus
 128 rows, with a stored-byte limit of the requested byte limit plus 512 KiB,

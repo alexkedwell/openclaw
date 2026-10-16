@@ -14,7 +14,7 @@ import {
 import { useApplication, useOptionalApplication } from "../lib/reactive/context.ts";
 import { createParkedProjection } from "../lib/reactive/parked-projection.ts";
 import { projectSource } from "../lib/reactive/projection.ts";
-import { defineSolidBridge, type SolidBridgeElement } from "../lit/solid-bridge.ts";
+import { defineSolidBridge, type SolidBridgeElement } from "../lib/solid-bridge.ts";
 import { PluginView } from "../plugins/control-ui-view.solid.tsx";
 import { appSidebarProperties, type AppSidebarProps } from "./app-sidebar-base.ts";
 import { AppSidebarOwner } from "./app-sidebar-owner.tsx";
@@ -157,6 +157,19 @@ function AppSidebarContent(props: AppSidebarProps, host: HTMLElement): JSX.Eleme
       untrack(() => {
         owner.commitRender();
         scroll.restore();
+        // The projection owns the display deadline; this mounted view owns its timer.
+        const deadline = owner.sessionProjection.subtitleDeadline;
+        if (owner.isConnected && Number.isFinite(deadline)) {
+          const timer = globalThis.setTimeout(
+            () => {
+              owner.sessionProjection.invalidate();
+              owner.requestUpdate();
+            },
+            Math.max(0, deadline - Date.now()),
+          );
+          return () => globalThis.clearTimeout(timer);
+        }
+        return undefined;
       }),
   );
   onSettled(() => {
