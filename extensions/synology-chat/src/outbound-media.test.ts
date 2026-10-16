@@ -158,6 +158,9 @@ describe("Synology Chat hosted outbound media", () => {
       contentType: "image/png",
       fileName: "floor-plan.png",
     });
+  });
+
+  afterEach(() => {
     vi.useRealTimers();
   });
 
