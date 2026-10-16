@@ -102,7 +102,7 @@ describe("Codex catalog preview decoding", () => {
   it("bounds catalog payloads while preserving ordinary thread/list results", async () => {
     const parse = vi.spyOn(messageDecoder, "parseCodexAppServerMessage");
     const harness = createHarness();
-    // Exercise multi-megabyte projection without exceeding the 8 MiB input limit.
+    // Stay below the 8 MiB frame cap while exercising worker-side projection.
     const large = "unused native history ".repeat(50_000);
     const thread = {
       id: "bounded-metadata",
