@@ -36,6 +36,26 @@ import { browserRouteKey, type BrowserRoute } from "./browser-target.ts";
 import { normalizeBrowserUrlDraft } from "./browser-url.ts";
 
 type BrowserPanelMode = "interact" | "annotate" | "inspect";
+type BrowserPanelState = {
+  running: boolean | null;
+  canAutoResizeViewport: boolean;
+  tabs: BrowserPanelTab[];
+  /** Stable tab handle (plugin alias when available), not a raw CDP target id. */
+  activeTargetId: string | null;
+  view: BrowserPanelView | null;
+  loading: boolean;
+  errorText: string | null;
+  noticeText: string | null;
+  mode: BrowserPanelMode;
+  strokes: AnnotationStroke[];
+  inspected: BrowserInspectedNode | null;
+  inspectPointer: { x: number; y: number } | null;
+  evaluateUnavailable: boolean;
+  urlDraft: string;
+  pendingNewTab: boolean;
+  urlDraftEditing: boolean;
+  addressInput: HTMLInputElement | undefined;
+};
 
 export type { BrowserPanelHost } from "./browser-panel-operation-ownership.ts";
 
@@ -44,29 +64,28 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
   let activeClient: GatewayBrowserClient | null = null;
   const operations = createBrowserPanelOperations(host);
   const pendingInput = new BrowserPanelPendingInput();
-  const initialState = {
-    running: null as boolean | null,
+  const initialState: BrowserPanelState = {
+    running: null,
     canAutoResizeViewport: false,
-    tabs: [] as BrowserPanelTab[],
-    /** Stable tab handle (plugin alias when available), not a raw CDP target id. */
-    activeTargetId: null as string | null,
-    view: null as BrowserPanelView | null,
+    tabs: [],
+    activeTargetId: null,
+    view: null,
     loading: false,
-    errorText: null as string | null,
-    noticeText: null as string | null,
-    mode: "interact" as BrowserPanelMode,
-    strokes: [] as AnnotationStroke[],
-    inspected: null as BrowserInspectedNode | null,
-    inspectPointer: null as { x: number; y: number } | null,
+    errorText: null,
+    noticeText: null,
+    mode: "interact",
+    strokes: [],
+    inspected: null,
+    inspectPointer: null,
     evaluateUnavailable: false,
     urlDraft: "",
     pendingNewTab: false,
     urlDraftEditing: false,
+    addressInput: undefined,
   };
   const panel = {
     ...initialState,
     host,
-    addressInput: undefined as HTMLInputElement | undefined,
     get native(): BrowserPanelNative {
       return native;
     },
@@ -92,10 +111,7 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
       panel.setState("loading", false);
     },
 
-    setState<Key extends keyof typeof initialState>(
-      key: Key,
-      value: (typeof initialState)[Key],
-    ): void {
+    setState<Key extends keyof BrowserPanelState>(key: Key, value: BrowserPanelState[Key]): void {
       if (Object.is(panel[key], value)) {
         return;
       }
@@ -241,9 +257,7 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
       }
     },
 
-    async refreshView(targetId: string, epoch = operations.epoch): Promise<void> {
-      await snapshots.capture(targetId, epoch);
-    },
+    refreshView: (targetId: string, epoch = operations.epoch) => snapshots.capture(targetId, epoch),
 
     async runAction(
       action: (client: BrowserRequestClient) => Promise<void>,
@@ -287,10 +301,7 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
     },
 
     async startBrowserNow(): Promise<void> {
-      if (host.fixedTab) {
-        return;
-      }
-      if (!operations.captureClient()) {
+      if (host.fixedTab || !operations.captureClient()) {
         return;
       }
       const epoch = operations.epoch;
@@ -570,14 +581,11 @@ export function createBrowserPanel(host: BrowserPanelHost, notify: () => void) {
       }
       const url = panel.view?.metrics?.url || panel.view?.url || panel.urlDraft;
       const normalized = normalizeBrowserUrlDraft(url);
-      if (!panel.activeTargetId) {
-        return;
+      if (panel.activeTargetId) {
+        void (normalized
+          ? panel.openUrl(normalized, { newTab: false })
+          : panel.refreshView(panel.activeTargetId));
       }
-      if (!normalized) {
-        void panel.refreshView(panel.activeTargetId);
-        return;
-      }
-      void panel.openUrl(normalized, { newTab: false });
     },
 
     goHistory(delta: -1 | 1): void {
