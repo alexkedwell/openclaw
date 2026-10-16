@@ -15,7 +15,7 @@ import {
   type WindowsManagementRequest,
   type WindowsManagementResponse,
 } from "./extension-windows-contract.js";
-import type { WindowsNativePlatform } from "./extension-windows-platform.js";
+import type { windowsNativePlatform } from "./extension-windows-platform.js";
 export function windowsFixture() {
   const context: NativeWindowsContext = {
     nodePath: "C:\\Program Files\\nodejs\\node.exe",
@@ -91,7 +91,7 @@ export function windowsFixture() {
     );
   }
   prepare();
-  const ops: WindowsNativePlatform = {
+  const ops: typeof windowsNativePlatform = {
     identity: vi.fn(async () => identity),
     assertPath: vi.fn(async () => {}),
     readFile: vi.fn(async (file, maxBytes) => {
