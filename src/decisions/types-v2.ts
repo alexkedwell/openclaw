@@ -115,7 +115,7 @@ export type DecisionOutcomeV2 =
 
 /** Execution options add only provider-declared reasoning to the established caller contract. */
 export type DecisionEvaluateOptionsV2 = Parameters<DecisionRuntimeV1["evaluate"]>[1] & {
-  readonly reasoning?: "auto" | "off" | "on";
+  readonly reasoning?: DecisionProviderContextV2["reasoning"];
 };
 
 /** Shares normal model catalog, route and credential ownership with conversational inference. */

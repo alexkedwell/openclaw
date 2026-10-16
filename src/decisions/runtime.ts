@@ -73,7 +73,7 @@ export function evaluateDecisionInRegistry(
     consumerId,
     isAdmissible,
     canDispatch,
-  ) as Promise<DecisionOutcome>;
+  ) as Promise<DecisionOutcome>; // SAFETY: Version 1 dispatch validates a V1 batch and returns the paired V1 outcome.
 }
 
 export function evaluateDecisionV2InRegistry(
@@ -96,7 +96,7 @@ export function evaluateDecisionV2InRegistry(
     isAdmissible,
     canDispatch,
     onPreparedBilling,
-  ) as Promise<DecisionOutcomeV2>;
+  ) as Promise<DecisionOutcomeV2>; // SAFETY: Version 2 dispatch validates a V2 batch and returns the paired V2 outcome.
 }
 
 async function evaluateVersion(
@@ -231,7 +231,7 @@ async function evaluateVersion(
     const result =
       version === 1
         ? await entry.host.evaluate(
-            submitted as DecisionBatch,
+            submitted as DecisionBatch, // SAFETY: V1 validation and structuredClone preserve the admitted V1 shape.
             { ...options, signal },
             selected.model,
             config,
@@ -240,7 +240,7 @@ async function evaluateVersion(
             isAdmissible,
           )
         : await entry.host.evaluateV2(
-            submitted as DecisionBatchV2,
+            submitted as DecisionBatchV2, // SAFETY: V2 validation and structuredClone preserve the admitted V2 shape.
             { ...options, signal },
             selected.model,
             config,
