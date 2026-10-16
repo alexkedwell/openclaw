@@ -1,44 +1,29 @@
 import { buildControlUiFocusPath } from "@openclaw/session-url-contract";
-import "./chat-outbox-recovery.tsx";
-import "./components/chat-details.tsx";
 import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/index.js";
+import "./components/chat-details.tsx";
 import type { GatewaySessionRow } from "../../api/types.ts";
 import { availableLinkReaders } from "../../app/link-reader-routing.ts";
 import { isDesktopPanelAvailable } from "../../app/panel-availability.ts";
-import { currentThemeBranding } from "../../app/theme-branding.ts";
-import { renderAgentIdentityAvatar } from "../../components/identity-avatar-view.ts";
-import { renderSessionBackground } from "../../components/session-background-view.ts";
 import { latestBrowserTabCards } from "../../lib/chat/browser-tab-preview.ts";
 import { storedChatOutboxScopeKey } from "../../lib/chat/outbox-store.ts";
+import { projectOwner } from "../../lib/reactive/projection.ts";
 import { scopedAgentParamsForSession } from "../../lib/sessions/index.ts";
 import { resolveUiConversationIdentity } from "../../lib/sessions/session-key.ts";
 import { resolveSessionWorkspace } from "../../lib/sessions/workspace.ts";
-import { emptyLegacyContent, solidContent } from "../../lit/solid-content.tsx";
+import { PaneOutboxRecovery } from "./chat-outbox-recovery.tsx";
 import { ChatPaneBrowserAnnotationRender } from "./chat-pane-browser-annotation-render.ts";
 import { sidebarPanelDefinitions } from "./chat-pane-embedded-panels.ts";
-import { PresentedPaneContent } from "./chat-pane-embedded-view.tsx";
-import { ChatPaneHeaderMemo } from "./chat-pane-header-memo.ts";
 import type { PaneDetailsProps } from "./chat-pane-header-view.tsx";
-import {
-  PaneHeaderContent,
-  PaneSubagentContent,
-  PaneOutboxRecovery,
-  PanePrimary,
-  PaneSubagentHeader,
-  PaneSubagentStop,
-} from "./chat-pane-layout-view.tsx";
+import type { PaneLayoutData } from "./chat-pane-layout-view.tsx";
 import { resolveChatPaneDesktopTarget } from "./chat-pane-placement.ts";
 import type { createChatPaneRails } from "./chat-pane-rails.ts";
 import type { ResolvedBoardView } from "./chat-pane-shared.ts";
 import { renderSidebarRegion, sidebarRegionCallbacks } from "./chat-pane-sidebar-layout.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
-import { ChatToolIconController } from "./chat-tool-icon-controller.ts";
+import { createChatToolIcons, type PluginToolIcons } from "./chat-tool-icon-controller.ts";
 import type { ChatProps } from "./chat-view.tsx";
 import { publishChatWorkContext } from "./chat-work-context.ts";
 import { hasTerminalRunStatus } from "./components/chat-composer-state.ts";
-import { renderChatDetailSlot } from "./components/chat-detail-slot.ts";
-import { renderChatImageLightbox } from "./components/chat-image-lightbox.ts";
-import { renderSessionWorkspaceRail } from "./components/chat-session-workspace.ts";
 import { resolveAssistantDisplayAvatar } from "./components/chat-welcome.ts";
 import { resolveChatLinkFaviconFetcher } from "./link-favicon-loader.ts";
 import {
@@ -67,22 +52,22 @@ type ChatPaneLayoutRenderParams = {
 };
 
 export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRender {
-  private readonly conversationTabMemo = new ChatPaneHeaderMemo<{
-    label: string;
-    icon: ReturnType<typeof renderAgentIdentityAvatar>;
-  }>();
-  private readonly toolIcons = new ChatToolIconController(
-    this,
-    () => this.context,
-    () => (this.state && !this.catalogHost ? this.resolveChatReadTarget() : undefined),
-  );
+  private toolIcons?: PluginToolIcons;
+
+  mountToolIcons(): void {
+    const source = projectOwner(this, () => ({
+      context: this.context,
+      session: this.state && !this.catalogHost ? this.resolveChatReadTarget() : undefined,
+    }));
+    this.toolIcons = createChatToolIcons(source.read);
+  }
   private desktopFocus: {
     key: string;
     client: ChatPageHost["client"];
     href: string;
   } | null = null;
 
-  protected renderChatPaneLayout(params: ChatPaneLayoutRenderParams): unknown {
+  protected renderChatPaneLayout(params: ChatPaneLayoutRenderParams): PaneLayoutData | null {
     const {
       state,
       selectedSession,
@@ -134,8 +119,9 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
     // Recovery mutates the composer, so do not mount it in a view-only conversation.
     const recovery =
       chatProps.disabledBanner?.kind === "composer-replacement"
-        ? emptyLegacyContent
-        : solidContent(PaneOutboxRecovery, {
+        ? null
+        : {
+            component: PaneOutboxRecovery,
             state,
             identity: JSON.stringify([
               state.settings.gatewayUrl,
@@ -149,7 +135,7 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
               this.chatState.composerPersistence.restore();
               state.requestUpdate?.();
             },
-          });
+          };
     const latestBrowserTabs = latestBrowserTabCards(chatProps.messages, chatProps.toolMessages);
     const panePresentation = { owner: this, isPresented: () => this.presented };
     const slotPresentation = (slot: SidebarSlotId, mode: "visible" | "active" = "visible") => ({
@@ -177,7 +163,7 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       onOpenSubagent: ownsSubagentsPanel ? (key) => this.showSubagents(key) : undefined,
       onOpenSubagents: ownsSubagentsPanel ? (focus) => this.showSubagents(null, focus) : undefined,
       composerRecovery: recovery,
-      pluginToolIcons: this.toolIcons.icons,
+      pluginToolIcons: this.toolIcons,
       presented: {
         owner: this,
         isPresented: () => (this.active || Boolean(this.onBackToSubagents)) && this.presented,
@@ -191,9 +177,10 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       ? {
           chat: paneChatProps,
           mobile: this.mergedChrome && !this.onBackToSubagents,
-          presentation: this.mergedChrome
-            ? panePresentation
-            : (paneChatProps.transcriptVisible ?? this.presented),
+          presentation: panePresentation,
+          conversationVisible,
+          externalTrigger:
+            (sidebarMainPanel(sidebarLayout)?.slot ?? "conversation") !== "conversation",
           setRef: (details) => {
             this.headerDetailsRef.value = details;
           },
@@ -204,16 +191,16 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       chatProps.canAbort &&
       chatProps.onAbort &&
       !hasTerminalRunStatus(chatProps.runStatus)
-        ? solidContent(PaneSubagentStop, { onAbort: chatProps.onAbort })
-        : emptyLegacyContent;
+        ? { onAbort: chatProps.onAbort }
+        : undefined;
     const subagentHeader = this.onBackToSubagents
-      ? solidContent(PaneSubagentHeader, {
+      ? {
           onBack: this.onBackToSubagents,
           title: this.resolveHeaderSessionTitle(selectedSession),
           stop: subagentStop,
           details: headerDetails,
-        })
-      : emptyLegacyContent;
+        }
+      : null;
     const discussion = this.buildSessionDiscussionPanel(state, state.sessionKey.trim());
     const discussionState = this.sessionDiscussionStates.get(state.sessionKey.trim());
     const discussionAvailable = discussionState === "available" || discussionState === "open";
@@ -299,15 +286,9 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
           this.requestUpdate();
         }
       },
-      dashboard: !this.compact ? this.renderBoardPanel(board, sidebarLayout) : emptyLegacyContent,
-      workspace: renderSessionWorkspaceRail(sessionWorkspace),
-      renderDetail: (content) =>
-        renderChatDetailSlot({
-          chat: chatProps,
-          content,
-          host: state,
-          requestUpdate: state.requestUpdate!,
-        }),
+      dashboard: !this.compact ? this.renderBoardPanel(board, sidebarLayout) : null,
+      workspace: sessionWorkspace,
+      detail: { chat: chatProps, host: state, requestUpdate: state.requestUpdate! },
       digest: observerDigest,
       activeRunId: observerRunId,
       pullRequests: this.sessionPullRequests,
@@ -345,54 +326,38 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
     // Main panel actions share the task toolbar. Content roots stay in the
     // sidebar region so changing their presentation never reconnects them.
     const header =
-      subagentHeader !== emptyLegacyContent
-        ? subagentHeader
-        : this.compact
-          ? emptyLegacyContent
-          : solidContent(PaneHeaderContent, {
-              header: this.renderPaneHeader(
-                sessionWorkspace,
-                selectedSession,
-                catalog,
-                agentWorkspace,
-                workspaceGit,
-                chatProps.placementStartup,
-                savedLayout,
-                panelDefinitions,
-                subagentStop,
-                headerDetails,
-                { openPanelSlot: callbacks.openSlot, closePanelSlot: callbacks.closeSlot },
-              ),
-              notice:
-                !conversationVisible && chatProps.error
-                  ? { error: chatProps.error, onDismissError: chatProps.onDismissError }
-                  : undefined,
-              sessionKey: state.sessionKey,
-              agentId: currentAgentId,
-              presentation: {
-                owner: this,
-                isPresented: () => this.visuallyPresented,
-                preview: () =>
-                  !this.presented && this.connectionGeneration === connectionGeneration,
-              },
-            });
+      subagentHeader || this.compact
+        ? null
+        : {
+            header: this.renderPaneHeader(
+              sessionWorkspace,
+              selectedSession,
+              catalog,
+              agentWorkspace,
+              workspaceGit,
+              chatProps.placementStartup,
+              savedLayout,
+              panelDefinitions,
+              subagentStop,
+              headerDetails,
+              { openPanelSlot: callbacks.openSlot, closePanelSlot: callbacks.closeSlot },
+            ),
+            notice:
+              !conversationVisible && chatProps.error
+                ? { error: chatProps.error, onDismissError: chatProps.onDismissError }
+                : undefined,
+            sessionKey: state.sessionKey,
+            agentId: currentAgentId,
+            presentation: {
+              owner: this,
+              isPresented: () => this.visuallyPresented,
+              preview: () => !this.presented && this.connectionGeneration === connectionGeneration,
+            },
+          };
     const avatar = resolveAssistantDisplayAvatar(chatProps);
-    const conversationTab = this.conversationTabMemo.read(
-      [
-        chatProps.assistantName,
-        avatar.id,
-        avatar.avatar,
-        avatar.textAvatar,
-        currentThemeBranding(),
-      ],
-      () => ({
-        label: chatProps.assistantName,
-        icon: renderAgentIdentityAvatar(avatar),
-      }),
-    );
-    const content = renderSidebarRegion({
+    const region = renderSidebarRegion({
       presentationId: this.presentationId,
-      conversationTab,
+      conversationTab: { label: chatProps.assistantName, avatar },
       availableWidth: this.paneWidth,
       fetchFavicon: resolveChatLinkFaviconFetcher(state),
       callbacks,
@@ -403,26 +368,27 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       sideFocusOrigin: this.sideFocusOrigin,
       panelDefinitions,
       narrow: this.paneWidth < SIDEBAR_NARROW_BREAKPOINT_PX,
-      header,
-      primary: solidContent(PanePrimary, { chat: paneChatProps, application: this.context }),
-      background: renderSessionBackground(
-        this.context,
-        "session",
-        this.presented &&
-          this.visuallyPresented &&
-          isSidebarSlotVisible(sidebarLayout, "conversation"),
-      ),
       requestUpdate: state.requestUpdate!,
     });
-    const overlays = solidContent(PresentedPaneContent, {
-      presentation: panePresentation,
-      content: [
-        renderChatImageLightbox(state.imageLightbox, state.handleCloseImage),
-        this.renderResetConfirmation(),
-      ],
-    });
-    return this.onBackToSubagents
-      ? solidContent(PaneSubagentContent, { content, overlays })
-      : [content, overlays];
+    return {
+      region,
+      header,
+      subagentHeader,
+      primary: { chat: paneChatProps, application: this.context },
+      background: {
+        context: this.context,
+        surface: "session",
+        presented:
+          this.presented &&
+          this.visuallyPresented &&
+          isSidebarSlotVisible(sidebarLayout, "conversation"),
+      },
+      overlays: {
+        presentation: panePresentation,
+        image: state.imageLightbox,
+        onCloseImage: state.handleCloseImage,
+        reset: this.renderResetConfirmation(),
+      },
+    };
   }
 }

@@ -6,7 +6,6 @@ import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
-import { setTimeout as waitForProcessTick } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -14,10 +13,12 @@ import {
   openFixtureReceiptChannel,
   type FixtureReceiptChannel,
 } from "../../test/helpers/fixture-receipts.js";
+import { waitForDead } from "../../test/helpers/process-wait.js";
 import { awaitGateBeforeSettlement, withinTest } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { setVerbose } from "../global-state.js";
 import { isPidAlive } from "../shared/pid-alive.js";
+import { resolveTestNodeExecPath } from "../test-utils/node-process.js";
 import { readPidFile } from "../test-utils/process-tree.js";
 import { withTempDir } from "../test-utils/temp-dir.js";
 import { attachChildProcessBridge } from "./child-process-bridge.js";
@@ -40,17 +41,6 @@ afterAll(async () => {
   await receipts.close();
 });
 afterEach(() => vi.unstubAllEnvs());
-
-// Escaped descendants outlive the root handle; no owner exposes their exit event.
-async function waitForDescendantExit(pid: number, signal: AbortSignal): Promise<void> {
-  try {
-    while (isPidAlive(pid)) {
-      await waitForProcessTick(25, undefined, { signal });
-    }
-  } catch (error) {
-    throw new Error(`Timed out waiting for descendant ${pid} to exit`, { cause: error });
-  }
-}
 
 describe("runCommandWithTimeout", () => {
   it.skipIf(process.platform === "win32").each(["cooperative", "forced"] as const)(
@@ -124,7 +114,7 @@ describe("runCommandWithTimeout", () => {
         await running?.catch(() => undefined);
         if (descendant && isPidAlive(descendant)) {
           process.kill(descendant, "SIGKILL");
-          await waitForDescendantExit(descendant, signal);
+          await waitForDead(descendant, signal);
         }
       }
     },
@@ -508,7 +498,7 @@ describe("runCommandBuffered", () => {
               : { code: exitCode, termination: "exit" },
           );
           vi.useRealTimers();
-          await waitForDescendantExit(descendantPid, signal);
+          await waitForDead(descendantPid, signal);
           expect(isPidAlive(descendantPid)).toBe(false);
         } finally {
           try {
@@ -540,7 +530,8 @@ describe("runCommandBuffered", () => {
             expect(isPidAlive(parent.pid)).toBe(false);
           }
           if (descendantPid !== undefined) {
-            await waitForDescendantExit(descendantPid, signal);
+            // Escaped descendants outlive the root handle; no owner exposes their exit event.
+            await waitForDead(descendantPid, signal);
             expect(isPidAlive(descendantPid)).toBe(false);
           }
         }
@@ -698,8 +689,9 @@ describe("package manager runtime", () => {
       const systemBin = path.join(root, "system", "bin");
       await fs.mkdir(privateBin, { recursive: true });
       await fs.mkdir(systemBin, { recursive: true });
+      const nodeExecPath = resolveTestNodeExecPath();
       const privateNode = path.join(privateBin, "node");
-      await fs.symlink(process.execPath, privateNode);
+      await fs.symlink(nodeExecPath, privateNode);
       await fs.writeFile(path.join(systemBin, "node"), "#!/bin/sh\necho v22.22.3\n", {
         mode: 0o755,
       });
@@ -708,7 +700,7 @@ describe("package manager runtime", () => {
         JSON.stringify({
           name: "runtime-handoff-fixture",
           version: "1.0.0",
-          scripts: { preinstall: 'node -p "process.version"' },
+          scripts: { preinstall: 'node -p "process.execPath"' },
         }),
       );
       const npmCli = path.join(
@@ -741,7 +733,7 @@ describe("package manager runtime", () => {
         },
       );
       expect(result.code, result.stderr).toBe(0);
-      expect(result.stdout).toContain(process.version);
+      expect(result.stdout).toContain(nodeExecPath);
       expect(result.stdout).not.toContain("v22.22.3");
     },
   );

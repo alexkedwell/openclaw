@@ -14,10 +14,12 @@ import {
   decodeAgentDatabaseReaderRequest,
   installDeletedAgentDatabaseFences,
 } from "./agent-database-readers.js";
+import { withDatabaseEngineSelection } from "./database-engine/context.js";
 import { withSqliteDatabaseAdmissionExchange } from "./sqlite-database-admission.js";
 import {
   bindSqliteDatabaseAdmissionUpstream,
   exchangeSqliteDatabaseAdmissions,
+  withSqliteDatabaseAdmissionWait,
 } from "./sqlite-worker-database-admission-relay.js";
 import { cancelWorkerIdleGc, scheduleWorkerIdleGc } from "./worker-idle-gc.js";
 import { serveWorkerMemorySamples } from "./worker-memory.js";
@@ -59,30 +61,45 @@ export function serveOwnedWorkerTasks<Output>(
   let memoryPort: MessagePort;
   let taskPort: MessagePort | undefined;
   let databaseAdmissionPort: MessagePort | undefined;
+  let databaseAdmissionDeadlineAtMs: number | undefined;
+  let databaseEngineSelection: WorkerTaskContext["databaseEngineSelection"];
   let closeMemorySamples: (() => void) | undefined;
-  const runWithDatabaseAdmission = async <T>(operation: () => T | Promise<T>): Promise<T> => {
-    const port = databaseAdmissionPort;
-    if (!port) {
-      return operation();
-    }
-    let active = true;
-    try {
-      return await withSqliteDatabaseAdmissionExchange((admissions, location, create) => {
-        if (!active) {
-          throw new Error("SQLite admission facts outlived their worker task");
-        }
-        return exchangeSqliteDatabaseAdmissions(port, admissions, location, create);
-      }, operation);
-    } finally {
-      active = false;
-    }
+  const runWithTaskContext = async <T>(operation: () => T | Promise<T>): Promise<T> => {
+    const run = async () => {
+      const port = databaseAdmissionPort;
+      if (!port) {
+        return operation();
+      }
+      let active = true;
+      try {
+        return await withSqliteDatabaseAdmissionExchange((admissions, location, create) => {
+          if (!active) {
+            throw new Error("SQLite admission facts outlived their worker task");
+          }
+          return exchangeSqliteDatabaseAdmissions(port, admissions, location, create);
+        }, operation);
+      } finally {
+        active = false;
+      }
+    };
+    // Offline ports reuse workers across engines; cleanup retains the last task's selection.
+    return databaseEngineSelection
+      ? withDatabaseEngineSelection(databaseEngineSelection, run)
+      : run();
   };
   serveRuntimeWorkerTasks<Output, WorkerTaskContext>(
-    (input, channel, control) => runWithDatabaseAdmission(() => handler(input, channel, control)),
+    (input, channel, control) =>
+      withSqliteDatabaseAdmissionWait(
+        {
+          deadlineAtMs: databaseAdmissionDeadlineAtMs,
+          assertActive: () => control.throwIfCancelled(),
+        },
+        () => runWithTaskContext(() => handler(input, channel, control)),
+      ),
     {
       ...options,
       closeResource: (key) =>
-        runWithDatabaseAdmission(async () => {
+        runWithTaskContext(async () => {
           const request = decodeAgentDatabaseReaderRequest(key);
           if (!request && !options.closeResource) {
             throw new Error("Worker does not own retained resources");
@@ -121,6 +138,8 @@ export function serveOwnedWorkerTasks<Output>(
         cancelWorkerIdleGc();
       },
       installTaskContext(context) {
+        databaseAdmissionDeadlineAtMs = context.databaseAdmissionDeadlineAtMs;
+        databaseEngineSelection = context.databaseEngineSelection;
         installDeletedAgentDatabaseFences(context.deletedAgentDatabaseFences);
         if (context.databaseAdmissionPort) {
           bindSqliteDatabaseAdmissionUpstream(context.databaseAdmissionPort);

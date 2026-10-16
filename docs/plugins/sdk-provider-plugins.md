@@ -349,6 +349,13 @@ must release it in `finally`.
     });
     ```
 
+    Auth callbacks return an authoring `configPatch` that the host applies.
+    A plugin-owned setup flow that applies its own result should use
+    `applyProviderAuthConfigPatch(config, result.configPatch, result)` from
+    `openclaw/plugin-sdk/provider-auth`. It preserves the host's merge semantics,
+    including individual header deletions and `replaceDefaultModels`; do not
+    shallow-spread an auth patch into runtime config.
+
     `registerModelCatalogProvider` is the newer control-plane catalog surface
     for list/help/picker UI, covering `text`, `voice`, `image_generation`,
     `video_generation`, and `music_generation` rows. Keep vendor endpoint
@@ -587,6 +594,18 @@ This keeps shared request shaping and output normalization active, including
 MiMo reasoning replay and final-answer handling. Without the flag, a replacement
 stream keeps the existing behavior of taking ownership of those compatibility
 policies. Returning the original stream or no wrapper also preserves them.
+
+Bundled adapters share `wrapProviderPayloadHook` and `mapAssistantMessageStream`
+through the existing private `provider-stream-shared` seam. Payload composition
+runs defaults before the caller hook and wire constraints after its result settles;
+each adapter keeps its own replacement/null policy. The stream mapper preserves
+synchronous returns without importing the embedded runner. These are bundled
+implementation helpers, not new third-party SDK contracts.
+
+Injected-client adapters also reuse the Anthropic thinking and output-cap owners
+through the private `provider-transport-runtime` seam. Client creation and
+provider-specific defaults stay with the adapter; the shared request builder
+owns sampling restrictions and cache-marker budgeting.
 
 Local provider transports can report a transient wait through the optional
 `StreamOptions.onProviderWait` callback. Pass `"response"` while waiting for a

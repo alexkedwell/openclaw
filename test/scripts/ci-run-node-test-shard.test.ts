@@ -675,7 +675,6 @@ describe("scripts/ci-run-node-test-shard.mts", () => {
         "src/infra/main-thread-stall.test.ts",
         "src/auto-reply/reply/get-reply.imports.test.ts",
         "src/plugin-sdk/provider-catalog-shared.cancellation.test.ts",
-        "src/plugin-sdk/provider-catalog-shared.retention.test.ts",
       ].toSorted();
       const nodeFiles = [skippedOnBun, nodeHistoryBenchmark, nodeTarget];
       const nativeFiles = vitestArgs.length ? [] : [bunTarget, nativeBunTarget];
@@ -1023,6 +1022,19 @@ describe("scripts/ci-run-node-test-shard.mts", () => {
         "extensions/team-reports/src/render/theme.test.ts",
       ],
       sibling: "extensions/team-reports/src/render/site.test.ts",
+      glob: "**/*.test.ts",
+    },
+    {
+      config: "test/vitest/vitest.infra.config.ts",
+      dir: ".",
+      targets: [
+        "src/agents/prepared-model-catalog-worker.custody.integration.test.ts",
+        "src/cli/admin-state-owner.process.test.ts",
+        "src/infra/update-managed-service-handoff-reclamation.test.ts",
+        "src/infra/worker-cpu.test.ts",
+        "src/state/openclaw-state-lease.retention.test.ts",
+      ],
+      sibling: "src/state/openclaw-state-ownership.test.ts",
       glob: "**/*.test.ts",
     },
   ])("admits only the qualified complete selections in $config", (row) => {
