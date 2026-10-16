@@ -6,12 +6,15 @@ extension BundledRuntime {
     enum SeedError: LocalizedError {
         case invalidBuildID
         case invalidCurrent
+        case migrationRequired
         case warmFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .invalidBuildID: "The app's runtime build ID is invalid. Reinstall OpenClaw.app."
             case .invalidCurrent: "The seeded runtime link is invalid. Retry OpenClaw setup."
+            case .migrationRequired:
+                "Stop this profile's Gateway, run the bundled openclaw doctor --fix, then restart OpenClaw."
             case let .warmFailed(reason): "The background runtime preparation failed. " + reason
             }
         }
@@ -42,7 +45,7 @@ extension BundledRuntime {
         let runtime = Self(root: directory.appendingPathComponent(buildID))
         // A loose-runtime seed is an upgrade input, never a runnable current payload.
         guard FileManager.default.fileExists(atPath: runtime.root.appendingPathComponent("manifest.json").path)
-        else { return nil }
+        else { throw SeedError.migrationRequired }
         let manifest = try runtime.validatedManifest()
         guard manifest.buildId == buildID
         else { throw SeedError.invalidCurrent }

@@ -275,7 +275,9 @@ struct BundledRuntimeTests {
         try FileManager.default.createDirectory(at: cli.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "#!/bin/sh\n# OpenClaw.app managed CLI (bundled runtime)\nexec broken-bun\n"
             .write(to: cli, atomically: true, encoding: .utf8)
-        #expect(try BundledRuntime.seeded(profile: profile, homeDirectory: home) == nil)
+        #expect(throws: BundledRuntime.SeedError.self) {
+            try BundledRuntime.seeded(profile: profile, homeDirectory: home)
+        }
 
         for index in 1...2 {
             let app = home.appendingPathComponent("Upgrade-\(index).app")

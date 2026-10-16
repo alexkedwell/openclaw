@@ -403,7 +403,7 @@ enum CLIInstaller {
             do {
                 _ = try await self.prepareBundledGateway(statusHandler: statusHandler)
                 await statusHandler("Preparing the terminal runtime…")
-                _ = try await BundledRuntime.seed()
+                try await self.prepareBundledTerminalRuntime()
                 NotificationCenter.default.post(name: .openclawCLIInstalled, object: nil)
                 await statusHandler("OpenClaw is ready.")
                 return true

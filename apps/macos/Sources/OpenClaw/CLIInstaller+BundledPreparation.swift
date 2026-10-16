@@ -107,6 +107,13 @@ extension CLIInstaller {
             .joined(separator: "\n")
     }
 
+    static func prepareBundledTerminalRuntime() async throws {
+        guard try await GatewayLaunchAgentManager.runtimePinRecord(
+            stateDirectory: AppProfile.current.stateDirectoryURL(), profile: .current)?.status != .migrationPending
+        else { throw BundledRuntime.SeedError.migrationRequired }
+        _ = try await BundledRuntime.seed()
+    }
+
     static func prepareBundledGateway(
         targetVersion: String? = GatewayEnvironment.appVersionString(),
         restartGateway: Bool = !AppStateStore.shared.isPaused,

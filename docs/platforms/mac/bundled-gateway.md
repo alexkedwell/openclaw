@@ -66,6 +66,9 @@ process and its self-respawns keep one executable and its matching sidecar.
 While a runtime migration is pending, child restarts preserve the current runtime
 and background preparation leaves `runtime/current` unchanged. After Doctor resolves
 the migration, the next app launch can prepare and select the new warmed seed.
+Terminal CLI installation also waits for the migration to finish. If the selected
+runtime is a previous loose payload, stop the profile's Gateway, run the bundled
+`openclaw doctor --fix` for that profile, then restart OpenClaw.
 Moving or renaming the app does not restart the child; its next start resolves
 the app's new location. Read-only or translocated app bundles can execute in
 place while preparation uses the writable profile directory.

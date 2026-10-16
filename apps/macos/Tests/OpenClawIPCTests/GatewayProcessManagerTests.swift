@@ -14,6 +14,16 @@ struct GatewayProcessManagerTests {
     /// unit test owns its manager so readiness state cannot leak into their requests.
     private let manager = GatewayProcessManager()
 
+    @Test func `terminal runtime publication preserves a pending migration`() async throws {
+        try await self.withLaunchAgentEnvironment(statusPayload:
+            #"{"service":{"runtimeIntent":{"status":"migrationPending","nextStep":"run openclaw doctor"}}}"#)
+        {
+            await #expect(throws: BundledRuntime.SeedError.self) {
+                try await CLIInstaller.prepareBundledTerminalRuntime()
+            }
+        }
+    }
+
     @Test func `pending pin migration defers background preparation without error`() async throws {
         try await self.withLaunchAgentEnvironment(statusPayload:
             #"{"service":{"runtimeIntent":{"status":"migrationPending","nextStep":"run openclaw doctor"}}}"#)
