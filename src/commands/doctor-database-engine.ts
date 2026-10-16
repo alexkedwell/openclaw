@@ -5,8 +5,10 @@ import type { HealthFinding } from "../flows/health-checks.js";
 import { ensureSqliteLibrarySelected } from "../infra/bun-sqlite-library.js";
 import { selectDatabaseEngine } from "../infra/database-engine/registry.js";
 import { describeDatabaseEngineSelection } from "../infra/database-engine/report.js";
-import type { DatabaseEngineFamily, DatabaseEngineId } from "../infra/database-engine/types.js";
-import type { DoctorDatabaseEngineInspection } from "./doctor-database-engine-inspection.js";
+import type {
+  DoctorDatabaseEngineInspection,
+  ObservedDatabaseEngines,
+} from "./doctor-database-engine-inspection.js";
 
 async function inspectDatabaseEngines(
   cfg: OpenClawConfig,
@@ -49,8 +51,6 @@ function stateRootFindings(
   }
   return findings;
 }
-
-export type ObservedDatabaseEngines = Partial<Record<DatabaseEngineFamily, DatabaseEngineId[]>>;
 
 function collectDatabaseEngineHealthFindings(
   cfg: OpenClawConfig,
