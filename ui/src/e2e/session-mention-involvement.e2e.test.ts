@@ -68,7 +68,6 @@ suite.define(() => {
           await target.hover();
           await target.click({ button: "right" });
           await expectBrowser(page.locator('openclaw-session-menu [value="rename"]')).toBeVisible();
-          await page.getByRole("menuitem", { name: "Advanced", exact: true }).click();
           await captureUiProof(
             suite,
             page,

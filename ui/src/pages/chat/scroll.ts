@@ -267,7 +267,12 @@ export function handleChatScroll(host: ChatScrollHost, event: Event): void {
   updateChatScrollPosition(host, container);
 }
 
-export function handleChatScrollTakeover(host: ChatScrollHost, towardEnd = false): void {
+export function handleChatScrollTakeover(host: ChatScrollHost, towardEnd?: boolean): void {
+  if (towardEnd === false) {
+    // Upward intent owns the viewport before the browser moves it.
+    lockChatScroll(host);
+    return;
+  }
   cancelChatScroll(host);
   const container = host.chatScrollElement?.();
   if (container) {

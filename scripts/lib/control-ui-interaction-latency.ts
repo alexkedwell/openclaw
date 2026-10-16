@@ -182,6 +182,17 @@ export async function runInteractionLatencyScenario(
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
         }),
     );
+  const readVisibleRow = (element: Element) => {
+    const top = element.getBoundingClientRect().top;
+    const row = [...element.querySelectorAll<HTMLElement>(".chat-virtual-row")].find(
+      (candidate) => candidate.getBoundingClientRect().bottom > top,
+    );
+    if (!row) {
+      throw new Error("Interaction scenario has no visible transcript row");
+    }
+    return { index: Number(row.dataset.index), top: row.getBoundingClientRect().top };
+  };
+  const pageUpResponses = [];
   const step = async (kind: string, act: () => Promise<void>) => {
     await page.evaluate(
       (interactionKind) => Reflect.get(window, "__interactionLatency").begin(interactionKind),
@@ -194,14 +205,22 @@ export async function runInteractionLatencyScenario(
   await composer.fill("");
   await composer.focus();
   await waitForIdle();
-  await page.evaluate((scenario) => {
-    Reflect.get(window, "__streamingReply").start({
-      ...scenario.stream,
-      deltas: [],
-      sessionKey: scenario.selectedSessionKey,
-    });
-    Reflect.get(window, "__coldLoad").startLive(false);
-  }, input);
+  await page.evaluate(
+    ({ runId, deltasPerSecond, sessionKey }) => {
+      Reflect.get(window, "__streamingReply").start({
+        runId,
+        deltasPerSecond,
+        deltas: [],
+        sessionKey,
+      });
+      Reflect.get(window, "__coldLoad").startLive(false);
+    },
+    {
+      runId: input.stream.runId,
+      deltasPerSecond: input.stream.deltasPerSecond,
+      sessionKey: input.selectedSessionKey,
+    },
+  );
   const started = Date.now();
   for (let round = 0; round < 7; round++) {
     await new Promise((resolve) => {
@@ -237,34 +256,19 @@ export async function runInteractionLatencyScenario(
     if (beforeScroll <= 0) {
       throw new Error("Interaction scenario has no upward transcript scroll range");
     }
-    const beforeRow = await thread.evaluate((element) => {
-      const top = element.getBoundingClientRect().top;
-      const row = [...element.querySelectorAll<HTMLElement>(".chat-virtual-row")].find(
-        (candidate) => candidate.getBoundingClientRect().bottom > top,
-      );
-      if (!row) {
-        throw new Error("Interaction scenario has no visible transcript row");
-      }
-      return { index: Number(row.dataset.index), top: row.getBoundingClientRect().top };
-    });
+    const beforeRow = await thread.evaluate(readVisibleRow);
     await step("scroll", () => page.keyboard.press("PageUp"));
-    // Virtualizer measurement can rebase scrollTop while the reader moves upward.
-    await page.waitForFunction((before) => {
-      const transcript = document.querySelector(".chat-pane-cache__pane--active .chat-thread");
-      if (!transcript) {
-        return false;
-      }
-      const top = transcript.getBoundingClientRect().top;
-      const row = [...transcript.querySelectorAll<HTMLElement>(".chat-virtual-row")].find(
-        (candidate) => candidate.getBoundingClientRect().bottom > top,
-      );
-      return (
-        row &&
-        (Number(row.dataset.index) < before.index ||
-          (Number(row.dataset.index) === before.index &&
-            row.getBoundingClientRect().top > before.top))
-      );
-    }, beforeRow);
+    const afterRow = await thread.evaluate(readVisibleRow);
+    // Record non-responses too: a quick paint does not prove that scrolling worked.
+    // Content coordinates survive virtualizer scrollTop rebasing.
+    pageUpResponses.push({
+      round,
+      before: beforeRow,
+      after: afterRow,
+      movedUpwardAtCheckpoint:
+        afterRow.index < beforeRow.index ||
+        (afterRow.index === beforeRow.index && afterRow.top > beforeRow.top),
+    });
     await step("menu", async () => {
       await active.locator(".chat-header-session-menu__trigger").click();
       await active
@@ -340,8 +344,9 @@ export async function runInteractionLatencyScenario(
   return {
     probe,
     summary: summarizeInteractionLatency(probe),
+    pageUpResponses,
     measurement:
-      "Trusted native keyboard typing with the streamed reply in view, End/PageUp scrolling, session-menu clicks and pinned-session switches during a 30 Hz cumulative answer plus the Team live-event mix (excluding competing chat deltas). Event Timing is censored below 16 ms and rounded to 8 ms; reported event distributions include only observed interactions, grouped by interactionId using the longest event. Native capture-listener input delay includes fast events. Paging Event Timing measures keyboard-to-paint, not completion of smooth scrolling. Overlapping LoAFs identify candidate blockers, not exclusive causal attribution.",
+      "Trusted native keyboard typing with the streamed reply in view, End/PageUp scrolling, session-menu clicks and pinned-session switches during a 30 Hz cumulative answer plus the Team live-event mix (excluding competing chat deltas). Event Timing is censored below 16 ms and rounded to 8 ms; reported event distributions include only observed interactions, grouped by interactionId using the longest event. Native capture-listener input delay includes fast events. Paging Event Timing measures keyboard-to-paint, not completion of smooth scrolling; pageUpResponses separately records upward content movement at the two-animation-frame checkpoint, including non-responses. Overlapping LoAFs identify candidate blockers, not exclusive causal attribution.",
     stream,
     live: await page.evaluate(() => Reflect.get(window, "__coldLoad").readLive()),
     rig: await page.evaluate(() => Reflect.get(window, "__readColdLoadRigProbes")?.()),

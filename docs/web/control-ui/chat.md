@@ -25,6 +25,10 @@ Hidden panes, background tabs, and programmatic or maintenance scrolling do not
 trigger automatic loading. An incomplete history page does not show the new-chat welcome
 screen.
 
+Scrolling upward with the keyboard or mouse wheel suspends automatic following
+as soon as the input arrives, so a streaming reply cannot pull you back to the
+end before the browser starts scrolling. Return to the end to resume following.
+
 Enable **Settings → Labs → Speech bubbles** to try the experimental view (off by default).
 While enabled, Home uses bubbles by default. The session menu’s **View → Speech bubbles**
 option changes only that conversation. Explicit choices stay in this browser for this

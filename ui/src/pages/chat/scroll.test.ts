@@ -443,6 +443,22 @@ describe("programmatic scroll ownership", () => {
 
 describe("reader-controlled panel takeover", () => {
   afterEach(() => vi.restoreAllMocks());
+  it("keeps streaming from reclaiming upward intent before native movement", () => {
+    const { host, container } = createScrollHost();
+    const frames = installAnimationFrameQueue();
+    handleChatScrollTakeover(host);
+    expect(canAutoFollowChat(host)).toBe(true);
+
+    handleChatScrollTakeover(host, false);
+    Object.defineProperty(container, "scrollHeight", { value: 2050 });
+    scheduleCommittedChatScroll(host);
+    frames.runNext();
+
+    expect(host.chatScrollToEnd).not.toHaveBeenCalled();
+    expect(container.scrollTop).toBe(1500);
+    expect(host.chatFollowLocked).toBe(true);
+  });
+
   it("retires pending follow at the physical end and publishes the locked state once", () => {
     const { host } = createScrollHost();
     const invalidate = vi.fn();

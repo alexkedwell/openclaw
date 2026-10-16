@@ -246,6 +246,7 @@ describe.skipIf(!hasPopoverApi)("submenu parent highlight", () => {
     flush();
     const trigger = container.querySelector<HTMLElement>(".oc-menu-trigger")!;
     const parent = container.querySelector<HTMLElement>('[data-value="parent"]')!;
+    const child = container.querySelector<HTMLElement>('[data-value="child"]')!;
     const sibling = container.querySelector<HTMLElement>('[data-value="sibling"]')!;
     const swatch = document.createElement("div");
     swatch.style.backgroundColor = "var(--bg-hover)";
@@ -256,14 +257,9 @@ describe.skipIf(!hasPopoverApi)("submenu parent highlight", () => {
     await expect.poll(() => document.activeElement).toBe(parent);
     if (input === "keyboard") {
       await userEvent.keyboard("{ArrowRight}");
-    } else {
-      await page.elementLocator(parent).hover();
-    }
-    await expect.element(page.getByRole("menuitem", { name: "Child", exact: true })).toBeVisible();
-    const child = container.querySelector<HTMLElement>('[data-value="child"]')!;
-    if (input === "keyboard") {
       await expect.poll(() => document.activeElement).toBe(child);
     } else {
+      await page.elementLocator(parent).hover();
       await page.elementLocator(child).hover();
       await expect.poll(() => child.hasAttribute("data-highlighted")).toBe(true);
       expect(document.activeElement).toBe(parent);

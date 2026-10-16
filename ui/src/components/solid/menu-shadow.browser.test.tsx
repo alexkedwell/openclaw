@@ -33,6 +33,7 @@ it.each(["open", "closed"] as const)("navigates menus inside a %s shadow root", 
   const trigger = root.getElementById("shadow-menu:trigger") as HTMLButtonElement;
   const surface = root.getElementById("shadow-menu:content")!;
   const group = root.getElementById("shadow-menu-group:trigger")!;
+  const child = root.getElementById("shadow-menu-group:child")!;
   const archive = root.getElementById("shadow-menu:archive")!;
   try {
     trigger.focus();
@@ -46,7 +47,6 @@ it.each(["open", "closed"] as const)("navigates menus inside a %s shadow root", 
     await expect.poll(() => root.activeElement).toBe(archive);
     await userEvent.keyboard("{Home}{ArrowRight}");
     await phase(root.getElementById("shadow-menu-group:content")!, "open");
-    const child = root.getElementById("shadow-menu-group:child")!;
     await expect.poll(() => root.activeElement).toBe(child);
     await userEvent.keyboard("{ArrowLeft}");
     await expect.poll(() => root.activeElement).toBe(group);

@@ -182,9 +182,7 @@ suite.define(() => {
         await rename.waitFor();
         expect(await rename.getAttribute("disabled")).not.toBeNull();
         expect(await archive.getAttribute("disabled")).not.toBeNull();
-        await openSessionMenuSubmenu(page, "Advanced");
         expect(await fork.getAttribute("disabled")).not.toBeNull();
-        await page.keyboard.press("ArrowLeft");
         expect(await menu.locator('[data-value="toggle-unread"]').isDisabled()).toBe(true);
         await rename.click({ force: true });
         await archive.click({ force: true });
@@ -219,9 +217,7 @@ suite.define(() => {
         await rename.waitFor();
         expect((await rename.getAttribute("disabled")) === null).toBe(canOrganize);
         expect((await archive.getAttribute("disabled")) === null).toBe(canOrganize);
-        await openSessionMenuSubmenu(page, "Advanced");
         expect(await fork.getAttribute("disabled")).not.toBeNull();
-        await page.keyboard.press("ArrowLeft");
         const unread = menu.locator('[data-value="toggle-unread"]');
         expect(await unread.isDisabled()).toBe(!canOrganize);
         if (canOrganize) {

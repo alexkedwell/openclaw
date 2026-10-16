@@ -17,7 +17,6 @@ import {
 } from "../app-sidebar.ts";
 import { createTestGatewayClient } from "../gateway-client.ts";
 import { settleLitElement } from "../lit-settle.ts";
-import { openSubmenu } from "../session-menu.ts";
 import "./session-pagination.ts";
 import "./session-navigation.ts";
 
@@ -189,8 +188,7 @@ describe("AppSidebar session source lifecycle", () => {
     }
     await menu.updateComplete;
     expect(menu.forkDisabled).toBe(true);
-    const advanced = await openSubmenu(menu, "Advanced");
-    expect(advanced.querySelector<HTMLButtonElement>('[data-shortcut="f"]')?.disabled).toBe(true);
+    expect(menu.querySelector<HTMLButtonElement>('[data-shortcut="f"]')?.disabled).toBe(true);
   });
 
   it("forks from stable history when Gateway liveness outlives display status", async () => {

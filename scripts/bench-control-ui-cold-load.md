@@ -64,6 +64,9 @@ LoAF overlap identifies candidate blockers, not exclusive causal attribution.
 The composer settles before live traffic starts. Each round returns to the reply
 with End and checks that it is in view before typing, then pages up to read it.
 Transcript focus happens before each paging checkpoint, outside the measured key.
+`pageUpResponses` records upward content movement at the two-animation-frame
+checkpoint, including no-motion outcomes. A quick paint alone does not establish
+that the transcript moved; this checkpoint does not measure scroll completion.
 Compare at least seven interleaved baseline/candidate pairs on one quiet machine,
 with the same bundle settings, Chromium, latency, and rig probes. Use `--untraced`
 for those comparisons and retain all interaction counts and tail results.
