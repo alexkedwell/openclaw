@@ -313,6 +313,9 @@ it.each([
             if (!runtime) {
               throw new Error("Missing registered decision SDK");
             }
+            // ProviderHost starts the operation deadline before its lazy prepared-runtime import.
+            // Compile that source-only dependency as fixture setup, outside the measured operation.
+            await import("./decision-inference.js");
             const options = () => ({
               agentId: "main",
               purpose: "openrouter-native-fixture",
