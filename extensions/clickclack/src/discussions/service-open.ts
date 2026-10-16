@@ -430,12 +430,17 @@ export async function openClickClackDiscussionBinding(
       throw new Error("ClickClack discussion channel is missing its route id");
     }
     const channel = resolved;
-    // Metadata edited during creation is picked up by the normal reconciler.
-    // The binding commit below still checks live account/session authority.
+    const currentEntry = await readDiscussionSessionEntry(runtime, sessionKey);
+    if (!currentEntry?.sessionId || currentEntry.archivedAt !== undefined) {
+      await clearPendingDiscussionOpen(generationScope);
+      params.warn(`unattached discussion channel remains quarantined: ${channel.id}`);
+      throw new Error("OpenClaw session became inactive while opening its ClickClack discussion");
+    }
+    // Presentation changes during creation are reconciled through the normal session owner.
     const nextBinding: ClickClackDiscussionBinding = {
       accountId: account.accountId,
       agentId,
-      sessionId: entry.sessionId,
+      sessionId: currentEntry.sessionId,
       serverBaseUrl,
       credentialFingerprint,
       externalRef,

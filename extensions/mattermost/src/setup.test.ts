@@ -15,12 +15,14 @@ vi.mock("./mattermost/client.js", () => ({
 }));
 
 let mattermostSetupWizard: typeof import("./setup-surface.js").mattermostSetupWizard;
+let isMattermostConfigured: typeof import("./mattermost/accounts.js").isMattermostConfigured;
 let mattermostSetupAdapter: typeof import("./setup-core.js").mattermostSetupAdapter;
 
 describe("mattermost setup", () => {
   beforeAll(async () => {
     ({ mattermostSetupWizard } = await import("./setup-surface.js"));
     ({ mattermostSetupAdapter } = await import("./setup-core.js"));
+    ({ isMattermostConfigured } = await import("./mattermost/accounts.js"));
   });
 
   beforeEach(() => {
@@ -31,6 +33,35 @@ describe("mattermost setup", () => {
     normalizeMattermostBaseUrl.mockReset();
     normalizeMattermostBaseUrl.mockImplementation((value: string | undefined) => value);
     vi.unstubAllEnvs();
+  });
+
+  it("reports configuration only when token and base url are both present", () => {
+    expect(
+      isMattermostConfigured({
+        botToken: "bot-token",
+        baseUrl: "https://chat.example.com",
+        config: {},
+      } as never),
+    ).toBe(true);
+
+    expect(
+      isMattermostConfigured({
+        botToken: "",
+        baseUrl: "https://chat.example.com",
+        botTokenStatus: "configured_unavailable",
+        config: {
+          botToken: { source: "env", provider: "default", id: "MISSING_MATTERMOST_TOKEN" },
+        },
+      } as never),
+    ).toBe(true);
+
+    expect(
+      isMattermostConfigured({
+        botToken: "",
+        baseUrl: "",
+        config: {},
+      } as never),
+    ).toBe(false);
   });
 
   it("validates env and explicit credential requirements", () => {

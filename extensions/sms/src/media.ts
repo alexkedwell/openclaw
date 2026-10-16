@@ -212,8 +212,8 @@ export async function prepareHostedSmsMedia(params: PrepareHostedSmsMediaParams)
         aggregateMediaBudget,
       ),
       mediaAccess: resolveOutboundMediaAccess(params),
-      validateBeforePersist: ({ buffer, contentType: rawContentType }) => {
-        const contentType = rawContentType?.split(";", 1)[0]?.trim().toLowerCase();
+      validateBeforePersist: (media) => {
+        const contentType = media.contentType?.split(";", 1)[0]?.trim().toLowerCase();
         if (!contentType || !TWILIO_MMS_EXTENSION_BY_TYPE[contentType]) {
           throw new Error(
             `Twilio MMS does not support media type ${contentType || "unknown content type"}.`,
@@ -225,12 +225,12 @@ export async function prepareHostedSmsMedia(params: PrepareHostedSmsMediaParams)
         const maxBytes = TWILIO_MMS_LARGE_MEDIA_TYPES.has(contentType)
           ? TWILIO_MMS_IMAGE_MAX_BYTES
           : TWILIO_MMS_OTHER_MAX_BYTES;
-        if (buffer.byteLength > maxBytes) {
+        if (media.buffer.byteLength > maxBytes) {
           throw new Error(
             `Twilio MMS media exceeds the ${maxBytes.toLocaleString("en-US")} byte limit for ${contentType}.`,
           );
         }
-        if (buffer.byteLength + captionByteLength >= TWILIO_MMS_IMAGE_MAX_BYTES) {
+        if (media.buffer.byteLength + captionByteLength >= TWILIO_MMS_IMAGE_MAX_BYTES) {
           throw new Error(
             "Twilio MMS attachment and caption must total less than 5,000,000 bytes.",
           );
