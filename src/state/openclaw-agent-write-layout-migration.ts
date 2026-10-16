@@ -1,29 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { migrateSqliteTableWithoutRowid } from "./sqlite-table-layout-migration.js";
 
-const LEGACY_PARENT_INDEX = `CREATE INDEX IF NOT EXISTS idx_agent_transcript_event_parent
-  ON transcript_event_identities(session_id, parent_id)
-  WHERE parent_id IS NOT NULL;
-
-`;
-
-/** Historical admission must compare the indexes installed by that release. */
-export function withLegacyAgentWriteLayout(schema: string): string {
-  return schema
-    .replace(
-      /(CREATE TABLE IF NOT EXISTS memory_entry_origins \([\s\S]*?\n\) STRICT), WITHOUT ROWID;/u,
-      "$1;",
-    )
-    .replace(
-      "ON session_windows(primary_conversation_id)",
-      "ON session_windows(primary_conversation_id, updated_at DESC, session_id)",
-    )
-    .replace(
-      "CREATE INDEX IF NOT EXISTS idx_agent_transcript_event_sequence",
-      `${LEGACY_PARENT_INDEX}CREATE INDEX IF NOT EXISTS idx_agent_transcript_event_sequence`,
-    );
-}
-
 /** Version 27 differs only in these indexes; WITHOUT ROWID has no PostgreSQL equivalent. */
 export function withLegacyAgentPostgresWriteLayout(schema: string): string {
   return `${schema}
