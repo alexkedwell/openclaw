@@ -5,12 +5,13 @@ import {
   clearRuntimeConfigSnapshot,
   setRuntimeConfigSnapshot,
 } from "../../../config/runtime-snapshot.js";
+import * as decisionDiagnostics from "../../../decisions/diagnostics.js";
 import type { PluginHookBeforePromptBuildResult } from "../../../plugins/hook-before-agent-start.types.js";
 import type { PluginHookAgentContext } from "../../../plugins/hook-types.js";
 import { createHookRunner } from "../../../plugins/hooks.js";
 import { matchesTranscriptEvent } from "../../../sessions/transcript-visible-record.js";
 import { prepareSystemAgentRunAdmission } from "../../admitted-run-context.js";
-import { buildAgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.js";
+import { prepareAgentRunTerminalReply } from "../../agent-run-terminal-reply.js";
 import { forgetPromptBuildDrainCacheForRun } from "../../plugin-turn-context.js";
 import {
   createTestSession,
@@ -155,6 +156,7 @@ async function assembleWithCapturedHookCtx(
 
 describe("prompt-build hook context input provenance", () => {
   it("prepares the restricted prompt once before composing the original hook additions", async () => {
+    const observeDecision = vi.spyOn(decisionDiagnostics, "logDecisionToolPrefilter");
     const order: string[] = [];
     const applyPolicy = vi.fn((names: string[] | undefined) => {
       order.push("policy");
@@ -180,6 +182,7 @@ describe("prompt-build hook context input provenance", () => {
       },
     );
     expect(order).toEqual(["policy", "prompt"]);
+    expect(observeDecision).toHaveBeenCalledExactlyOnceWith({ effect: "skipped" });
     expect(captured).toHaveLength(1);
     expect(prepareSystemPrompt).toHaveBeenCalledOnce();
     const finalPrompt = setSystemPrompt.mock.calls.at(-1)?.[0] ?? "";
@@ -304,7 +307,7 @@ it("injects complete lifecycle results into requester prompts and acknowledges o
       outcome: { status: "ok" },
       reason: SUBAGENT_ENDED_REASON_COMPLETE,
       triggerCleanup: false,
-      terminalReply: buildAgentRunTerminalReplySnapshot({ visibleText: answer }),
+      terminalReply: prepareAgentRunTerminalReply({ rawText: answer }).terminalReply,
     });
     await mutateSubagentRuns(
       [child.runId],
@@ -329,7 +332,11 @@ it("injects complete lifecycle results into requester prompts and acknowledges o
   if (!first || !second) {
     throw new Error("expected two completed children for requester queue delivery");
   }
-  expect(runs.get(first.runId)?.completion?.resultText).toHaveLength(4_096);
+  const boundedReply = runs.get(first.runId)?.completion?.terminalReply;
+  if (boundedReply?.disposition !== "visible") {
+    throw new Error("expected visible terminal evidence");
+  }
+  expect(boundedReply.text).toHaveLength(4_096);
   const storedCompletion = structuredClone(runs.get(first.runId)?.completion);
   announceTesting.setDepsForTest({
     findTranscriptEvent: async ({ sessionId }, match) => {

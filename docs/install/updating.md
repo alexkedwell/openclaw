@@ -41,6 +41,13 @@ Doctor's held-store warning remains visible. Active databases and pending
 deletions still require the candidate schema, and held stores remain part of
 rollback verification.
 
+OpenClaw.app runs plugin convergence through the selected runtime's Doctor while
+the app owns Gateway activation. This aligns managed official npm plugins with the new
+core before plugin migrations, repairs host peer links, and refreshes the plugin
+registry. Unavailable replacements remain nonblocking: the app's recovery
+diagnostics include the remaining version or peer-link warning and the exact
+repair command. Retry Gateway setup in the app to repeat this owned repair.
+
 ## Retired tenant-container management
 
 The experimental `openclaw fleet` command has been removed. Updating the host
@@ -277,6 +284,15 @@ Gateway after package replacement. Idle candidate workers release their IPC
 references after native work closes, so a completed Doctor does not leave the
 installed updater waiting indefinitely for its exit. This fix runs in the
 updated package; the published updater and its handoff markers are unchanged.
+
+After a native service starts, restart preparation allows its verified process
+up to the normal startup deadline to replace missing or dead Gateway ownership
+before signaling it. This avoids an intermittent `restart-unhealthy` result when
+an older updater starts the updated service before asking the new installation
+to restart it.
+The fix runs in the new installation, so it also applies to the next update
+from 2026.8.35. Missing ownership after the deadline and unrelated process locks
+still refuse the restart.
 
 The running Gateway retains its shutdown code before an in-place update can
 replace the package's bundled files. Transcript shutdown drains captures and
