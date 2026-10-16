@@ -9,6 +9,28 @@ title: "Configuration — GitHub identity for agent tools"
 
 `tools.github` selects the shared managed GitHub CLI identity used by agent execution, and defines which execution paths receive its credential.
 
+## Session GitHub App reader
+
+A configured `tools.github` (or complete agent override) with
+`kind: "app-installation"` selects a GitHub App installation for explicitly
+admitted session reads. The `app` object specifies `appId`, `installationId`,
+`accountId`, exact `repositories` (`id` and `fullName`), `permissions`,
+`privateKey` (a SecretRef or resolved signing key), and `keyVersion`.
+The existing managed `profileId` identifies the selection.
+
+This reader verifies the configured issuer, App, installation, permissions, bot,
+and exact repository set before returning a short-lived token. The request owns
+revocation and must finish cleanup before returning private content. Existing
+publication, background, and shell execution paths do not acquire App tokens.
+OAuth and native GitHub selections retain their existing behavior.
+
+In Factory GitHub mode, session reads additionally require the current person's
+verified account on the configured Enterprise host. A one-use, short-lived proof
+binds that account, profile, session lifetime, and item digest to the existing
+Factory repository-admission broker. Only an authenticated direct-local system
+administrator connection can redeem it. A request field cannot supply the
+person's identity, and admission never falls back to a human or native token.
+
 ## `tools.github`
 
 GitHub CLI identity is native by default. When `tools.github` is omitted, local agent tools, the Codex harness, and Agent Settings follow normal `gh` resolution: `GH_TOKEN` or `GITHUB_TOKEN` from the Gateway process takes precedence, followed by the runtime user's `gh` keyring/config. The Git author comes from the selected agent's workspace.
