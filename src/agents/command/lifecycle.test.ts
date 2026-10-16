@@ -1,6 +1,6 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import { attachErrorDiagnostic } from "../../infra/error-diagnostics.js";
 import { buildAgentRunTerminalOutcome } from "../agent-run-terminal-outcome.js";
 import { createCliTimeoutError } from "../cli-runner/no-output-timeout-policy.js";
@@ -103,7 +103,9 @@ describe("createAgentCommandLifecycle", () => {
       expect(state.currentTurnUserMessagePersisted).toBe(true);
       expect(state.lifecycleEnded).toBe(true);
       expect(emitAgentEvent).toHaveBeenCalledOnce();
-      const data = emitAgentEvent.mock.calls[0][0].data;
+      const event = emitAgentEvent.mock.calls[0]?.[0];
+      assert.isDefined(event);
+      const data = event.data;
       expect(data).toMatchObject({
         phase: error ? "error" : "end",
         terminalReceipt: receipt,

@@ -16,7 +16,7 @@ import * as attemptCallbacks from "./command/attempt-callbacks.js";
 import type { RunEmbeddedAgentInternalParams } from "./embedded-agent-runner/run/internal-params.js";
 
 const runEmbeddedAgent = vi.hoisted(() => vi.fn());
-// Keep command admission, callback forwarding and post-run settlement real.
+// mock-isolation: Keep provider execution outside the real command admission and settlement fixture.
 vi.mock("./embedded-agent.js", () => ({ runEmbeddedAgent }));
 
 registerAgentCommandCompactionTestHooks();
@@ -99,7 +99,14 @@ it.each(["recovered", "preparation-failure", "later-failure"] as const)(
     });
     try {
       const pending = agentCommandFromGatewayIngress(
-        { sessionKey, sessionId, runId, message: "Write once.", deliver: false },
+        {
+          sessionKey,
+          sessionId,
+          runId,
+          message: "Write once.",
+          deliver: false,
+          allowModelOverride: false,
+        },
         ...GATEWAY_INGRESS_ARGS,
       );
       if (outcome === "preparation-failure") {

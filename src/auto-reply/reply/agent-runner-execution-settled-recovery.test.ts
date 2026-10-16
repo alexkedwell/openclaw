@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import type { RunEmbeddedAgentInternalParams } from "../../agents/embedded-agent-runner/run/internal-params.js";
 import { useBundledProviderPolicyArtifactsForTest } from "../../plugin-sdk/test-helpers/provider-policy-artifacts.test-support.js";
 import {
@@ -81,19 +81,19 @@ describe("executeAgentTurn accepted recovery terminal ownership", () => {
           (event) =>
             event.runId === selectedReceipt.runId &&
             event.stream === "lifecycle" &&
-            ["end", "error"].includes(event.data.phase),
+            (event.data.phase === "end" || event.data.phase === "error"),
         );
       expect(terminals).toHaveLength(1);
-      expect(terminals[0].data).toMatchObject({
+      const [terminal] = terminals;
+      assert.isDefined(terminal);
+      expect(terminal.data).toMatchObject({
         phase: laterFailure ? "error" : "end",
         executionSettled: true,
         terminalReceipt: selectedReceipt,
       });
-      expect(terminals[0].data.error).toBe(
-        laterFailure ? "recovery persistence failed" : undefined,
-      );
-      expect(terminals[0].data).not.toHaveProperty("errorObservation");
-      expect(terminals[0].data.assistantTranscriptIdempotencyKey).not.toBe("superseded-attempt");
+      expect(terminal.data.error).toBe(laterFailure ? "recovery persistence failed" : undefined);
+      expect(terminal.data).not.toHaveProperty("errorObservation");
+      expect(terminal.data.assistantTranscriptIdempotencyKey).not.toBe("superseded-attempt");
       expect(result.kind).toBe("success");
       if (result.kind === "success") {
         expect(result.runResult.meta.error?.message).toBe(
