@@ -52,6 +52,13 @@ FCP is the browser's paint metric. Diagnostic runs also save filmstrip frames.
 Use `--untraced` for timing comparisons without boot tracing or CPU sampling,
 then collect separate traced runs for the storyboard and attribution.
 
+`--restore-dashboard` adds persisted message identities, shared-session reaction
+permissions, and token usage to the dashboard fixture. Use it with `--warm-reload`
+to include reaction pickers, widget actions, context usage, and viewers in restore
+measurements. Transaction labels in diagnostic traces distinguish transcript,
+sidebar, and composer cache completions; a completion callback can include later
+render microtasks and is not a measurement of native IndexedDB cost alone.
+
 `--live-events` adds 125 synthetic live frames over 20 seconds after each reload
 settles. The stream mixes full presence snapshots, session patches for displayed,
 held-but-hidden, and outside-window rows, open-session messages and assistant
