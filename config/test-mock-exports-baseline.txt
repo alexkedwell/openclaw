@@ -391,6 +391,7 @@
 ["extensions/codex/src/app-server/settled-turn-context.test.ts","../../session-history-worker-runtime.js","0345fb6b1a89d845a348e4be17d39354bac4edf4ae53a4863bb94561c84d4a58",1]
 ["extensions/codex/src/app-server/settled-turn-finalizer.test.ts","./bounded-turn.js","1f70e12e6f3784a38c90b863a801c4abb9f5728cb8f33e3e00840fe1d71924fd",1]
 ["extensions/codex/src/app-server/settled-turn-finalizer.test.ts","./transcript-mirror.js","12a977154de1241162ce45400347c9593c785410a11ca3afcf22d07681858e23",1]
+["extensions/codex/src/app-server/shared-client.test.ts","./auth-bridge.js","f50145ffc491b2948bc2db966db30309ccb18408bb48bdd09cbb66d357ab0eab",1]
 ["extensions/codex/src/app-server/shared-client.test.ts","./auth-profile.js","85b0f6014a037828035e9b1627054bfac9c81252b39fd0f9a9a3a9729cfc7653",1]
 ["extensions/codex/src/app-server/side-question.test-support.ts","./approval-bridge.js","60f465d40ac7a46981c6bb330a387bee912e672faf555b781935ebe0405d8f45",1]
 ["extensions/codex/src/app-server/side-question.test-support.ts","./provider-capabilities.js","5a4cab7c87dd7ac3e42b31cf8f902ca72341107a5b9cb5bdcb8d1e13d6121c27",1]

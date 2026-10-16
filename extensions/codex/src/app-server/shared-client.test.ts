@@ -84,10 +84,10 @@ function deferNextAuthProfileApplication(): () => void {
   return release;
 }
 
-vi.mock("./auth-bridge.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./auth-bridge.js")>()),
+vi.mock("./auth-bridge.js", () => ({
   applyCodexAppServerAuthProfile: mocks.applyCodexAppServerAuthProfile,
   bridgeCodexAppServerStartOptions: mocks.bridgeCodexAppServerStartOptions,
+  reconcileCodexComputerUseStartArtifacts: mocks.reconcileCodexComputerUseStartArtifacts,
   resolveCodexAppServerPreparedAuthProfileSnapshot:
     mocks.resolveCodexAppServerPreparedAuthProfileSnapshot,
   refreshCodexAppServerAuthTokens: mocks.refreshCodexAppServerAuthTokens,
