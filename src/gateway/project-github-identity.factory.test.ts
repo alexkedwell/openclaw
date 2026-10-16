@@ -280,6 +280,25 @@ describe("Factory project read admission composition", () => {
     },
   );
 
+  it("rejects private reads after the prepared human principal is retired and still revokes the App token", async () => {
+    const identity = await prepare();
+    catalog.emails = [];
+    try {
+      await expect(
+        identity!.start(() =>
+          fetch(`${apiBaseUrl}/repos/example/project/issues/1`, {
+            method: "GET",
+            headers: { authorization: `Bearer ${identity!.token}` },
+          }),
+        ),
+      ).rejects.toThrow("GitHub actor binding is unavailable or ambiguous");
+      expect(requests.some((request) => request.includes("/issues/"))).toBe(false);
+    } finally {
+      await identity!.revoke?.();
+    }
+    expect(requests.at(-1)).toBe("DELETE /installation/token");
+  });
+
   it("surfaces cleanup failure and closes the read identity before retrying any read", async () => {
     const identity = await prepare();
     cleanupFails = true;

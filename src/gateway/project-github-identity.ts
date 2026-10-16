@@ -36,6 +36,7 @@ export async function prepareGatewayProjectGitHubIdentity(params: {
   const prepare = (
     env = process.env,
     readNativeCredential?: import("../agents/github-credential-reader.js").GitHubCredentialReader,
+    assertActive = params.assertActive,
   ) =>
     prepareGitHubReadIdentity({
       config: params.config,
@@ -45,7 +46,7 @@ export async function prepareGatewayProjectGitHubIdentity(params: {
       readNativeCredential,
       allowAppInstallation: appRead,
       getCurrentConfig: params.context.getRuntimeConfig,
-      assertActive: params.assertActive,
+      assertActive,
       // A protected identity executable owns token refresh and revalidation.
       refresh: async () => {},
     });
