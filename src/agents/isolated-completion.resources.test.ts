@@ -17,6 +17,7 @@ import { createSyncSuiteTempRootTracker } from "../plugins/test-helpers/fs-fixtu
 import { getAsyncWorkSignal, trackAsyncWork } from "../shared/async-work-scope.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { clearRuntimeAuthProfileStoreSnapshots } from "./auth-profiles/runtime-snapshots.js";
+import { traceIsolatedCompletionColdStart } from "./isolated-completion.cold.test-support.js";
 import { runIsolatedCompletion } from "./isolated-completion.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runtime.test-support.js";
 import { ModelRegistry } from "./sessions/model-registry.js";
@@ -28,6 +29,8 @@ it.for(["overlap", "callback-tail", "cancel-tail", "auth-tail", "auth-failure"] 
       // Restore this probe when transformed Fetch bodies forward cancellation under Bun.
       testContext.skip();
     }
+    await using trace =
+      mode === "overlap" ? traceIsolatedCompletionColdStart("resources-overlap") : undefined;
     const roots = createSyncSuiteTempRootTracker("isolated-completion-resources");
     const root = fs.realpathSync(roots.makeTempDir());
     const providerDir = path.join(root, "provider");
@@ -51,6 +54,7 @@ it.for(["overlap", "callback-tail", "cancel-tail", "auth-tail", "auth-failure"] 
     Object.defineProperty(globalThis, globalKey, {
       configurable: true,
       value: () => {
+        trace?.mark("provider-auth", authCalls + 1);
         if (++authCalls !== 1) {
           return;
         }
@@ -107,6 +111,7 @@ it.for(["overlap", "callback-tail", "cancel-tail", "auth-tail", "auth-failure"] 
     const server = createServer((request, response) => {
       request.resume();
       const index = requests.push(response) - 1;
+      trace?.mark("provider-arrival", index + 1);
       arrivals[index]?.resolve();
       if (finishing) {
         finishResponse(response, index);
@@ -262,6 +267,7 @@ it.for(["overlap", "callback-tail", "cancel-tail", "auth-tail", "auth-failure"] 
             ]);
           const abortReason = new Error("fixture isolated caller aborted");
           const controller = new AbortController();
+          trace?.mark("fixture-ready");
           const first = start(mode === "callback-tail" ? controller.signal : undefined);
           if (mode === "auth-failure") {
             await expect(first).rejects.toBe(authFailure);

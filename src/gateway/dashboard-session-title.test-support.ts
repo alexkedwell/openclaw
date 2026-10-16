@@ -38,11 +38,13 @@ export async function withTitleProvider(
   params?: Record<string, unknown>,
   defaultParams?: Record<string, unknown>,
   api: "openai-completions" | "ollama" = "openai-completions",
+  trace?: (event: "fixture-ready" | "provider-arrival", id?: number) => void,
 ) {
   await withOpenClawTestState({ label: "title-transport" }, async (state) => {
     const requests: TitleRequest[] = [];
     await withServer(
       (request, response) => {
+        trace?.("provider-arrival", requests.length + 1);
         void readText(request).then((body) => {
           requests.push({
             authorization: request.headers.authorization,
@@ -136,6 +138,7 @@ export async function withTitleProvider(
           runtime.setRuntimeConfigSnapshot(cfg);
           clearNativeRuntimeConfigSnapshot = runtime.clearRuntimeConfigSnapshot;
         }
+        trace?.("fixture-ready");
         await run({
           cfg,
           agentDir: state.agentDir(),
