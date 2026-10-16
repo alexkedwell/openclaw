@@ -54,8 +54,17 @@ Cron history indexes. Rows and history ordering are unchanged. Builds supporting
 only schema 23 or earlier refuse it; binary rollback requires the verified
 pre-upgrade backup and its matching build.
 
+Shared-state [schema 25](/reference/database-schemas/state-schema-history#state-schema-25)
+requires recovered subagent completions to retain their original operator
+restriction. Older readers ignore the optional recovery source and can dispatch
+a cold-restored requester continuation as System, so a version fence is required
+even though tables and indexes are unchanged. The migration publishes metadata
+only; retained subagent payloads are not rewritten or backfilled. Older builds
+refuse schema 25. Restore the verified pre-upgrade backup with its matching build
+for rollback; never lower schema markers.
+
 Agent [schema 28](/reference/database-schemas/agent-schema-history#agent-schema-28)
-and shared-state [schema 25](/reference/database-schemas/state-schema-history#state-schema-25)
+and shared-state [schema 26](/reference/database-schemas/state-schema-history#state-schema-26)
 reduce index and table write amplification without changing logical rows or
 keys. Their SQLite rebuilds and PostgreSQL forward steps advance schema metadata
 atomically. These versions are bundled for one upgrade; older binaries require

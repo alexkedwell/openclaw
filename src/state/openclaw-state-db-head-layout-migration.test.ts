@@ -17,6 +17,7 @@ import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
 import { assertSqliteMigrationScopePreserved } from "./sqlite-migration-scope.test-support.js";
 import { migrateSqliteTableWithoutRowid } from "./sqlite-table-layout-migration.js";
 
+// v25 changes only metadata; its physical schema is identical to v24.
 const legacySchema = readFileSync(
   new URL("../../test/fixtures/sqlite/openclaw-state-schema-v24.sql", import.meta.url),
   "utf8",
@@ -48,14 +49,14 @@ function heads(db: EngineConnection) {
 }
 
 function legacyDatabase(refusePublication = false) {
-  const env = { OPENCLAW_STATE_DIR: directories.make("head-layout-v24-") };
+  const env = { OPENCLAW_STATE_DIR: directories.make("head-layout-v25-") };
   const pathname = resolveOpenClawStateSqlitePath(env);
   mkdirSync(path.dirname(pathname), { recursive: true });
   using db = new DatabaseSync(pathname);
   db.exec(legacySchema);
-  db.exec(`PRAGMA user_version = 24;
+  db.exec(`PRAGMA user_version = 25;
     INSERT INTO schema_meta (meta_key, role, schema_version, created_at, updated_at)
-      VALUES ('primary', 'global', 24, 1, 1);
+      VALUES ('primary', 'global', 25, 1, 1);
     CREATE INDEX local_head_updated ON session_state_heads(updated_at);`);
   record(db, "main", "main-before", 100);
   record(db, "other", "other-before", 110);
@@ -70,7 +71,7 @@ function legacyDatabase(refusePublication = false) {
 }
 
 it.each(["runtime", "doctor"] as const)(
-  "migrates v24 heads through %s within scope and preserves subsequent event writes",
+  "migrates v25 heads through %s within scope and preserves subsequent event writes",
   async (owner) => {
     const { options, pathname, before } = legacyDatabase();
     using scope = new DatabaseSync(pathname);
@@ -128,7 +129,7 @@ it("rolls back the rebuilt head table and version when publication fails", async
   expect(() => openOpenClawStateDatabase(options)).toThrow("fixture publication refusal");
   await closeOpenClawStateDatabaseAsync();
   using db = new DatabaseSync(pathname, { readOnly: true });
-  expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 24 });
+  expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 25 });
   expect(
     db.prepare("SELECT wr FROM pragma_table_list WHERE name = 'session_state_heads'").get(),
   ).toEqual({ wr: 0 });

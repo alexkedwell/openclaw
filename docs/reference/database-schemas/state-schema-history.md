@@ -46,15 +46,16 @@ Doctor completes recognized schema-1 databases that predate the audit ledger bef
 | 22      | Portable ACP resume columns and explicit approval, cron, execution-decision, and Skill Workshop cursor identities                                                                                                                                                                                                                              | Unreleased          |
 | 23      | Persisted normalized meeting-transcript start timestamps and chronological index                                                                                                                                                                                                                                                               | Unreleased          |
 | 24      | Retained task indexes replaced with runtime/run lookup and ordered Cron history indexes                                                                                                                                                                                                                                                        | Unreleased          |
-| 25      | Session state heads stored directly by their composite primary key                                                                                                                                                                                                                                                                             | Unreleased          |
+| 25      | Original operator restriction retained for recovered subagent completions; metadata-only downgrade fence                                                                                                                                                                                                                                       | Unreleased          |
+| 26      | Session state heads stored directly by their composite primary key                                                                                                                                                                                                                                                                             | Unreleased          |
 
 Earlier beta releases first included schema 1 in `v2026.5.30-beta.1`, schema 2
 in `v2026.7.2-beta.1`, schema 3 in `v2026.7.2-beta.2`, schema 5 in
 `v2026.7.2-beta.4`, and schema 6 in `v2026.7.2-beta.5`.
 
-### State schema 25
+### State schema 26
 
-Schema 25 stores SQLite `session_state_heads` as `STRICT, WITHOUT ROWID`, using
+Schema 26 stores SQLite `session_state_heads` as `STRICT, WITHOUT ROWID`, using
 the existing `(session_key, agent_id)` primary key directly. Sequence values,
 pruned-history watermarks, cross-agent isolation, and event write semantics are
 unchanged. The migration preserves compatible local columns, indexes, and
@@ -68,8 +69,22 @@ available for reuse without vacuuming or shrinking the file.
 
 PostgreSQL keeps its existing table layout and advances schema metadata through
 the forward-migration runner, which verifies and records the destination catalog
-fingerprint. Older builds refuse schema 25; rollback requires the verified
+fingerprint. Older builds refuse schema 26; rollback requires the verified
 pre-upgrade backup and its matching build.
+
+### State schema 25
+
+Schema 25 fences the optional `operatorRecoverySource` in retained subagent JSON.
+Recovery re-admits the original parent/operator source under current policy and
+requester ownership. A missing or refused source stays restricted. Older readers
+ignore that source and can dispatch a cold-restored requester continuation as
+System, which makes binary-only downgrade unsafe.
+
+The migration updates only version metadata. It creates no table or index,
+scans no subagent payloads, and performs no backfill or row rewrite. Existing
+backup and integrity admission still apply. PostgreSQL uses the same version
+and unchanged catalog, with a metadata-only forward artifact. Restore the verified
+pre-upgrade backup and its matching build for rollback; do not lower schema markers.
 
 ### State schema 24
 

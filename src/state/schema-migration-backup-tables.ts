@@ -17,6 +17,6 @@ export const SCHEMA_MIGRATION_BACKUP_TABLES: Record<
   },
   state: {
     [MEETING_TRANSCRIPT_START_TIME_SCHEMA_VERSION]: ["meeting_transcript_sessions"],
-    25: ["session_state_heads", "sqlite_stat1", "sqlite_stat4"],
+    26: ["session_state_heads", "sqlite_stat1", "sqlite_stat4"],
   },
 };

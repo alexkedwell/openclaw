@@ -51,9 +51,9 @@ import {
 } from "./openclaw-state-db-schema-v22-columns.js";
 import { migrateTaskRunIndexesV24 } from "./openclaw-state-db-schema-v24-indexes.js";
 import {
-  migrateSessionStateHeadLayoutV25,
+  migrateSessionStateHeadLayoutV26,
   withLegacyStateHeadLayout,
-} from "./openclaw-state-db-schema-v25-layout.js";
+} from "./openclaw-state-db-schema-v26-layout.js";
 import {
   assertSupportedStateSchemaVersion,
   readStateSchemaContentVersion,
@@ -165,7 +165,7 @@ const STATE_V5_ADDITIVE_TABLES = [
   ...STATE_V6_ADDITIVE_TABLES,
 ] as const;
 const STATE_MIGRATION_VERSIONS = [
-  5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+  5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
 ] as const;
 type OpenClawStateMigrationVersion = (typeof STATE_MIGRATION_VERSIONS)[number];
 
@@ -457,12 +457,20 @@ const stateTaskIndexMigration = {
   migrate: migrateTaskRunIndexesV24,
   applied: "Replaced retained task indexes with ordered cron history indexes (v24)",
 };
-const stateHeadLayoutMigration = {
+const stateSubagentOperatorRecoveryMigration = {
   version: 25,
+  tables: [],
+  columns: [],
+  // Only the version fence changes: older readers cannot retain the new authority restriction.
+  migrate: () => false,
+  applied: "Required original operator authority for subagent recovery (v25)",
+};
+const stateHeadLayoutMigration = {
+  version: 26,
   tables: ["session_state_heads"],
   columns: [],
-  migrate: migrateSessionStateHeadLayoutV25,
-  applied: "Stored session state heads in their composite primary-key tree (v25)",
+  migrate: migrateSessionStateHeadLayoutV26,
+  applied: "Stored session state heads in their composite primary-key tree (v26)",
 };
 
 /** Version-gated column and row migrations, oldest first; each runs inside the caller's schema transaction. */
@@ -508,6 +516,7 @@ export function migrateBoundedStateSchema(
     statePortableIdentityMigration,
     stateMeetingChronologyMigration,
     stateTaskIndexMigration,
+    stateSubagentOperatorRecoveryMigration,
     stateHeadLayoutMigration,
   ];
   const pending = migrations.filter(({ version }) => version > previousVersion);
