@@ -1,4 +1,3 @@
-import { formatErrorMessage } from "../infra/errors.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { PluginManifestRecord } from "./manifest-registry.js";
 import { loadBundledPluginPublicArtifactModuleFromCandidatesSync } from "./public-surface-loader.js";
@@ -85,7 +84,8 @@ export function loadBundledPublicArtifactEntries<T extends object>(
   }
   for (const error of errors) {
     log.warn(
-      `Unable to initialize some ${params.partialFailureLabel} for plugin ${params.pluginId}; using healthy siblings: ${formatErrorMessage(error)}`,
+      `Unable to initialize some ${params.partialFailureLabel} for plugin ${params.pluginId}; using healthy siblings`,
+      { error },
     );
   }
   return artifacts.map((artifact) => Object.assign({}, artifact, { pluginId: params.pluginId }));

@@ -151,8 +151,9 @@ describe("resolvePluginDocumentExtractors", () => {
   });
 
   it("isolates a throwing factory when another extractor factory succeeds", () => {
+    const error = new Error("native probe failed");
     mocks.publicArtifactModule.createBrokenDocumentExtractor = () => {
-      throw new Error("native probe failed");
+      throw error;
     };
 
     expect(resolvePluginDocumentExtractors()).toStrictEqual([
@@ -165,11 +166,13 @@ describe("resolvePluginDocumentExtractors", () => {
       },
     ]);
     expect(mocks.warn).toHaveBeenCalledExactlyOnceWith(
-      expect.stringMatching(/document extractors.*document-extract.*native probe failed/),
+      expect.stringMatching(/document extractors.*document-extract/),
+      { error },
     );
   });
 
   it("reports a failed plugin while retaining another plugin's extractors", () => {
+    const error = new Error("broken-extract module failed");
     const snapshot = mocks.loadPluginMetadataSnapshot();
     mocks.loadPluginMetadataSnapshot.mockReturnValueOnce({
       plugins: [
@@ -188,14 +191,15 @@ describe("resolvePluginDocumentExtractors", () => {
     });
     mocks.loadPublicArtifact.mockImplementation(({ dirName }) => {
       if (dirName === "broken-extract") {
-        throw new Error("broken-extract module failed");
+        throw error;
       }
       return dirName === "document-extract" ? mocks.publicArtifactModule : null;
     });
 
     expect(resolvePluginDocumentExtractors().map((extractor) => extractor.id)).toEqual(["pdf"]);
     expect(mocks.warn).toHaveBeenCalledExactlyOnceWith(
-      expect.stringContaining("broken-extract module failed"),
+      expect.stringContaining("using healthy extractors"),
+      { error },
     );
   });
 

@@ -154,7 +154,8 @@ describe("web provider public artifacts explicit fast path", () => {
 
     expect(provider.pluginId).toBe("mockplugin");
     expect(warn).toHaveBeenCalledExactlyOnceWith(
-      expect.stringMatching(/web providers.*mockplugin.*fuzzplugin web provider factory failed/),
+      expect.stringMatching(/web providers.*mockplugin/),
+      { error: expect.objectContaining({ message: "fuzzplugin web provider factory failed" }) },
     );
     expect(provider.id).toBe("mockplugin");
     expect(provider.createTool({ config: {} as never })).toBeNull();
