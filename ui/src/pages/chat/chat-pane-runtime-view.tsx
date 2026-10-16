@@ -11,6 +11,7 @@ import {
   availableLinkReaders,
   availableLinkPreviewReaders,
 } from "../../app/link-reader-routing.ts";
+import { nativeGatewaysCapability } from "../../app/native-gateways.runtime.ts";
 import { LinkReaderHovercard } from "../../components/link-reader-hovercard.ts";
 import { projectGateway } from "../../lib/reactive/application.ts";
 import { projectProgressCard } from "../../lib/reactive/domain-keyed.ts";
@@ -70,7 +71,11 @@ function MountedChatPaneRuntime(props: { runtime: ChatPaneRuntime }) {
     cacheProgress();
     return stop;
   });
-  const sources = [runtime.context.plugins, runtime.context.navigation].map((source) =>
+  const sources = [
+    runtime.context.plugins,
+    runtime.context.navigation,
+    nativeGatewaysCapability(),
+  ].map((source) =>
     projectSource(source, {
       read: (capability) => capability,
       subscribe: (capability, notify) => capability?.subscribe(notify) ?? (() => {}),
