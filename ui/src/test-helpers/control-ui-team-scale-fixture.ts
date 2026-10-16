@@ -11,6 +11,7 @@ import type {
 } from "../api/types.ts";
 import type { PresencePayload } from "../app/user-profile.ts";
 import type { BoardSnapshot } from "../lib/board/types.ts";
+import { createTeamScaleDuplicateReadFixture } from "./control-ui-duplicate-read-fixture.ts";
 import { defaultControlUiFeatureMethods } from "./control-ui-e2e-defaults.ts";
 import type { ControlUiMockGatewayScenario } from "./control-ui-e2e.ts";
 import type { ControlUiMockPresenceUser } from "./control-ui-mock-presence.ts";
@@ -177,22 +178,16 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
   const pinnedRows = sessions.slice(-counts.pinned);
   const pinnedKeys = pinnedRows.map((row) => row.key);
   const selectedSessionKey = pinnedKeys[0]!;
-  const sharedMediaId = "00000000-0000-4000-8000-000000000001";
-  const sharedMediaPath = `/api/chat/media/outgoing/${encodeURIComponent(selectedSessionKey)}/${sharedMediaId}/full`;
-  if (options.duplicateBootReads) {
-    assets.set(sharedMediaPath, {
-      contentType: "audio/wav",
-      body: "RIFF,\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\x40\x1f\0\0\x40\x1f\0\0\x01\0\x08\0data\x08\0\0\0@@@@@@@@",
-    });
+  const duplicateReads = options.duplicateBootReads
+    ? createTeamScaleDuplicateReadFixture(selectedSessionKey, now)
+    : undefined;
+  if (duplicateReads) {
+    assets.set(duplicateReads.mediaPath, duplicateReads.asset);
   }
   pinnedRows[0]!.sharingRole = "admin";
   pinnedRows[0]!.visibility = "shared";
-  if (options.duplicateBootReads) {
-    pinnedRows[0]!.worktree = {
-      id: "team-scale-worktree",
-      branch: "fixture/duplicate-reads",
-      repoRoot: "/synthetic/team-scale-project",
-    };
+  if (duplicateReads) {
+    pinnedRows[0]!.worktree = duplicateReads.worktree;
   }
   if (options.liveRun) {
     Object.assign(pinnedRows[0]!, {
@@ -259,15 +254,8 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     __openclaw: { id, seq: index + 1 },
     timestamp: now - (counts.transcriptMessages - index) * 60_000,
     content: [
-      ...(options.duplicateBootReads && index === counts.transcriptMessages - 1
-        ? Array.from({ length: 6 }, (_unused, alias) => ({
-            type: "audio",
-            artifactId: `artifact_managed_media_${sharedMediaId}`,
-            url: `${sharedMediaPath}?mediaTicket=historical-${alias}`,
-            fileName: `Shared recording ${alias + 1}.wav`,
-            mimeType: "audio/wav",
-            durationMs: 1,
-          }))
+      ...(duplicateReads && index === counts.transcriptMessages - 1
+        ? duplicateReads.attachments
         : []),
       {
         type: "text",
@@ -448,28 +436,11 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
       "board.get",
       "canvas.document.view",
       "progressCard.get",
-      ...(options.duplicateBootReads
-        ? ["session.suggestions.list", "sessions.github.publish"]
-        : []),
+      ...(duplicateReads?.featureMethods ?? []),
     ],
     methodResponses: {
       "question.list": { questions: [] },
-      ...(options.duplicateBootReads
-        ? {
-            "session.suggestions.list": { suggestions: [], role: "owner" },
-            "artifacts.download": {
-              artifact: {
-                id: `artifact_managed_media_${sharedMediaId}`,
-                title: "Shared recording",
-                type: "audio",
-                mimeType: "audio/wav",
-                download: { mode: "url" },
-              },
-              url: `${sharedMediaPath}?mediaTicket=current`,
-              expiresAt: new Date(now + 20 * 60_000).toISOString(),
-            },
-          }
-        : {}),
+      ...duplicateReads?.methodResponses,
       "agents.list": agents,
       "agent.identity.get": {
         cases: agents.agents.map((agent) => ({
