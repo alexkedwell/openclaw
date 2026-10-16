@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { isRecord, isStringArray } from "@openclaw/normalization-core/record-coerce";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { EngineConnection } from "../../infra/sql-connection.js";
 import {
   createSqliteCommitReceipt,
@@ -209,7 +209,7 @@ function isTranscriptReceipt(value: unknown): value is SessionTranscriptAuthorit
   }
   const keys = [...value.facts.keys()];
   if (
-    !isStringArray(keys) ||
+    !keys.every((key) => typeof key === "string") ||
     typeof value.source.identity !== "string" ||
     typeof value.source.incarnation !== "string"
   ) {

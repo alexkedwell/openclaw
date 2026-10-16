@@ -256,7 +256,6 @@ extensions/discord/src/monitor/provider.allowlist.ts	1
 extensions/discord/src/monitor/provider.deploy-errors.ts	9
 extensions/discord/src/monitor/provider.deploy.ts	3
 extensions/discord/src/monitor/provider.lifecycle.ts	2
-extensions/discord/src/monitor/provider.startup-log.ts	1
 extensions/discord/src/monitor/reply-context.ts	1
 extensions/discord/src/monitor/reply-safety.ts	1
 extensions/discord/src/monitor/rest-fetch.ts	3
@@ -817,8 +816,7 @@ extensions/telegram/src/action-runtime.ts	1
 extensions/telegram/src/api-fetch.ts	1
 extensions/telegram/src/approval-handler.runtime.ts	2
 extensions/telegram/src/bot-core.ts	1
-extensions/telegram/src/bot-deps.ts	1
-extensions/telegram/src/bot-handlers.callback-router-controls.ts	2
+extensions/telegram/src/bot-handlers.callback-router-controls.ts	1
 extensions/telegram/src/bot-handlers.callback-router.ts	1
 extensions/telegram/src/bot-handlers.inbound-authorization.ts	1
 extensions/telegram/src/bot-handlers.inbound-media.ts	2
@@ -850,7 +848,6 @@ extensions/telegram/src/outbound-message-context.ts	1
 extensions/telegram/src/poll-answer-context.ts	1
 extensions/telegram/src/polling-lease.ts	1
 extensions/telegram/src/probe.ts	3
-extensions/telegram/src/raw-update-log.ts	1
 extensions/telegram/src/reply-parameters.ts	2
 extensions/telegram/src/request-timeouts.ts	1
 extensions/telegram/src/rich-message.ts	1
@@ -1340,6 +1337,7 @@ src/agents/session-transcript-repair.ts	2
 src/agents/sessions/agent-session-base.ts	3
 src/agents/sessions/agent-session-models.ts	1
 src/agents/sessions/agent-session-tree.ts	1
+src/agents/sessions/agent-session-utils.ts	1
 src/agents/sessions/auth-storage.ts	1
 src/agents/sessions/extensions/loader.ts	2
 src/agents/sessions/extensions/runner.ts	14
@@ -2416,6 +2414,7 @@ src/sessions/session-upstream-monitor.ts	2
 src/sessions/user-turn-transcript-runtime-context.ts	2
 src/shared/account-enabled.ts	1
 src/shared/bounded-serial-queue.ts	1
+src/shared/chat-content.ts	2
 src/shared/chat-message-content.ts	1
 src/shared/config-eval.ts	1
 src/shared/deferred.ts	1
@@ -2543,7 +2542,6 @@ ui/src/app/native-web-chrome.ts	2
 ui/src/app/overlays.ts	1
 ui/src/app/server-prefs-state.ts	1
 ui/src/app/settings.ts	2
-ui/src/app/stale-chunk-reload.ts	1
 ui/src/app/startup-settings.ts	1
 ui/src/app/user-profile.ts	2
 ui/src/app/web-push.runtime.ts	1

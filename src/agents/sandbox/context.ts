@@ -1,6 +1,5 @@
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
-import { sha256Hex as hashTextSha256 } from "@openclaw/normalization-core/node-crypto";
 import type { CapturedSessionEntryReadSource } from "../../config/sessions/session-entry-read-source.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -39,6 +38,7 @@ import { resolveSandboxConfigForAgent } from "./config.js";
 import { SANDBOX_GITHUB_CONFIG_DIR } from "./constants.js";
 import { resolveSandboxDockerUser } from "./docker-user.js";
 import { createSandboxFsBridge } from "./fs-bridge.js";
+import { hashTextSha256 } from "./hash.js";
 import { toSandboxProvisioningError } from "./provisioning-error.js";
 import { readRegisteredSandboxRuntimeIds } from "./registry.js";
 import {
@@ -596,7 +596,17 @@ export async function resolveSandboxContext(
   }
 }
 
+/** Information-only callers release preparation ownership before returning. */
 export async function ensureSandboxWorkspaceForSession(
+  params: Parameters<typeof prepareSandboxWorkspaceForSession>[0],
+  readSource?: CapturedSessionEntryReadSource,
+): Promise<SandboxWorkspaceInfo | null> {
+  using prepared = await prepareSandboxWorkspaceForSession(params, readSource);
+  return prepared?.workspace ?? null;
+}
+
+/** A writer owns this preparation until its final effect settles. */
+export async function prepareSandboxWorkspaceForSession(
   params: {
     skillsSnapshot?: SkillSnapshot;
     config?: OpenClawConfig;
@@ -605,11 +615,17 @@ export async function ensureSandboxWorkspaceForSession(
     workspaceDir?: string;
   },
   readSource?: CapturedSessionEntryReadSource,
-): Promise<SandboxWorkspaceInfo | null> {
+): Promise<{
+  workspace: SandboxWorkspaceInfo;
+  assertCurrent: () => void;
+  [Symbol.dispose]: () => void;
+} | null> {
   const readAuthority = captureChannelReadAuthority();
   const assertCurrent = () => readAuthority?.();
   const ownedParams = { ...params, assertCurrent };
-  return withSandboxRuntimeStatusInWorker(
+  using resources = new DisposableStack();
+  let assertWorkspaceCurrent = assertCurrent;
+  const workspaceInfo = await withSandboxRuntimeStatusInWorker(
     { cfg: params.config, agentId: params.agentId, sessionKey: params.sessionKey },
     { env: process.env, cwd: process.cwd(), assertCurrent, readSource },
     async (preparedRuntimeStatus) => {
@@ -619,9 +635,9 @@ export async function ensureSandboxWorkspaceForSession(
       }
       assertSandboxSessionSecretOwnerAvailable(params.config, resolved);
       const selected = await prepareSandboxWorkspaceSelection(ownedParams, resolved);
-      using localWorkspace = selected.localWorkspace;
-      void localWorkspace;
-      assertCurrent();
+      resources.use(selected.localWorkspace);
+      assertWorkspaceCurrent = selected.localWorkspace?.assertCurrent ?? assertCurrent;
+      assertWorkspaceCurrent();
       const { rawSessionKey, cfg } = selected;
 
       const { agentWorkspaceDir, scopeKey, workspaceDir, ...workspace } =
@@ -643,4 +659,14 @@ export async function ensureSandboxWorkspaceForSession(
       };
     },
   );
+  if (!workspaceInfo) {
+    return null;
+  }
+  assertWorkspaceCurrent();
+  const lifetime = resources.move();
+  return {
+    workspace: workspaceInfo,
+    assertCurrent: assertWorkspaceCurrent,
+    [Symbol.dispose]: () => lifetime.dispose(),
+  };
 }
