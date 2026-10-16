@@ -22,7 +22,7 @@ export function fetchWithProviderHttpGuard(
 }
 
 /** Returns the current process-lifecycle provider dispatcher pool generation. */
-export function getProviderTransportDispatcherPool(): PinnedDispatcherPool {
+function getProviderTransportDispatcherPool(): PinnedDispatcherPool {
   if (!activePool) {
     activePool = new PinnedDispatcherPool({
       maxEntries: PROVIDER_DISPATCHER_POOL_MAX_ENTRIES,

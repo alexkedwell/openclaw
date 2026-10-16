@@ -1,11 +1,10 @@
 import { once } from "node:events";
 import type { Socket } from "node:net";
 import { afterEach, expect, it, vi } from "vitest";
+import { fetchWithProviderHttpGuard } from "../plugin-sdk/provider-http.js";
 import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
-import {
-  closeProviderTransportDispatcherPool,
-  fetchWithProviderHttpGuard,
-} from "./provider-transport-dispatcher-pool.js";
+import { hasProviderTransportDispatcherPool } from "./provider-runtime-lifecycle.js";
+import { closeProviderTransportDispatcherPool } from "./provider-transport-dispatcher-pool.js";
 
 afterEach(async () => {
   await closeProviderTransportDispatcherPool();
@@ -46,7 +45,13 @@ it("keeps request credentials separate and closes reused sockets at host shutdow
       }
       expect(sockets.size).toBeLessThan(5);
 
-      await closeProviderTransportDispatcherPool();
+      const closing = closeProviderTransportDispatcherPool();
+      // Capture the closing generation before shutdown settles; this request
+      // must use a caller-owned dispatcher instead of publishing another pool.
+      const duringClosing = request("synthetic-key-during-shutdown");
+      const [, reusedDuringClosing] = await Promise.all([closing, duringClosing]);
+      expect(reusedDuringClosing).toBeUndefined();
+      expect(hasProviderTransportDispatcherPool()).toBe(false);
       await Promise.all(closed);
       const previousConnections = sockets.size;
       expect(await request("synthetic-key-after-restart")).toBe(false);
