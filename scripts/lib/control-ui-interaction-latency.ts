@@ -241,16 +241,25 @@ export async function runInteractionLatencyScenario(
     });
     await page.keyboard.press("Escape");
     for (const key of [input.otherSessionKey, input.selectedSessionKey]) {
+      const sessionId = await page.evaluate(
+        (sessionKey) =>
+          Reflect.get(window, "openclawControlUiE2eGateway").getSessionRow(sessionKey).sessionId,
+        key,
+      );
       await step("switch-session", async () => {
         await page.locator(`.sidebar-rail [data-sidebar-entry="session:${key}"]`).click();
-        await page.waitForFunction((sessionKey) => {
-          const pane = document.querySelector(".chat-pane-cache__pane--active");
-          return (
-            pane &&
-            Reflect.get(pane, "sessionKey") === sessionKey &&
-            Reflect.get(pane, "transcriptReady")
-          );
-        }, key);
+        await page.waitForFunction(
+          ({ sessionKey, sessionId }) => {
+            const pane = document.querySelector(".chat-pane-cache__pane--active");
+            return (
+              pane &&
+              Reflect.get(pane, "sessionKey") === sessionKey &&
+              Reflect.get(pane, "state").currentSessionId === sessionId &&
+              Reflect.get(pane, "transcriptReady")
+            );
+          },
+          { sessionKey: key, sessionId },
+        );
         await composer.waitFor();
       });
     }

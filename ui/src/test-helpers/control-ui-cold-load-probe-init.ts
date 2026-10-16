@@ -54,8 +54,7 @@ export type ColdLoadProbeInput = {
     };
   }>;
   liveHistory?: {
-    sessionId: string;
-    sessionInfo: unknown;
+    sessionKey: string;
     messages: unknown[];
     inFlightRun: { runId: string; text: string; startedAt: number; events: unknown[] };
   };

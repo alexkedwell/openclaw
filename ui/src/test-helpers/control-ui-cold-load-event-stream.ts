@@ -53,8 +53,10 @@ export function createColdLoadEventStream(input: ColdLoadProbeInput) {
       const history = input.liveHistory;
       const gateway = Reflect.get(window, "openclawControlUiE2eGateway");
       if (history) {
-        // The mock response owner also replays this live transcript onto chat.startup.
-        gateway.setMethodResponse("chat.history", history);
+        gateway.setSessionTranscript(history.sessionKey, {
+          messages: history.messages,
+          inFlightRun: history.inFlightRun,
+        });
       }
       for (const [index, item] of (input.liveEvents ?? []).entries()) {
         const emit = async () => {

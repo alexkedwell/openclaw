@@ -1,4 +1,5 @@
 import type { AuthenticatedUser } from "../app/user-profile.ts";
+import type { ControlUiMockGatewayScenario } from "./control-ui-e2e.ts";
 import type { ControlUiSessionFixture } from "./control-ui-session-fixtures.ts";
 
 export type ControlUiMockPresenceUser = {
@@ -129,6 +130,10 @@ export type ControlUiMockGateway = {
   setServerBuildId: (buildId: string) => void;
   setOperatorScopes: (scopes: string[]) => void;
   setHistoryMessages: (messages: unknown[]) => void;
+  setSessionTranscript: (
+    key: string,
+    transcript: NonNullable<ControlUiMockGatewayScenario["sessionTranscripts"]>[string],
+  ) => void;
   setMethodResponse: (method: string, payload: unknown) => void;
   setSessionsListResponse: (payload: MockSessionsListResponse) => void;
   setRequestHandler: (method: string, handler: ControlUiMockRequestHandler) => void;

@@ -1,11 +1,44 @@
 /* @vitest-environment jsdom */
 import { expectDefined } from "@openclaw/normalization-core";
 import { expect } from "vitest";
+import { createColdLoadEventStream } from "./control-ui-cold-load-event-stream.ts";
 import { sessionGatewayTest as it } from "./control-ui-e2e.sessions.test-support.ts";
 import type { ControlUiMockGatewayScenario } from "./control-ui-e2e.ts";
+import { createControlUiTeamScaleFixture } from "./control-ui-team-scale-fixture.ts";
 import { buildWorkboardMocks } from "./control-ui-workboard-fixtures.ts";
 
 const notes = { key: "agent:ops:notes", sessionId: "notes-generation-1", label: "Notes" };
+
+it("keeps live benchmark transcripts on their session across history and startup reads", async ({
+  connect,
+  gatewayPage,
+}) => {
+  const fixture = createControlUiTeamScaleFixture({ liveRun: true, liveDurationMs: 0 });
+  const { request } = await connect(fixture.scenario);
+  gatewayPage.execute(
+    `;(() => { const __name = (fn) => fn; (${createColdLoadEventStream.toString()})(${JSON.stringify(
+      {
+        latencyMs: 0,
+        frameGapMs: 0,
+        events: [],
+        liveHistory: fixture.liveHistory,
+      },
+    )}).startLive(0); })();`,
+  );
+  for (const method of ["chat.history", "chat.startup"]) {
+    for (const key of fixture.pinnedKeys.slice(0, 2)) {
+      const row = fixture.scenario.sessions!.find((session) => session.key === key)!;
+      const { payload } = await request(method, { sessionKey: key });
+      expect(payload.sessionId).toBe(row.sessionId);
+      expect(payload.sessionInfo).toMatchObject({ key, sessionId: row.sessionId });
+      expect(payload.inFlightRun).toEqual(
+        key === fixture.selectedSessionKey
+          ? expect.objectContaining({ runId: fixture.liveHistory!.inFlightRun.runId })
+          : undefined,
+      );
+    }
+  }
+});
 
 it("preserves stale wire responses without consuming sequences or replacing canonical identity", async ({
   connect,

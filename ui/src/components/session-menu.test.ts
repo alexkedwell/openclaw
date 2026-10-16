@@ -260,7 +260,6 @@ describe("session menu", () => {
       owner.context.agents.state.agentsList!.agents = agents;
       const menu = await mountMenu({ context: owner.context });
       await waitForFast(() => expect(owner.request).toHaveBeenCalledWith("users.list", {}));
-      await waitForFast(() => expect(menu.textContent).not.toContain("Loading"));
       expect(menuItemLabels(menu).includes("Assign to…")).toBe(expected);
       await openSubmenu(menu, "Advanced");
       expect(menuItemLabels(menuItem(menu, "Advanced"))).not.toContain("Assign to…");

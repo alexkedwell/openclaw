@@ -391,6 +391,12 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     ...pinnedKeys.map((key) => `session:${key}`),
     ...plugins.map((plugin) => `plugin:${plugin.pluginId}/overview`),
   ];
+  const inFlightRun = {
+    runId: TEAM_SCALE_LIVE_RUN_ID,
+    text: "Synthetic streaming progress 0",
+    startedAt: now,
+    events: [],
+  };
   const scenario: ControlUiMockGatewayScenario = {
     awaitInitialRoster: false,
     authMethod: "trusted-proxy",
@@ -412,11 +418,8 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
     },
     ...(options.liveRun
       ? {
-          inFlightRun: {
-            runId: TEAM_SCALE_LIVE_RUN_ID,
-            text: "Synthetic streaming progress 0",
-            startedAt: now,
-            events: [],
+          sessionTranscripts: {
+            [selectedSessionKey]: { messages: historyMessages, inFlightRun },
           },
         }
       : {}),
@@ -715,15 +718,9 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
       : undefined,
     liveHistory: options.liveRun
       ? {
-          sessionId: pinnedRows[0]!.sessionId,
-          sessionInfo: pinnedRows[0]!,
+          sessionKey: selectedSessionKey,
           messages: historyMessages,
-          inFlightRun: {
-            runId: TEAM_SCALE_LIVE_RUN_ID,
-            text: "Synthetic streaming progress 0",
-            startedAt: now,
-            events: [],
-          },
+          inFlightRun,
         }
       : undefined,
     counts,

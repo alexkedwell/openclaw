@@ -295,7 +295,7 @@ if (values["interaction-latency"]) {
       history: { text },
       payload: {
         sessionKey: fixture.selectedSessionKey,
-        runId: fixture.scenario.inFlightRun!.runId,
+        runId: fixture.liveHistory!.inFlightRun.runId,
         seq: index + 1,
         state: "delta",
         message: { role: "assistant", content: [{ type: "text", text }] },
@@ -698,7 +698,7 @@ try {
               entry.startsWith("session:") && entry !== `session:${fixture.selectedSessionKey}`,
           )!
           .slice("session:".length),
-        stream: { ...streamingReply!, runId: fixture.scenario.inFlightRun!.runId },
+        stream: { ...streamingReply!, runId: fixture.liveHistory!.inFlightRun.runId },
       }).catch(async (error: unknown) => {
         await writeFile(
           path.join(artifactDir, `run-${run + 1}.interactions-failure.json`),
@@ -750,7 +750,7 @@ try {
       await page.evaluate((input) => Reflect.get(window, "__streamingReply").start(input), {
         ...streamingReply,
         sessionKey: fixture.selectedSessionKey,
-        runId: fixture.scenario.inFlightRun!.runId,
+        runId: fixture.liveHistory!.inFlightRun.runId,
       });
       const streamingInput = new AbortController();
       const nativeInput = (async () => {

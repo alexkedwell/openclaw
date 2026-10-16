@@ -2632,6 +2632,9 @@ function installControlUiMockGateway(
         // Current-document responses still work if browser storage is unavailable.
       }
     },
+    setSessionTranscript(key, transcript) {
+      scenario.sessionTranscripts[sessions.read(key).key] = transcript;
+    },
     setSessionsListResponse(payload) {
       // Generic method responses may be stale or delayed. Only this explicit
       // owner transition advances the canonical rows used by mutation CAS.
