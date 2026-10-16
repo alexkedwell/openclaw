@@ -29,8 +29,8 @@ const preparation = vi.hoisted(() => ({
   billing: undefined as PreparedDecisionBillingFacts["billing"],
 }));
 
-// Isolate auth/catalog preparation; the registered provider host, validation,
-// lifecycle fences, SDK wrapper and trusted accounting dispatcher remain real.
+// The registered provider host, validation, lifecycle fences, SDK wrapper and accounting stay real.
+// mock-isolation: Keep auth/catalog preparation isolated from this usage accounting fixture.
 vi.mock("../agents/decision-inference.js", () => ({
   executePreparedDecision: (
     params: Parameters<typeof import("../agents/decision-inference.js").executePreparedDecision>[0],

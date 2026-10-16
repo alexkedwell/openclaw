@@ -256,7 +256,6 @@ extensions/discord/src/monitor/provider.allowlist.ts	1
 extensions/discord/src/monitor/provider.deploy-errors.ts	9
 extensions/discord/src/monitor/provider.deploy.ts	3
 extensions/discord/src/monitor/provider.lifecycle.ts	2
-extensions/discord/src/monitor/provider.startup-log.ts	1
 extensions/discord/src/monitor/reply-context.ts	1
 extensions/discord/src/monitor/reply-safety.ts	1
 extensions/discord/src/monitor/rest-fetch.ts	3
@@ -817,8 +816,7 @@ extensions/telegram/src/action-runtime.ts	1
 extensions/telegram/src/api-fetch.ts	1
 extensions/telegram/src/approval-handler.runtime.ts	2
 extensions/telegram/src/bot-core.ts	1
-extensions/telegram/src/bot-deps.ts	1
-extensions/telegram/src/bot-handlers.callback-router-controls.ts	2
+extensions/telegram/src/bot-handlers.callback-router-controls.ts	1
 extensions/telegram/src/bot-handlers.callback-router.ts	1
 extensions/telegram/src/bot-handlers.inbound-authorization.ts	1
 extensions/telegram/src/bot-handlers.inbound-media.ts	2
@@ -850,7 +848,6 @@ extensions/telegram/src/outbound-message-context.ts	1
 extensions/telegram/src/poll-answer-context.ts	1
 extensions/telegram/src/polling-lease.ts	1
 extensions/telegram/src/probe.ts	3
-extensions/telegram/src/raw-update-log.ts	1
 extensions/telegram/src/reply-parameters.ts	2
 extensions/telegram/src/request-timeouts.ts	1
 extensions/telegram/src/rich-message.ts	1
@@ -1108,7 +1105,7 @@ src/agents/agent-bundle-lsp-runtime.ts	3
 src/agents/agent-bundle-mcp-combined.ts	1
 src/agents/agent-bundle-mcp-materialize.ts	3
 src/agents/agent-bundle-mcp-runtime-shared.ts	2
-src/agents/agent-bundle-mcp-runtime.ts	3
+src/agents/agent-bundle-mcp-runtime.ts	2
 src/agents/agent-command-restart-recovery.ts	1
 src/agents/agent-command.ts	1
 src/agents/agent-hooks/compaction-safeguard.ts	9
@@ -2237,7 +2234,6 @@ src/plugin-sdk/plugin-test-api.ts	1
 src/plugin-sdk/provider-auth-login-flow-runtime.ts	2
 src/plugin-sdk/provider-auth-result.ts	2
 src/plugin-sdk/provider-auth-runtime.ts	1
-src/plugin-sdk/provider-catalog-shared.ts	1
 src/plugin-sdk/provider-entry.ts	1
 src/plugin-sdk/provider-stream-shared.ts	4
 src/plugin-sdk/provider-stream.ts	1
@@ -2348,7 +2344,6 @@ src/plugins/runtime.ts	1
 src/plugins/runtime/channel-runtime-contexts.ts	1
 src/plugins/runtime/runtime-agent.ts	1
 src/plugins/runtime/runtime-llm-isolated.ts	2
-src/plugins/runtime/runtime-llm.runtime.ts	1
 src/plugins/schema-validator.ts	5
 src/plugins/session-catalog-history-import.ts	1
 src/plugins/setup-registry.ts	2
@@ -2545,7 +2540,6 @@ ui/src/app/native-web-chrome.ts	2
 ui/src/app/overlays.ts	1
 ui/src/app/server-prefs-state.ts	1
 ui/src/app/settings.ts	2
-ui/src/app/stale-chunk-reload.ts	1
 ui/src/app/startup-settings.ts	1
 ui/src/app/user-profile.ts	2
 ui/src/app/web-push.runtime.ts	1
