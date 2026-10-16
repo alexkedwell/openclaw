@@ -312,7 +312,6 @@ describe("AppSidebar session mutation feedback", () => {
     await sidebar.updateComplete;
 
     const menu = await openSessionMenu(sidebar, row.key);
-    await waitForFast(() => expect(menu.textContent).toContain("Bob"));
     expect(menuItemLabels(menu)).toContain("Assign to…");
     const assignmentMenu = await openSubmenu(menu, "Assign to…");
     await waitForFast(() =>

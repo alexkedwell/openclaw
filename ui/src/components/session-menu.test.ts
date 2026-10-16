@@ -78,6 +78,7 @@ describe("session menu", () => {
       expect.soft(selected?.disabled).toBe(true);
     };
     await waitForFast(() => expect(request).toHaveBeenCalledWith("users.list", {}));
+    await openSubmenu(menu, "Assign to…");
     expect(menu.textContent).toContain("Loading");
     expectCurrentOwner();
 
@@ -89,7 +90,6 @@ describe("session menu", () => {
     );
     expectCurrentOwner();
     request.mockImplementation(() => sessionOwnerProfiles("Ada", "Bob", "Carol"));
-    await openSubmenu(menu, "Assign to…");
     await selectMenuValue(menu, "reload-owners");
     await waitForFast(() =>
       expect(menuItemLabels(menuItem(menu, "Assign to…"))).toEqual([
@@ -110,6 +110,7 @@ describe("session menu", () => {
       const first = createSessionOwnerMenuHarness(() => pending.promise);
       const menu = await mountMenu({ context: first.context });
       await waitForFast(() => expect(first.request).toHaveBeenCalledWith("users.list", {}));
+      await openSubmenu(menu, "Assign to…");
       if (transition === "reconnect") {
         first.request.mockImplementation(() => sessionOwnerProfiles("Carol"));
         first.publish({ phase: "reconnecting" });
@@ -117,6 +118,8 @@ describe("session menu", () => {
       } else {
         const next = createSessionOwnerMenuHarness(() => sessionOwnerProfiles("Carol"));
         (menu.parentElement as ApplicationContextProvider).setContext(next.context);
+        await settleSessionMenu(menu);
+        await openSubmenu(menu, "Assign to…");
       }
       await waitForFast(() =>
         expect(menuItemLabels(menuItem(menu, "Assign to…"))).toEqual(["Me", "Research", "Carol"]),
@@ -170,10 +173,10 @@ describe("session menu", () => {
         onAction,
         onClose,
       });
-      const submenu = menuItem(menu, "Assign to…");
       expect(menuItemLabels(menu).filter((label) => label.startsWith("Assign to"))).toEqual([
         "Assign to…",
       ]);
+      const submenu = await openSubmenu(menu, "Assign to…");
       await waitForFast(() =>
         expect(menuItemLabels(submenu)).toEqual([
           "Me",
@@ -195,8 +198,8 @@ describe("session menu", () => {
         if (index > 0) {
           menu.anchor = { ...menu.anchor };
           await settleSessionMenu(menu);
+          await openSubmenu(menu, "Assign to…");
         }
-        await openSubmenu(menu, "Assign to…");
         const value = menuItem(menu, label).getAttribute("value");
         if (!value) {
           throw new Error("Expected owner action");
@@ -259,6 +262,7 @@ describe("session menu", () => {
       await waitForFast(() => expect(owner.request).toHaveBeenCalledWith("users.list", {}));
       await waitForFast(() => expect(menu.textContent).not.toContain("Loading"));
       expect(menuItemLabels(menu).includes("Assign to…")).toBe(expected);
+      await openSubmenu(menu, "Advanced");
       expect(menuItemLabels(menuItem(menu, "Advanced"))).not.toContain("Assign to…");
     },
   );
@@ -301,12 +305,12 @@ describe("session menu", () => {
       },
     });
     const pin = menuItem(menu, "Pin session");
+    await openSubmenu(menu, "Advanced");
     const deleteItem = menuItem(menu, "Delete…");
 
     expect(pin.disabled).toBe(true);
     expect(pin.getAttribute("title")).toBe("This action requires operator.write access.");
     expect(deleteItem.disabled).toBe(true);
-    await openSubmenu(menu, "Advanced");
     deleteItem.click();
     pin.click();
     expect(onAction).not.toHaveBeenCalled();
@@ -366,6 +370,7 @@ describe("session menu", () => {
   it("describes the active session and its stable fork boundary", async () => {
     const menu = await mountMenu({ forkFromLastCompleted: true });
     expect(menu.querySelector(".session-menu__info")?.textContent?.trim()).toBe("Last active 57d");
+    await openSubmenu(menu, "Advanced");
     expect(menuItem(menu, "Fork conversation").getAttribute("title")).toBe(
       "Fork from last completed message",
     );
@@ -481,6 +486,9 @@ describe("session menu", () => {
     "guards archive, delete and pin independently: $options",
     async ({ options, disabled }) => {
       const menu = await mountMenu(options);
+      if (menu.selectionCount === 1) {
+        await openSubmenu(menu, "Advanced");
+      }
       for (const [label, expected] of disabled) {
         expect(menuItem(menu, label).disabled).toBe(expected);
       }
@@ -496,11 +504,6 @@ describe("session menu", () => {
     const link = menuItem(menu, "Copy link");
     expect(link.getAttribute("aria-keyshortcuts")).toBe("C");
     expect(menu.querySelectorAll('[value="copy-session-link"]')).toHaveLength(1);
-    expect(menuItemLabels(menuItem(menu, "Copy details"))).toEqual([
-      "Preview link",
-      "Conversation as Markdown",
-      "Session ID",
-    ]);
     link.focus();
     press(link, "c");
     await settleSessionMenu(menu);
@@ -509,7 +512,12 @@ describe("session menu", () => {
     menu.anchor = { ...menu.anchor };
     await settleSessionMenu(menu);
     const advanced = await openSubmenu(menu, "Advanced");
-    await openSubmenu(advanced, "Copy details");
+    const copy = await openSubmenu(advanced, "Copy details");
+    expect(menuItemLabels(copy)).toEqual([
+      "Preview link",
+      "Conversation as Markdown",
+      "Session ID",
+    ]);
     await selectMenuValue(menu, "copy-session-id");
     expect(calls).toEqual(["close", "copy-session-id"]);
   });
@@ -523,16 +531,15 @@ describe("session menu", () => {
       splitAllowed: false,
       onAction,
     });
-
+    const advanced = await openSubmenu(menu, "Advanced");
+    await openSubmenu(advanced, "Copy details");
     expect(menuItem(menu, "Session ID").disabled).toBe(true);
     expect(menuItem(menu, "Conversation as Markdown").disabled).toBe(true);
     expect(menuItemLabels(menuItem(menu, "Copy details"))).toEqual([
       "Conversation as Markdown",
       "Session ID",
     ]);
-    expect(menuItemLabels(menu)).not.toContain("Open in");
-    const advanced = await openSubmenu(menu, "Advanced");
-    await openSubmenu(advanced, "Copy details");
+    expect(menuItemLabels(advanced)).not.toContain("Open in");
     for (const label of ["Session ID", "Conversation as Markdown"]) {
       const button = menuItem(menu, label);
       expect(button.disabled).toBe(true);
@@ -852,7 +859,8 @@ describe("session menu", () => {
   ])("offers and dispatches only resolved workspace destinations: $name", async ({ work }) => {
     const onAction = vi.fn<(action: SessionMenuAction) => void>();
     const menu = await mountMenu({ work, onAction });
-    const openIn = menuItem(menu, "Open in");
+    const advanced = await openSubmenu(menu, "Advanced");
+    const openIn = await openSubmenu(advanced, "Open in");
     expect(menuItemLabels(openIn)).toEqual([
       "New tab",
       "New window",
@@ -871,8 +879,6 @@ describe("session menu", () => {
       expect(menuItemLabels(menu)).not.toContain("Open PR");
     }
     if (work?.worktreePath) {
-      const advanced = await openSubmenu(menu, "Advanced");
-      await openSubmenu(advanced, "Open in");
       await selectMenuValue(menu, "open-in:vscode");
       expect(onAction).toHaveBeenCalledWith({
         kind: "open-in",
