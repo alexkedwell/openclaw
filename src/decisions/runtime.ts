@@ -162,9 +162,15 @@ export async function evaluateDecisionInRegistry(
     if ((canDispatch && !canDispatch()) || (isAdmissible && !isAdmissible())) {
       return skipped({ status: "unavailable", reason: "disabled" });
     }
+    // Preparation consumes the caller's budget. The host still owns provider
+    // cancellation and waits for physical settlement after its deadline.
+    const timeoutMs = options.timeoutMs - (performance.now() - started);
+    if (timeoutMs <= 0) {
+      return skipped(entry.host.unavailable("deadline"));
+    }
     const result = await entry.host.evaluate(
       submitted,
-      { ...options, signal },
+      { ...options, timeoutMs, signal },
       selected.model,
       config,
       registry,
