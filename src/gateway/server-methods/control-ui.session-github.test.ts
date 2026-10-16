@@ -53,7 +53,7 @@ it.each([
           tools: {
             github: {
               kind: "app-installation" as const,
-              profileId: "ghp_6128c113c0df8c1a366dfe690c062d8e",
+              profileId: "ghp_00000000000000000000000000000001",
               app: {
                 appId: 101,
                 installationId: 202,
