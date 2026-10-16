@@ -22,6 +22,7 @@ import { resolveRuntimeWorkerArgv, resolveRuntimeWorkerUrl } from "./runtime-wor
 import { prepareUpdateCandidateStateSnapshot } from "./update-candidate-snapshot.js";
 import { readUpdateStateSchemaVersions } from "./update-candidate-state.js";
 import {
+  captureUpdateCandidateDeadline,
   inventoryUpdateCandidateStateWorker,
   materializeUpdateCandidateStateWorker,
 } from "./update-candidate-state.test-support.js";
@@ -39,12 +40,15 @@ afterAll(async () => {
 // published before the fault or reply that settles the operation.
 async function fixtureEventBeforeSettlement(
   file: string,
-  operation: PromiseLike<unknown>,
+  operation: PromiseLike<void | { value: unknown } | { error: unknown }>,
   message = `Worker did not reach ${path.basename(file)}`,
 ): Promise<void> {
-  const settled = Promise.resolve(operation).then(async () => {
+  const settled = Promise.resolve(operation).then(async (result) => {
     await fs.access(file).catch((error: unknown) => {
       if (hasErrnoCode(error, "ENOENT")) {
+        if (result && "error" in result) {
+          throw result.error;
+        }
         throw new Error(message);
       }
       throw error;
@@ -313,6 +317,7 @@ it.each([false, true].flatMap((legacy) => [false, true].map((expires) => ({ lega
     const now = Date.now.bind(Date);
     let elapsed = 0;
     vi.spyOn(Date, "now").mockImplementation(() => now() + elapsed);
+    const expireDeadline = captureUpdateCandidateDeadline();
     const operation = readUpdateStateSchemaVersions({ stateDir, config: {} });
     const outcome = operation.then(
       (versions) => ({ versions }),
@@ -333,6 +338,7 @@ it.each([false, true].flatMap((legacy) => [false, true].map((expires) => ({ lega
           signal.addEventListener("abort", () => resolve(), { once: true });
         });
         elapsed += 400_000;
+        expireDeadline();
         await aborted;
         expect(signal.aborted).toBe(true);
       }
@@ -343,7 +349,7 @@ it.each([false, true].flatMap((legacy) => [false, true].map((expires) => ({ lega
         expect(await outcome).toMatchObject({
           error: {
             message: expect.stringContaining(
-              `made no progress for ${legacy ? 4_841 : 4_540} seconds`,
+              `exceeded its ${legacy ? 4_841 : 4_540} second allowance`,
             ),
           },
         });
@@ -537,6 +543,7 @@ it.for(["cancel", "deadline", "disk-full", "cooperative-cancel"] as const)(
     const now = Date.now.bind(Date);
     let elapsed = 0;
     vi.spyOn(Date, "now").mockImplementation(() => now() + elapsed);
+    const expireDeadline = captureUpdateCandidateDeadline();
     const controller = new AbortController();
     const operation = prepareUpdateCandidateStateSnapshot({
       config: {},
@@ -570,6 +577,7 @@ it.for(["cancel", "deadline", "disk-full", "cooperative-cancel"] as const)(
         controller.abort(new Error("cancel rehearsal proof"));
       } else if (failure === "deadline") {
         elapsed = 600_000;
+        expireDeadline();
       }
       const result = await outcome;
       expect(result).toMatchObject({ error: expect.any(Error) });
@@ -578,7 +586,7 @@ it.for(["cancel", "deadline", "disk-full", "cooperative-cancel"] as const)(
           failure === "cancel" || failure === "cooperative-cancel"
             ? "cancel rehearsal proof"
             : failure === "deadline"
-              ? "made no progress"
+              ? "exceeded its"
               : "synthetic destination full",
         );
       }

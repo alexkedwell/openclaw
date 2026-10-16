@@ -20,7 +20,10 @@ import { measureUpdateStateFiles } from "./update-candidate-io.js";
 import { prepareUpdateCandidateStateSnapshot } from "./update-candidate-snapshot.js";
 import { readUpdateStateSchemaVersions } from "./update-candidate-state.js";
 import { readUpdateStateDatabaseSizes } from "./update-candidate-state.sizes.js";
-import { materializeUpdateCandidateStateWorker } from "./update-candidate-state.test-support.js";
+import {
+  captureUpdateCandidateDeadline,
+  materializeUpdateCandidateStateWorker,
+} from "./update-candidate-state.test-support.js";
 
 let cleanupFixture: (() => Promise<void>) | undefined;
 const tempDirs = useAutoCleanupTempDirTracker((cleanupDirs) =>
@@ -283,7 +286,7 @@ it.for([
     const now = Date.now.bind(Date);
     let elapsed = 0;
     vi.spyOn(Date, "now").mockImplementation(() => now() + elapsed);
-    const timers = vi.spyOn(globalThis, "setTimeout");
+    const expireDeadline = captureUpdateCandidateDeadline();
     const controller = new AbortController();
     const result = readUpdateStateSchemaVersions({
       root,
@@ -321,17 +324,7 @@ it.for([
         );
         elapsed = elapsedMs;
         if (!completes) {
-          const index = timers.mock.calls.findLastIndex(
-            ([, delay]) => delay !== undefined && delay >= 300_000,
-          );
-          const call = timers.mock.calls[index];
-          const timer = timers.mock.results[index];
-          if (!call || timer?.type !== "return") {
-            throw new Error("Inspection allowance was not scheduled");
-          }
-          clearTimeout(timer.value);
-          const [callback, , ...args] = call;
-          callback(...args);
+          expireDeadline();
           await result;
         }
       } else {

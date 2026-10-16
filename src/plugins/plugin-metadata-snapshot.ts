@@ -399,7 +399,8 @@ export function loadPluginMetadataSnapshot(
     if (
       current &&
       (isCurrentPluginMetadataSnapshotRuntimeGeneration(current) ||
-        indexesMatch(current.index, params.index))
+        ((current.workspaceDir ?? "") === (params.workspaceDir ?? "") &&
+          indexesMatch(current.index, params.index)))
     ) {
       return projectPluginMetadataSnapshot(
         current,
