@@ -173,13 +173,12 @@ export function enqueueChannelIngressInDatabase(
       .onConflict((conflict) => conflict.columns(["queue_name", "event_id"]).doNothing())
       .returningAll(),
   );
-  let row = inserted ?? selectRow(db, input.queueName, input.id);
+  if (inserted) {
+    return { accepted: true, row: inserted };
+  }
+  let row = selectRow(db, input.queueName, input.id);
   if (!row) {
     throw new Error(`Failed to read channel ingress event ${input.queueName}/${input.id}`);
-  }
-  const accepted = inserted !== undefined;
-  if (accepted && !baseRecord(row)) {
-    throw new Error(`Corrupt payload_json in channel ingress event ${input.queueName}/${input.id}`);
   }
   if (row.status === "claimed" && !claimedRecord(row)) {
     throw new Error(`Corrupt claimed channel ingress event ${input.queueName}/${input.id}`);
@@ -191,7 +190,7 @@ export function enqueueChannelIngressInDatabase(
       throw new Error(`Failed to read corrupt ingress tombstone ${input.queueName}/${input.id}`);
     }
   }
-  return { accepted, row };
+  return { accepted: false, row };
 }
 
 export function claimChannelIngressInDatabase(
