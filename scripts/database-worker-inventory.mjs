@@ -26,6 +26,18 @@ const testSuites = new Set([
 ]);
 const reviewed = new Map([
   [
+    "src/daemon/runtime-pin-store.ts",
+    { tier: "T3", evidence: "CLI service owner / Doctor migration; no Gateway runtime." },
+  ],
+  [
+    "src/daemon/runtime-pin-state.ts",
+    { tier: "T3", evidence: "CLI service locks; CLI status and Doctor audits; no Gateway caller." },
+  ],
+  [
+    "src/infra/state-migrations.daemon-runtime-pins.ts",
+    { tier: "T3", evidence: "Doctor config-machine-state / pin fence; exclusive migration lock." },
+  ],
+  [
     "src/config/sessions/goals-operations.ts",
     {
       priority: 99,
@@ -946,15 +958,24 @@ const reviewedOperations = new Map([
     [
       {
         tier: "T3",
-        operations: ["runSessionMaintenanceMetadataInTransaction"],
+        operations: [
+          "runSessionMaintenanceMetadataInTransaction",
+          "runSessionMaintenanceMetadataInTransaction.run",
+        ],
         evidence:
-          "Only openclaw-agent-execution-maintenance.ts and runSessionMaintenanceMetadataInDatabase call this transaction. The former is registered solely in the execution worker; the latter is called only by the reclamation kernel, whose native branch requires an off-thread or schema/agent-maintenance owner.",
+          "Only openclaw-agent-execution-maintenance.ts and runSessionMaintenanceMetadataInDatabase call this transaction. The former is registered solely in the execution worker; the latter is called only by the reclamation kernel, whose native branch requires an off-thread or schema/agent-maintenance owner. Its local run callback stays synchronous and never escapes: PostgreSQL invokes it directly; SQLite invokes it inside runWithSqliteBusyTimeout.",
       },
     ],
   ],
   [
     "src/infra/gateway-boot-lifecycle.kernel.ts",
     [
+      {
+        tier: "W",
+        operations: ["readGatewayLastShutdownInDatabase"],
+        evidence:
+          "Private reader called only by gatewayBootReadOperations in the state read worker. Daemon status and update inspection both dispatch through readGatewayLastShutdownAsync; no synchronous caller remains.",
+      },
       {
         tier: "T2",
         operations: [
@@ -2637,7 +2658,7 @@ const reviewedOperations = new Map([
     ],
   ],
   [
-    "src/infra/update-candidate-state.ts",
+    "src/infra/update-candidate-state.shared.ts",
     [
       {
         tier: "T3",
@@ -2645,6 +2666,11 @@ const reviewedOperations = new Map([
         evidence:
           "CLI backup src/cli/update-cli/update-command-database-backup.ts:104 → src/infra/update-database-backup.ts:387; baseline update-command-initialization-run.ts:224 → update-recovery-baseline-capture.ts:343; worker inventory modes update-candidate-state.worker.ts:49,68,73.",
       },
+    ],
+  ],
+  [
+    "src/infra/update-candidate-state.ts",
+    [
       {
         tier: "W",
         operations: ["snapshotUpdateCandidateState.transform"],
@@ -3069,6 +3095,8 @@ const reviewedOperations = new Map([
   ],
 ]);
 const workerModules = new Set([
+  "extensions/memory-core/src/memory/manager-publication-postgres.ts", // Only manager-publication.worker.ts binds this adapter to the admitted agent execution worker connection.
+  "src/infra/database-engine/postgres-vector.ts", // Accepts only an admitted PostgresSqlConnection; the shared executor dispatches through PostgresSyncConnection to postgres-sync/bridge.worker.ts, never native SQLite.
   "src/plugin-state/plugin-state.worker.ts", // Only openclaw-state.worker.ts imports and calls this command dispatcher; its nested callbacks share that worker ownership.
   "src/config/sessions/session-suggestion-store.kernel.ts", // session-sharing-store.worker.ts owns add/claim/release/finalize; session-transcript.worker.ts owns list. The host read facade imports only its type.
   "src/config/sessions/session-cold-storage-inventory.ts", // Only session-cold-storage-worker.ts calls readSessionColdStorageInventory, dispatched by session-transcript.worker.ts.
@@ -3114,6 +3142,7 @@ const workerModules = new Set([
   "extensions/memory-core/src/memory/manager-source-index-kernel.ts", // Hash reads and source mutations are called only by manager-publication.worker.ts.
   "extensions/memory-core/src/memory/manager-retrieval-read.ts", // Search and publication workers own all SQL; host imports are types or the metadata key.
   "extensions/memory-core/src/memory/manager-search.ts", // Only manager-search.worker.ts executes keyword SQL; host imports are the pure prepareExactPathMatcher helper or types.
+  "extensions/memory-core/src/memory/manager-search-postgres.ts", // Only manager-search.worker.ts calls this PostgreSQL query adapter with its admitted worker connection; conformance calls the same internal entry.
   "extensions/memory-core/src/memory/manager-vector-rebuild-state.ts", // Retrieval, source-index and database-publication kernels run in the search/publication workers; the host consumes published vector facts.
 
   "extensions/team-reports/src/store-database.ts", // Only store.worker.ts and offline port workers admit this schema.
