@@ -11,7 +11,7 @@ import {
   availableLinkReaders,
   availableLinkPreviewReaders,
 } from "../../app/link-reader-routing.ts";
-import "../../components/link-reader-hovercard-registration.ts";
+import { LinkReaderHovercard } from "../../components/link-reader-hovercard.ts";
 import { projectGateway } from "../../lib/reactive/application.ts";
 import { useApplication } from "../../lib/reactive/context.ts";
 import { parseAgentSessionKey } from "../../lib/sessions/session-key.ts";
@@ -61,22 +61,20 @@ function MountedChatPaneRuntime(props: { runtime: ChatPaneRuntime }) {
     return runtime.agentId ?? parseAgentSessionKey(runtime.sessionKey)?.agentId;
   };
   return (
-    <openclaw-link-reader-hovercard-provider
-      prop:client={
-        gateway.read().snapshot.phase === "connected" ? gateway.read().snapshot.client : null
-      }
-      prop:readers={availableLinkPreviewReaders(gateway.read().snapshot)}
-      prop:claimedReaders={availableLinkReaders(gateway.read().snapshot)}
-      prop:pagePreviewContext={context}
-      prop:agentId={agentId()}
-      prop:sessionKey={sessionKey()}
+    <LinkReaderHovercard
+      client={gateway.read().snapshot.phase === "connected" ? gateway.read().snapshot.client : null}
+      readers={availableLinkPreviewReaders(gateway.read().snapshot)}
+      claimedReaders={availableLinkReaders(gateway.read().snapshot)}
+      pagePreviewContext={context}
+      agentId={agentId()}
+      sessionKey={sessionKey()}
     >
       <LitContent value={frame().layout} />
       <ChatProviderReviewDialog controller={runtime.providerReview} revision={frame()} />
       <Show when={frame().capabilityDialogs}>
         {(dialogs) => <ChatComposerCapabilityDialogs {...dialogs()} />}
       </Show>
-    </openclaw-link-reader-hovercard-provider>
+    </LinkReaderHovercard>
   );
 }
 

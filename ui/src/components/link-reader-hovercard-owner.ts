@@ -157,7 +157,7 @@ export class HovercardOwner {
 
   private syncPreviewContext(): PreviewContext | null {
     const context = this.host.client
-      ? previewContextFor(this.host.client, this.host.agentId, this.host.sessionKey)
+      ? previewContextFor(this.host.client, this.host.agentId)
       : null;
     if (context !== this.previewContext) {
       // Clearing cached facts also updates inline projections under this new context.
@@ -713,7 +713,7 @@ export class HovercardOwner {
             agentId === this.host.agentId &&
             sessionKey === this.host.sessionKey &&
             client &&
-            previewContextFor(client, agentId, sessionKey) === context
+            previewContextFor(client, agentId) === context
           ) {
             entry.preview = preview;
             this.syncInlineStates();
